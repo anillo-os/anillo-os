@@ -4,9 +4,14 @@ import os
 import struct
 import errno
 
+ARCH=os.environ.get('ARCH', 'x86_64')
+
 SCRIPT_DIR = os.path.dirname(__file__)
-FONT_PATH = os.path.join(SCRIPT_DIR, '..', 'resources', 'Lat15-TerminusBold32x16.psf')
-OUTPUT_PATH = os.path.join(SCRIPT_DIR, '..', 'build', 'include', 'gen', 'ferro', 'font.h')
+SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..', '..')
+KERNEL_SOURCE_ROOT = os.path.join(SOURCE_ROOT, 'kernel')
+BUILD_DIR = os.path.join(SOURCE_ROOT, 'build', ARCH, 'kernel')
+FONT_PATH = os.path.join(KERNEL_SOURCE_ROOT, 'resources', 'Lat15-TerminusBold32x16.psf')
+OUTPUT_PATH = os.path.join(BUILD_DIR, 'include', 'gen', 'ferro', 'font.h')
 HEADER_GUARD_NAME = '_GEN_FERRO_FONT_H'
 
 PSF2_MAGIC = bytearray([0x72, 0xb5, 0x4a, 0x86])

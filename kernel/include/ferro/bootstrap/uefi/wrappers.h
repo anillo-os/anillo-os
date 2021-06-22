@@ -21,7 +21,7 @@
 
 #include <stdint.h>
 
-#include <efi/efi.h>
+#include <efi.h>
 
 VOID* BSHandleProtocol(EFI_BOOT_SERVICES* This, EFI_HANDLE Handle, EFI_GUID* Guid);
 VOID* BSAllocatePages(EFI_BOOT_SERVICES* This, EFI_ALLOCATE_TYPE Type, EFI_MEMORY_TYPE Label, UINTN NumberOfPages, VOID* TargetAddress);

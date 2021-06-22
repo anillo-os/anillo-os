@@ -18,7 +18,7 @@
 //
 // entry.c
 //
-// common architecture-independent kernel entry point
+// kernel entry point
 //
 
 #include <stdbool.h>

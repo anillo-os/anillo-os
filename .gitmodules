@@ -1,3 +1,6 @@
 [submodule "kernel/deps/gnu-efi"]
 	path = kernel/deps/gnu-efi
-	url = https://git.code.sf.net/p/gnu-efi/code
+	url = https://github.com/facekapow/gnu-efi.git
+[submodule "kernel/deps/elfutils"]
+	path = kernel/deps/elfutils
+	url = git://sourceware.org/git/elfutils.git

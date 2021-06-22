@@ -1,7 +1,8 @@
-kernel/build
+build
 .ccls-cache
 test/mnt
 test/*.img
 test/*.fd
 .vscode
 .ccls
+compile_commands.json
