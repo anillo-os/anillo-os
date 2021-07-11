@@ -33,8 +33,18 @@
 
 #define FERRO_INLINE static __attribute__((always_inline))
 
-#define FERRO_PACKED_STRUCT(name) struct __attribute__((packed)) name
+#define FERRO_PACKED_STRUCT(name) \
+	typedef struct __attribute__((packed)) name name ## _t; \
+	struct __attribute__((packed)) name
 
 #define FERRO_ENUM(type, name) typedef type name ## _t; enum name
+
+#define FERRO_STRUCT(name) \
+	typedef struct name name ## _t; \
+	struct name
+
+#define FERRO_OPTIONS(type, name) \
+	typedef type name ## _t; \
+	enum __attribute__((flag_enum)) name
 
 #endif // _FERRO_BASE_H_

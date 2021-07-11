@@ -28,7 +28,6 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
-typedef FERRO_PACKED_STRUCT(ferro_elf_header) ferro_elf_header_t;
 FERRO_PACKED_STRUCT(ferro_elf_header) {
 	// 0x7f followed by "ELF", always in that order
 	uint32_t magic;
@@ -53,7 +52,6 @@ FERRO_PACKED_STRUCT(ferro_elf_header) {
 	uint16_t section_names_entry_index;
 };
 
-typedef FERRO_PACKED_STRUCT(ferro_elf_program_header) ferro_elf_program_header_t;
 FERRO_PACKED_STRUCT(ferro_elf_program_header) {
 	uint32_t type;
 	uint32_t flags;
@@ -65,7 +63,6 @@ FERRO_PACKED_STRUCT(ferro_elf_program_header) {
 	uint64_t alignment;
 };
 
-typedef FERRO_PACKED_STRUCT(ferro_elf_section_header) ferro_elf_section_header_t;
 FERRO_PACKED_STRUCT(ferro_elf_section_header) {
 	uint32_t name_offset;
 	uint32_t type;

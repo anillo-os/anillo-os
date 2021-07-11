@@ -8,44 +8,75 @@ source "${SOURCE_ROOT}/scripts/util.sh"
 EFI_CODE_PATH="${BUILD_DIR}/efi-code.fd"
 EFI_VARS_PATH="${BUILD_DIR}/efi-vars.fd"
 
-case "${ARCH}" in
-	x86_64)
-		EFI_CODE_SOURCE_PATH="/usr/share/OVMF/OVMF_CODE.fd"
-		EFI_VARS_SOURCE_PATH="/usr/share/OVMF/OVMF_VARS.fd"
-		;;
+if [ -z "${EFI_CODE_SOURCE_PATH}" ]; then
+	case "${ARCH}" in
+		x86_64)
+			EFI_CODE_SOURCE_PATH="/usr/share/OVMF/OVMF_CODE.fd"
+			if [ ! -f "${EFI_CODE_SOURCE_PATH}" ]; then
+				EFI_CODE_SOURCE_PATH="/usr/share/OVMF/x64/OVMF_CODE.fd"
+			fi
+			;;
 
-	aarch64)
-		EFI_CODE_SOURCE_PATH="/usr/share/AAVMF/AAVMF_CODE.fd"
-		EFI_VARS_SOURCE_PATH="/usr/share/AAVMF/AAVMF_VARS.fd"
-		;;
+		aarch64)
+			EFI_CODE_SOURCE_PATH="/usr/share/AAVMF/AAVMF_CODE.fd"
+			;;
 
-	*)
-		die-red "Unsupported architecture: ${ARCH}"
-		;;
-esac
+		*)
+			die-red "Unsupported architecture: ${ARCH}"
+			;;
+	esac
+fi
+
+if [ -z "${EFI_VARS_SOURCE_PATH}" ]; then
+	case "${ARCH}" in
+		x86_64)
+			EFI_VARS_SOURCE_PATH="/usr/share/OVMF/OVMF_VARS.fd"
+			if [ ! -f "${EFI_VARS_SOURCE_PATH}" ]; then
+				EFI_VARS_SOURCE_PATH="/usr/share/OVMF/x64/OVMF_VARS.fd"
+			fi
+			;;
+
+		aarch64)
+			EFI_VARS_SOURCE_PATH="/usr/share/AAVMF/AAVMF_VARS.fd"
+			;;
+
+		*)
+			die-red "Unsupported architecture: ${ARCH}"
+			;;
+	esac
+fi
 
 DISK_PATH="${BUILD_DIR}/disk.img"
 MOUNT_PATH="${BUILD_DIR}/mnt"
 
+SERIAL=pty
 QEMU_ARGS=(
 	-net none
 )
 
-for i in "$@"; do
-	if [ "x$i" == "x-d" ] || [ "x$i" == "x--debug" ]; then
+for ((i=0; i <= "${#@}"; ++i)); do
+	arg="${!i}"
+	if [ "x${arg}" == "x-d" ] || [ "x${arg}" == "x--debug" ]; then
 		QEMU_ARGS+=(
 			-s -S
 		)
 	fi
-	if [ "x$i" == "x-cr" ] || [ "x$i" == "x--cpu-reset" ]; then
+	if [ "x${arg}" == "x-cr" ] || [ "x${arg}" == "x--cpu-reset" ]; then
 		QEMU_ARGS+=(
 			-d cpu_reset
 		)
 	fi
-	if [ "x$i" == "x-k" ] || [ "x$i" == "x--kvm" ]; then
+	if [ "x${arg}" == "x-k" ] || [ "x${arg}" == "x--kvm" ]; then
 		QEMU_ARGS+=(
 			-enable-kvm
 		)
+	fi
+	if [ "x${arg}" == "x-s" ] || [ "x${arg}" == "x--serial" ]; then
+		((++i))
+		SERIAL="${!i}"
+		if [ "x${SERIAL}" != "xpty" ] && [ "x${SERIAL}" != "xstdio" ] && [ "x${SERIAL}" != "xnone" ]; then
+			die-red "Unrecognized/unsupported serial option: ${SERIAL}"
+		fi
 	fi
 done
 
@@ -71,7 +102,7 @@ if [ "${ARCH}" == "aarch64" ]; then
 		-no-user-config
 		-nodefaults
 
-		-chardev 'socket,id=charmonitor,path='"${BUILD_DIR}"'/serial-monitor,server,nowait'
+		-chardev 'socket,id=charmonitor,path='"${BUILD_DIR}"'/serial-monitor,server=on,wait=off'
 		-mon chardev=charmonitor,id=monitor,mode=control
 
 		-rtc base=utc
@@ -95,10 +126,7 @@ if [ "${ARCH}" == "aarch64" ]; then
 		-blockdev '{"node-name":"anillo-1-format","read-only":false,"driver":"raw","file":"anillo-1-storage"}'
 		-device virtio-blk-pci,scsi=off,bus=pci.4,addr=0x0,drive=anillo-1-format,id=virtio-disk0,bootindex=1
 
-		-chardev pty,id=charserial0
-		-serial chardev:charserial0
-
-		-chardev 'socket,id=charchannel0,server,nowait,path='"${BUILD_DIR}"'/serial'
+		-chardev 'socket,id=charchannel0,server=on,wait=off,path='"${BUILD_DIR}"'/serial'
 		-device virtserialport,bus=virtio-serial0.0,nr=1,chardev=charchannel0,id=channel0,name=org.qemu.guest_agent.0
 
 		#-spice port=0,disable-ticketing,image-compression=off,seamless-migration=on
@@ -112,6 +140,17 @@ elif [ "${ARCH}" == "x86_64" ]; then
 		-drive "if=pflash,format=raw,unit=0,file=${EFI_CODE_PATH}"
 		-drive "if=pflash,format=raw,unit=1,file=${EFI_VARS_PATH}"
 		-drive "if=virtio,format=raw,file=${DISK_PATH}"
+	)
+fi
+
+if [ "${SERIAL}" == "pty" ]; then
+	QEMU_ARGS+=(
+		-chardev pty,id=charserial0
+		-serial chardev:charserial0
+	)
+elif [ "${SERIAL}" == "stdio" ]; then
+	QEMU_ARGS+=(
+		-serial stdio
 	)
 fi
 

@@ -37,6 +37,8 @@ struct ferro_kernel_segment {
 
 typedef struct ferro_kernel_image_info ferro_kernel_image_info_t;
 struct ferro_kernel_image_info {
+	void* physical_base_address;
+	size_t size;
 	size_t segment_count;
 	ferro_kernel_segment_t* segments;
 };

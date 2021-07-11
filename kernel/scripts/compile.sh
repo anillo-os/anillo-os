@@ -5,7 +5,6 @@ SOURCE_ROOT="${SCRIPT_PATH}/../.."
 KERNEL_SOURCE_ROOT="${SOURCE_ROOT}/kernel"
 
 source "${SOURCE_ROOT}/scripts/util.sh"
-source "${SOURCE_ROOT}/scripts/compile-commands.sh"
 
 #
 # programs
@@ -26,10 +25,25 @@ CFLAGS=(
 	-fno-omit-frame-pointer
 	-mno-red-zone
 	-mcmodel=large
-	-g
+	-ggdb3
+	-fno-plt
+	-fno-pic
 	-target ${ARCH}-unknown-none-elf
 )
 LDFLAGS=(
+	"-fuse-ld=${LD}"
+	#-Wl,-flavor,link
+	-ggdb3
+	-ffreestanding
+	-nostdlib
+	-static
+	-target ${ARCH}-unknown-none-elf
+)
+LDFLAGS_x86_64=(
+	-Wl,-m,elf_x86_64
+)
+LDFLAGS_aarch64=(
+	-Wl,-m,aarch64linux
 )
 
 SOURCES=(
@@ -86,23 +100,16 @@ generate-ldflags-all() {
 }
 
 compile() {
-	echo "$(color-blue CC) ${1}.o"
-	mkdir -p "${CURRENT_BUILD_DIR}/$(dirname "${1}")" || command-failed
-	run-command "${CC}" "${CFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o" || command-failed
-	add-compile-command "${KERNEL_SOURCE_ROOT}/${1}" "$(echo "${CC}" "${CFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o")"
+	if [ "x${ANILLO_GENERATING_COMPILE_COMMANDS}" == "x1" ]; then
+		add-compile-command "${KERNEL_SOURCE_ROOT}/${1}" "$(echo "${CC}" "${CFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o")"
+	else
+		echo "$(color-blue CC) ${1}.o"
+		mkdir -p "${CURRENT_BUILD_DIR}/$(dirname "${1}")" || command-failed
+		run-command "${CC}" "${CFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o" || command-failed
+	fi
 }
 
 OBJECTS=()
-
-if [[ "${LD}" =~ ^lld.* ]]; then
-	LDFLAGS=(
-		-flavor ld
-		${LDFLAGS[@]}
-	)
-
-	# actually, llvm's ld messes up the output somehow, so disallow it
-	die-red "Anillo OS cannot be compiled with LLVM ld"
-fi
 
 #
 # this is where the compilation actually starts
@@ -112,7 +119,9 @@ mkdir -p "${CURRENT_BUILD_DIR}"
 
 pushd "${CURRENT_BUILD_DIR}" >/dev/null
 
-"${SCRIPT_PATH}/process-font.py"
+if ! [ "x${ANILLO_GENERATING_COMPILE_COMMANDS}" == "x1" ]; then
+	"${SCRIPT_PATH}/generate.sh"
+fi
 
 # generate the full list of cflags for the current architecture
 generate-cflags-all
@@ -128,29 +137,12 @@ for SOURCE in "${!ARCH_SOURCES_ALL}"; do
 	OBJECTS+=("${CURRENT_BUILD_DIR}/${SOURCE}.o")
 done
 
-ORIG_ARCH="${ARCH}"
-
-# add in compile commands for all the other architectures
-# (this does not build them)
-for ARCH in "${SUPPORTED_ARCHS[@]}"; do
-	if [ "${ARCH}" == "${ORIG_ARCH}" ]; then
-		continue
-	fi
-
-	generate-cflags-all
-
-	ARCH_SOURCES_ALL="SOURCES_${ARCH}[@]"
-	for SOURCE in "${!ARCH_SOURCES_ALL}"; do
-		add-compile-command "${KERNEL_SOURCE_ROOT}/${SOURCE}" "$(echo "${CC}" "${CFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${SOURCE}" -o "${CURRENT_BUILD_DIR}/${SOURCE}.o")"
-	done
-done
-
-ARCH="${ORIG_ARCH}"
-
 # generate the full list of ldflags for the current architecture
 generate-ldflags-all
 
-echo "$(color-blue LD) ferro"
-run-command "${LD}" "${LDFLAGS_ALL[@]}" "${OBJECTS[@]}" -o "${CURRENT_BUILD_DIR}/ferro" || die
+if ! [ "x${ANILLO_GENERATING_COMPILE_COMMANDS}" == "x1" ]; then
+	echo "$(color-blue CC-LD) ferro"
+	run-command "${CC}" "${LDFLAGS_ALL[@]}" "${OBJECTS[@]}" -o "${CURRENT_BUILD_DIR}/ferro" || die
+fi
 
 popd >/dev/null

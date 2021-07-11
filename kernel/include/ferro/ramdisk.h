@@ -25,7 +25,6 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
-typedef FERRO_PACKED_STRUCT(ferro_ramdisk_header) ferro_ramdisk_header_t;
 FERRO_PACKED_STRUCT(ferro_ramdisk_header) {
 	// Size of the contents of the ramdisk. Does NOT include the size of this header.
 	uint64_t ramdisk_size;

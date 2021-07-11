@@ -94,6 +94,23 @@ run-command() {
 }
 
 #
+# determine whether file 1 is newer than file 2
+#
+# this will also return true if file 2 does not exist.
+# likewise, it will also return false if file 1 does not exist.
+# if neither exists, it will return false.
+#
+file-is-newer() {
+	if [ ! -f "$1" ]; then
+		return 1
+	fi
+	if [ ! -f "$2" ]; then
+		return 0
+	fi
+	[ "$1" -nt "$2" ]
+}
+
+#
 # variable setup
 #
 

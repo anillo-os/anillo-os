@@ -46,7 +46,7 @@ FERRO_INLINE void uart_print(const char* string) {
 	}
 };
 
-//__attribute__((section(".text.ferro_entry")))
+__attribute__((section(".text.ferro_entry")))
 void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count) {
 	uart_print("Hello, world!");
 	hang_forever();

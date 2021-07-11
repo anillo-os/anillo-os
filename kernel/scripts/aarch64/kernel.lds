@@ -1,7 +1,7 @@
 ENTRY(kernel_start_physical)
 
 kernel_base_virtual  = 0xffffffff80000000;
-kernel_base_physical = 0x0000000000200000;
+kernel_base_physical = 0x0000000000000000;
 
 kernel_start_physical = kernel_start_virtual - kernel_base_virtual;
 
@@ -15,10 +15,14 @@ SECTIONS {
 		*(.text.*)
 	}
 
+	. = ALIGN(1024);
+
 	.data : AT(ADDR(.data) - kernel_base_virtual) {
 		*(.data.*)
 		*(.rodata.*)
 	}
+
+	. = ALIGN(1024);
 
 	.bss : AT(ADDR(.bss) - kernel_base_virtual) {
 		kernel_bss_start = .;
@@ -33,6 +37,7 @@ SECTIONS {
 	kernel_end_virtual = .;
 
 	/DISCARD/ : {
-		*(.comment)
+		*(.note.*)
+		*(.comment.*)
 	}
 }

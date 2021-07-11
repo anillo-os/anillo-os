@@ -43,4 +43,13 @@
 	#error Unrecognized/unsupported CPU endianness! (See <ferro/platform.h>)
 #endif
 
+// CPU bitness
+#define FERRO_BITNESS_64 1
+
+#if FERRO_ARCH == FERRO_ARCH_x86_64 || FERRO_ARCH == FERRO_ARCH_ARM64
+	#define FERRO_BITNESS FERRO_BITNESS_64
+#else
+	#error Unrecognized/unsupported CPU bitness! (See <ferro/platform.h>)
+#endif
+
 #endif // _FERRO_PLATFORM_H_

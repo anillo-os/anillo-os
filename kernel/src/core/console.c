@@ -32,7 +32,6 @@
 
 #define PSF_FLAG_UNICODE 1
 
-typedef FERRO_PACKED_STRUCT(ferro_console_font) ferro_console_font_t;
 FERRO_PACKED_STRUCT(ferro_console_font) {
 	uint32_t magic;
 	uint32_t version;

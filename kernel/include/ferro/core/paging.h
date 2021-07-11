@@ -25,12 +25,15 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
-#define FERRO_KERNEL_VIRTUAL_START  0xffffffff80000000ULL
-#define FERRO_KERNEL_PHYSICAL_START 0x0000000000200000ULL
+#define FERRO_KERNEL_VIRTUAL_START  ((uintptr_t)&kernel_base_virtual)
+#define FERRO_KERNEL_PHYSICAL_START ((uintptr_t)&kernel_base_physical)
 
 #define FERRO_KERNEL_VIRT_TO_PHYS(x) (((uintptr_t)x - FERRO_KERNEL_VIRTUAL_START))
 
 #define FERRO_PAGE_ALIGNED __attribute__((aligned(4096)))
+
+#define FPAGE_PAGE_SIZE       0x001000ULL
+#define FPAGE_LARGE_PAGE_SIZE 0x200000ULL
 
 #define FPAGE_VIRT_L1_SHIFT 12
 #define FPAGE_VIRT_L2_SHIFT 21
@@ -40,13 +43,13 @@ FERRO_DECLARATIONS_BEGIN;
 #define FPAGE_VIRT_L3_HUGE_MASK 0x000000003fffffffULL
 #define FPAGE_VIRT_L2_HUGE_MASK 0x00000000001fffffULL
 
-#define FPAGE_VIRT_OFFSET(x) ((x) & 0xfffULL)
-#define FPAGE_VIRT_L1(x)     (((x) & (0x1ffULL << FPAGE_VIRT_L1_SHIFT)) >> FPAGE_VIRT_L1_SHIFT)
-#define FPAGE_VIRT_L2(x)     (((x) & (0x1ffULL << FPAGE_VIRT_L2_SHIFT)) >> FPAGE_VIRT_L2_SHIFT)
-#define FPAGE_VIRT_L3(x)     (((x) & (0x1ffULL << FPAGE_VIRT_L3_SHIFT)) >> FPAGE_VIRT_L3_SHIFT)
-#define FPAGE_VIRT_L4(x)     (((x) & (0x1ffULL << FPAGE_VIRT_L4_SHIFT)) >> FPAGE_VIRT_L4_SHIFT)
+#define FPAGE_VIRT_OFFSET(x) ((uintptr_t)(x) & 0xfffULL)
+#define FPAGE_VIRT_L1(x)     (((uintptr_t)(x) & (0x1ffULL << FPAGE_VIRT_L1_SHIFT)) >> FPAGE_VIRT_L1_SHIFT)
+#define FPAGE_VIRT_L2(x)     (((uintptr_t)(x) & (0x1ffULL << FPAGE_VIRT_L2_SHIFT)) >> FPAGE_VIRT_L2_SHIFT)
+#define FPAGE_VIRT_L3(x)     (((uintptr_t)(x) & (0x1ffULL << FPAGE_VIRT_L3_SHIFT)) >> FPAGE_VIRT_L3_SHIFT)
+#define FPAGE_VIRT_L4(x)     (((uintptr_t)(x) & (0x1ffULL << FPAGE_VIRT_L4_SHIFT)) >> FPAGE_VIRT_L4_SHIFT)
 
-#define FPAGE_BUILD_VIRT(l4, l3, l2, l1, offset) ((0xffffULL << 48) | (((l4) & 0x1ffULL) << FPAGE_VIRT_L4_SHIFT) | (((l3) & 0x1ffULL) << FPAGE_VIRT_L3_SHIFT) | (((l2) & 0x1ffULL) << FPAGE_VIRT_L2_SHIFT) | (((l1) & 0x1ffULL) << FPAGE_VIRT_L1_SHIFT) | ((offset) & 0xfffULL))
+#define FPAGE_BUILD_VIRT(l4, l3, l2, l1, offset) ((0xffffULL << 48) | (((uintptr_t)(l4) & 0x1ffULL) << FPAGE_VIRT_L4_SHIFT) | (((uintptr_t)(l3) & 0x1ffULL) << FPAGE_VIRT_L3_SHIFT) | (((uintptr_t)(l2) & 0x1ffULL) << FPAGE_VIRT_L2_SHIFT) | (((uintptr_t)(l1) & 0x1ffULL) << FPAGE_VIRT_L1_SHIFT) | ((uintptr_t)(offset) & 0xfffULL))
 
 typedef struct fpage_table fpage_table_t;
 struct fpage_table {
@@ -63,10 +66,14 @@ struct fpage_table {
 #define FPAGE_HUGE_BIT           (1ULL << 7)
 #define FPAGE_GLOBAL_BIT         (1ULL << 8)
 #define FPAGE_NX_BIT             (1ULL << 63)
-#define FPAGE_PHYS_ENTRY(x)       ((x) & (0xffffffffff << 12))
+#define FPAGE_PHYS_ENTRY(x)       ((uintptr_t)(x) & (0xffffffffff << 12))
+
+extern char kernel_base_virtual;
+extern char kernel_base_physical;
 
 extern char kernel_start_virtual;
 extern char kernel_end_virtual;
+extern char kernel_start_physical;
 
 FERRO_INLINE uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
 	fpage_table_t* l4;

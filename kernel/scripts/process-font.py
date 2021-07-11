@@ -89,7 +89,7 @@ else:
 mkdir_p(os.path.dirname(OUTPUT_PATH))
 
 with open(OUTPUT_PATH, 'wb') as outfile:
-	outfile.write('#ifndef ' + HEADER_GUARD_NAME + '\n#define ' + HEADER_GUARD_NAME + '\n\n#include <stdint.h>\n\n')
-	outfile.write(to_c_array('font_data', contents[0:table_offset]))
-	outfile.write(to_c_array('unicode_map', unicode_map, 'uint16_t', lambda v: to_padded_hex(v, 4)))
-	outfile.write('\n#endif // ' + HEADER_GUARD_NAME + '\n')
+	outfile.write(('#ifndef ' + HEADER_GUARD_NAME + '\n#define ' + HEADER_GUARD_NAME + '\n\n#include <stdint.h>\n\n').encode())
+	outfile.write(to_c_array('font_data', contents[0:table_offset]).encode())
+	outfile.write(to_c_array('unicode_map', unicode_map, 'uint16_t', lambda v: to_padded_hex(v, 4)).encode())
+	outfile.write(('\n#endif // ' + HEADER_GUARD_NAME + '\n').encode())
