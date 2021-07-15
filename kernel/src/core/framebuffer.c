@@ -38,25 +38,25 @@ static ferro_fb_pixel_t black_pixel = {
 	.blue = 0,
 };
 
-FERRO_INLINE bool is_within_bounds(size_t x, size_t y) {
+FERRO_ALWAYS_INLINE bool is_within_bounds(size_t x, size_t y) {
 	return x < fb_info->width && y < fb_info->height;
 };
-FERRO_INLINE bool is_within_bounds_rect(const ferro_fb_rect_t* rect) {
+FERRO_ALWAYS_INLINE bool is_within_bounds_rect(const ferro_fb_rect_t* rect) {
 	return is_within_bounds(rect->top_left.x, rect->top_left.y) && is_within_bounds(rect->bottom_right.x, rect->bottom_right.y);
 };
 
-FERRO_INLINE size_t rect_width(const ferro_fb_rect_t* rect) {
+FERRO_ALWAYS_INLINE size_t rect_width(const ferro_fb_rect_t* rect) {
 	return rect->bottom_right.x - rect->top_left.x + 1;
 };
-FERRO_INLINE size_t rect_height(const ferro_fb_rect_t* rect) {
+FERRO_ALWAYS_INLINE size_t rect_height(const ferro_fb_rect_t* rect) {
 	return rect->bottom_right.y - rect->top_left.y + 1;
 };
 
-FERRO_INLINE bool rects_are_equal_size(const ferro_fb_rect_t* left, const ferro_fb_rect_t* right) {
+FERRO_ALWAYS_INLINE bool rects_are_equal_size(const ferro_fb_rect_t* left, const ferro_fb_rect_t* right) {
 	return rect_width(left) == rect_width(right) && rect_height(left) == rect_height(right);
 };
 
-FERRO_INLINE int compare_coords(const ferro_fb_coords_t* left, const ferro_fb_coords_t* right) {
+FERRO_ALWAYS_INLINE int compare_coords(const ferro_fb_coords_t* left, const ferro_fb_coords_t* right) {
 	if (left->x < right->x || left->y < right->y) {
 		return -1;
 	} else if (left->x > right->x || left->y > right->y) {
@@ -66,7 +66,7 @@ FERRO_INLINE int compare_coords(const ferro_fb_coords_t* left, const ferro_fb_co
 	}
 };
 
-FERRO_INLINE int compare_rects(const ferro_fb_rect_t* left, const ferro_fb_rect_t* right) {
+FERRO_ALWAYS_INLINE int compare_rects(const ferro_fb_rect_t* left, const ferro_fb_rect_t* right) {
 	return compare_coords(&left->top_left, &right->top_left);
 };
 

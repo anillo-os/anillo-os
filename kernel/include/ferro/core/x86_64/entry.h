@@ -15,39 +15,29 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// entry.c
-//
-// kernel entry point
-//
 
-#include <stdbool.h>
-#include <stddef.h>
+#ifndef _FERRO_CORE_X86_64_ENTRY_H_
+#define _FERRO_CORE_X86_64_ENTRY_H_
+
+#include <ferro/base.h>
+
 #include <ferro/core/entry.h>
-#include <ferro/core/framebuffer.h>
-#include <ferro/core/console.h>
-#include <ferro/core/paging.h>
 
-#define UART0DR ((volatile unsigned int*)0x101f1000)
+FERRO_DECLARATIONS_BEGIN;
 
-FERRO_INLINE void hang_forever() {
-	while (true) {
+FERRO_ALWAYS_INLINE FERRO_NO_RETURN void fentry_hang_forever(void) {
+	while (1) {
 		__asm__(
-			"msr daifset, #3\n"
-			"hlt 0\n"
+			"cli\n"
+			"hlt\n"
 		);
 	}
 };
 
-FERRO_INLINE void uart_print(const char* string) {
-	while (string[0] != '\0') {
-		*UART0DR = (unsigned int)string[0];
-		++string;
-	}
+FERRO_ALWAYS_INLINE void fentry_jump_to_virtual(void* address) {
+	__asm__("jmp *%0" :: "r" (address));
 };
 
-__attribute__((section(".text.ferro_entry")))
-void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count) {
-	uart_print("Hello, world!");
-	hang_forever();
-};
+FERRO_DECLARATIONS_END;
+
+#endif // _FERRO_CORE_X86_64_ENTRY_H_

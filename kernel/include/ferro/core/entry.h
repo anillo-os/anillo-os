@@ -98,6 +98,31 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 
 typedef __attribute__((sysv_abi)) void (*ferro_entry_t)(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count);
 
+// these are arch-dependent functions we expect all architectures to implement
+
+/**
+ * Hang the current CPU forever. Never returns.
+ */
+FERRO_ALWAYS_INLINE FERRO_NO_RETURN void fentry_hang_forever(void);
+
+/**
+ * Permanently jump to a new (virtual) address. Never returns to the caller (at least not the same address).
+ *
+ * NOTE: This is *not* marked as no-return so that the compiler won't try to eliminate code after a call to it.
+ *       This is because the function is used to jump into the kernel's higher-half after that has been setup,
+ *       so it technically does return to the caller, just not at the original address.
+ */
+FERRO_ALWAYS_INLINE void fentry_jump_to_virtual(void* address);
+
 FERRO_DECLARATIONS_END;
+
+// now include the arch-dependent header
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <ferro/core/x86_64/entry.h>
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#include <ferro/core/aarch64/entry.h>
+#else
+	#error Unrecognized/unsupported CPU architecture! (see <ferro/core/entry.h>)
+#endif
 
 #endif // _FERRO_CORE_ENTRY_H_

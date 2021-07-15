@@ -18,7 +18,7 @@
 		(_value + (_multiple - 1)) / _multiple; \
 	})
 
-FERRO_INLINE ferro_memory_region_type_t uefi_to_ferro_memory_region_type(fuefi_memory_type_t uefi) {
+FERRO_ALWAYS_INLINE ferro_memory_region_type_t uefi_to_ferro_memory_region_type(fuefi_memory_type_t uefi) {
 	switch (uefi) {
 		case fuefi_memory_type_loader_code:
 		case fuefi_memory_type_loader_data:
@@ -73,7 +73,7 @@ static void* ferro_memory_pool_allocate(ferro_memory_pool_t* pool, size_t bytes)
 };
 
 // from https://stackoverflow.com/a/9194117/6620880
-FERRO_INLINE uint64_t round_up_power_of_2(uint64_t number, uint64_t multiple) {
+FERRO_ALWAYS_INLINE uint64_t round_up_power_of_2(uint64_t number, uint64_t multiple) {
 	return (number + multiple - 1) & -multiple;
 };
 

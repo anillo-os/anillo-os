@@ -20,8 +20,10 @@
 #define _FERRO_CORE_PAGING_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include <ferro/base.h>
+#include <ferro/platform.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -40,9 +42,6 @@ FERRO_DECLARATIONS_BEGIN;
 #define FPAGE_VIRT_L3_SHIFT 30
 #define FPAGE_VIRT_L4_SHIFT 39
 
-#define FPAGE_VIRT_L3_HUGE_MASK 0x000000003fffffffULL
-#define FPAGE_VIRT_L2_HUGE_MASK 0x00000000001fffffULL
-
 #define FPAGE_VIRT_OFFSET(x) ((uintptr_t)(x) & 0xfffULL)
 #define FPAGE_VIRT_L1(x)     (((uintptr_t)(x) & (0x1ffULL << FPAGE_VIRT_L1_SHIFT)) >> FPAGE_VIRT_L1_SHIFT)
 #define FPAGE_VIRT_L2(x)     (((uintptr_t)(x) & (0x1ffULL << FPAGE_VIRT_L2_SHIFT)) >> FPAGE_VIRT_L2_SHIFT)
@@ -56,53 +55,45 @@ struct fpage_table {
 	uint64_t entries[512];
 };
 
-#define FPAGE_PRESENT_BIT        (1ULL << 0)
-#define FPAGE_WRITABLE_BIT       (1ULL << 1)
-#define FPAGE_USER_BIT           (1ULL << 2)
-#define FPAGE_WRITE_THROUGH_BIT  (1ULL << 3)
-#define FPAGE_NO_CACHE_BIT       (1ULL << 4)
-#define FPAGE_ACCESSED_BIT       (1ULL << 5)
-#define FPAGE_DIRTY_BIT          (1ULL << 6)
-#define FPAGE_HUGE_BIT           (1ULL << 7)
-#define FPAGE_GLOBAL_BIT         (1ULL << 8)
-#define FPAGE_NX_BIT             (1ULL << 63)
-#define FPAGE_PHYS_ENTRY(x)       ((uintptr_t)(x) & (0xffffffffff << 12))
-
 extern char kernel_base_virtual;
 extern char kernel_base_physical;
 
-extern char kernel_start_virtual;
-extern char kernel_end_virtual;
-extern char kernel_start_physical;
+// these are arch-dependent functions we expect all architectures to implement
 
-FERRO_INLINE uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
-	fpage_table_t* l4;
-	fpage_table_t* l3;
-	fpage_table_t* l2;
-	fpage_table_t* l1;
-	uint64_t entry;
+/**
+ * Creates a 4KiB page table entry with the given information.
+ */
+FERRO_ALWAYS_INLINE uint64_t fpage_page_entry(uintptr_t physical_address, bool writable);
 
-	__asm__("mov %%cr3, %0" : "=r" (l4));
-	l4 = (fpage_table_t*)(((uintptr_t)l4) & 0xfffffffffffff000ULL);
-	l3 = (fpage_table_t*)FPAGE_PHYS_ENTRY(l4->entries[FPAGE_VIRT_L4(virtual_address)]);
+/**
+ * Creates a 2MiB page table entry with the given information.
+ */
+FERRO_ALWAYS_INLINE uint64_t fpage_large_page_entry(uintptr_t physical_address, bool writable);
 
-	entry = l3->entries[FPAGE_VIRT_L3(virtual_address)];
-	if (entry & FPAGE_HUGE_BIT) {
-		return FPAGE_PHYS_ENTRY(entry) | (virtual_address & FPAGE_VIRT_L3_HUGE_MASK);
-	} else {
-		l2 = (fpage_table_t*)FPAGE_PHYS_ENTRY(entry);
-	}
+/**
+ * Creates a page table entry to point to another page table.
+ */
+FERRO_ALWAYS_INLINE uint64_t fpage_table_entry(uintptr_t physical_address, bool writable);
 
-	entry = l2->entries[FPAGE_VIRT_L2(virtual_address)];
-	if (entry & FPAGE_HUGE_BIT) {
-		return FPAGE_PHYS_ENTRY(entry) | (virtual_address & FPAGE_VIRT_L2_HUGE_MASK);
-	} else {
-		l1 = (fpage_table_t*)FPAGE_PHYS_ENTRY(entry);
-	}
+/**
+ * Jumps into a new virtual memory mapping using the given base table address and stack address.
+ */
+FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_stack_bottom, void* new_stack_bottom);
 
-	return FPAGE_PHYS_ENTRY(l1->entries[FPAGE_VIRT_L1(virtual_address)]) | FPAGE_VIRT_OFFSET(virtual_address);
-};
+/**
+ * Translate the given virtual address into a physical address.
+ */
+FERRO_ALWAYS_INLINE uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address)
 
 FERRO_DECLARATIONS_END;
+
+// now include the arch-dependent header
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <ferro/core/x86_64/paging.h>
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#include <ferro/core/aarch64/paging.h>
+#else
+	#error Unrecognized/unsupported CPU architecture! (see <ferro/core/paging.h>)
+#endif
 
 #endif // _FERRO_CORE_PAGING_H_

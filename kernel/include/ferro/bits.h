@@ -35,7 +35,7 @@ FERRO_DECLARATIONS_BEGIN;
 // the problem with that is that it would have to assume the bit size of types like `unsigned int` and `unsigned long`, which we shouldn't do
 
 #define FERRO_BITS_CLZ_DEFINITION(ferro_suffix, type, bits) \
-	FERRO_INLINE \
+	FERRO_ALWAYS_INLINE \
 	uint8_t ferro_bits_clz_ ## ferro_suffix(type value) { \
 		if (value == 0) { \
 			return bits; \
@@ -57,7 +57,7 @@ FERRO_BITS_CLZ_DEFINITION(u64, uint64_t, 64);
 #undef FERRO_BITS_CLZ_DEFINITION
 
 #define FERRO_BITS_IN_USE_DEFINITION(ferro_suffix, type, bits) \
-	FERRO_INLINE \
+	FERRO_ALWAYS_INLINE \
 	uint8_t ferro_bits_in_use_ ## ferro_suffix(type value) { \
 		return bits - ferro_bits_clz_ ## ferro_suffix(value); \
 	};
@@ -70,7 +70,7 @@ FERRO_BITS_IN_USE_DEFINITION(u64, uint64_t, 64);
 #undef FERRO_BITS_IN_USE_DEFINITION
 
 #define FERRO_BITS_CTZ_DEFINITION(ferro_suffix, type, bits) \
-	FERRO_INLINE \
+	FERRO_ALWAYS_INLINE \
 	uint8_t ferro_bits_ctz_ ## ferro_suffix(type value) { \
 		if (value == 0) { \
 			return bits; \

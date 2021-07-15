@@ -21,12 +21,12 @@
 
 // CPU architecture
 #define FERRO_ARCH_x86_64 1
-#define FERRO_ARCH_ARM64  2
+#define FERRO_ARCH_aarch64  2
 
 #if defined(__x86_64__)
 	#define FERRO_ARCH FERRO_ARCH_x86_64
 #elif defined(__aarch64__)
-	#define FERRO_ARCH FERRO_ARCH_ARM64
+	#define FERRO_ARCH FERRO_ARCH_aarch64
 #else
 	#error Unrecognized/unsupported CPU architecture! (See <ferro/platform.h>)
 #endif
@@ -46,7 +46,7 @@
 // CPU bitness
 #define FERRO_BITNESS_64 1
 
-#if FERRO_ARCH == FERRO_ARCH_x86_64 || FERRO_ARCH == FERRO_ARCH_ARM64
+#if FERRO_ARCH == FERRO_ARCH_x86_64 || FERRO_ARCH == FERRO_ARCH_aarch64
 	#define FERRO_BITNESS FERRO_BITNESS_64
 #else
 	#error Unrecognized/unsupported CPU bitness! (See <ferro/platform.h>)

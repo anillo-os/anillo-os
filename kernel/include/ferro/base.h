@@ -31,7 +31,9 @@
 	#define FERRO_DECLARATIONS_END
 #endif
 
-#define FERRO_INLINE static __attribute__((always_inline))
+#define FERRO_ALWAYS_INLINE static __attribute__((always_inline))
+
+#define FERRO_NO_RETURN __attribute__((noreturn))
 
 #define FERRO_PACKED_STRUCT(name) \
 	typedef struct __attribute__((packed)) name name ## _t; \

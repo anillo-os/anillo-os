@@ -18,7 +18,13 @@
 //
 // entry.c
 //
-// kernel entry point
+// common kernel entry point
+//
+
+//
+// interestingly, for the two architectures that we currently support (x86_64 and AARCH64),
+// we can actually share a majority of the startup code between them. this is possible thanks to
+// architectural similarities between the two, especially in areas like paging.
 //
 
 #include <stdbool.h>
@@ -28,15 +34,6 @@
 #include <ferro/core/console.h>
 #include <ferro/core/paging.h>
 
-FERRO_INLINE void hang_forever() {
-	while (true) {
-		__asm__(
-			"cli\n"
-			"hlt\n"
-		);
-	}
-};
-
 static fpage_table_t page_table_level_1 FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2 FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2_identity FERRO_PAGE_ALIGNED = {0};
@@ -45,24 +42,24 @@ static fpage_table_t page_table_level_3_identity FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_4 FERRO_PAGE_ALIGNED = {0};
 
 // from https://stackoverflow.com/a/9194117/6620880
-FERRO_INLINE uint64_t round_up_power_of_2(uint64_t number, uint64_t multiple) {
+FERRO_ALWAYS_INLINE uint64_t round_up_power_of_2(uint64_t number, uint64_t multiple) {
 	return (number + multiple - 1) & -multiple;
 };
 
-FERRO_INLINE uint64_t round_down_power_of_2(uint64_t number, uint64_t multiple) {
+FERRO_ALWAYS_INLINE uint64_t round_down_power_of_2(uint64_t number, uint64_t multiple) {
 	return number & -multiple;
 };
 
-FERRO_INLINE uint64_t round_up_div(uint64_t number, uint64_t multiple) {
+FERRO_ALWAYS_INLINE uint64_t round_up_div(uint64_t number, uint64_t multiple) {
 	return (number + multiple - 1) / multiple;
 };
 
 // *must* be inlined because we can't make actual calls until this is done
-FERRO_INLINE void setup_page_tables(uint16_t* next_l2, void* image_base, size_t image_size) {
-	const void* phys_rbp = NULL;
-	const void* phys_rsp = NULL;
+FERRO_ALWAYS_INLINE void setup_page_tables(uint16_t* next_l2, void* image_base, size_t image_size) {
+	void* phys_frame_pointer = NULL;
 	uintptr_t stack_diff = 0;
-	const void* stack_page = NULL;
+	void* stack_page = NULL;
+	void* virt_stack_bottom = NULL;
 
 	// we have to access the physical addresses directly here
 	fpage_table_t* const pt2          = (fpage_table_t*)(FERRO_KERNEL_VIRT_TO_PHYS(&page_table_level_2)          + image_base);
@@ -73,54 +70,41 @@ FERRO_INLINE void setup_page_tables(uint16_t* next_l2, void* image_base, size_t 
 	size_t next_l2_idx = 0;
 
 	// read the physical frame address
-	__asm__("mov %%rbp, %0" : "=r" (phys_rbp));
-	phys_rbp = (void*)fpage_virtual_to_physical((uintptr_t)phys_rbp);
+	phys_frame_pointer = __builtin_frame_address(0);
+	phys_frame_pointer = (void*)fpage_virtual_to_physical((uintptr_t)phys_frame_pointer);
 
 	// set up 2MiB pages for the kernel image
 	for (char* ptr = (char*)FERRO_KERNEL_VIRTUAL_START; (uintptr_t)ptr < FERRO_KERNEL_VIRTUAL_START + image_size; ptr += FPAGE_LARGE_PAGE_SIZE) {
-		pt2->entries[next_l2_idx = FPAGE_VIRT_L2(ptr)] |= FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_HUGE_BIT | FPAGE_PHYS_ENTRY(FERRO_KERNEL_VIRT_TO_PHYS(ptr) + (uintptr_t)image_base);
+		pt2->entries[next_l2_idx = FPAGE_VIRT_L2(ptr)] = fpage_large_page_entry(FERRO_KERNEL_VIRT_TO_PHYS(ptr) + (uintptr_t)image_base, true);
 	}
 	++next_l2_idx; // assumes the kernel image will never occupy 1GiB
 
 	// calculate the address of the 2MiB page containing the stack
-	stack_page = (const void*)round_down_power_of_2((uintptr_t)phys_rbp, FPAGE_LARGE_PAGE_SIZE);
+	stack_page = (void*)round_down_power_of_2((uintptr_t)phys_frame_pointer, FPAGE_LARGE_PAGE_SIZE);
 
 	// set up a 2MiB page for the stack
-	pt2->entries[next_l2_idx] = FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_HUGE_BIT | FPAGE_PHYS_ENTRY((uintptr_t)stack_page);
+	pt2->entries[next_l2_idx] = fpage_large_page_entry((uintptr_t)stack_page, true);
 
 	// calculate the virtual address of the current stack frame
-	const void* virt_stack_bottom = (const void*)FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), next_l2_idx, 0, 0);
-	virt_stack_bottom = (const void*)((uintptr_t)virt_stack_bottom + (phys_rbp - stack_page));
+	virt_stack_bottom = (void*)FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), next_l2_idx, 0, 0);
+	virt_stack_bottom = (void*)((uintptr_t)virt_stack_bottom + (phys_frame_pointer - stack_page));
 	++next_l2_idx;
 
 	// temporarily identity map the kernel image so the RIP doesn't fail
 	for (char* ptr = image_base; ptr < (char*)image_base + image_size; ptr += FPAGE_LARGE_PAGE_SIZE) {
-		pt2_identity->entries[FPAGE_VIRT_L2(ptr)] |= FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_HUGE_BIT | FPAGE_PHYS_ENTRY(ptr);
+		pt2_identity->entries[FPAGE_VIRT_L2(ptr)] = fpage_large_page_entry((uintptr_t)ptr, true);
 	}
 
-	         pt4->entries[FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START)] |= FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_PHYS_ENTRY(pt3);
-	         pt4->entries[                FPAGE_VIRT_L4(image_base)] |= FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_PHYS_ENTRY(pt3_identity);
-	         pt3->entries[FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START)] |= FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_PHYS_ENTRY(pt2);
-	pt3_identity->entries[                FPAGE_VIRT_L3(image_base)] |= FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_PHYS_ENTRY(pt2_identity);
-
-	// read the current physical stack top address
-	__asm__("mov %%rsp, %0\n" : "=r" (phys_rsp));
-	phys_rsp = (void*)fpage_virtual_to_physical((uintptr_t)phys_rsp);
-	stack_diff = (uintptr_t)phys_rbp - (uintptr_t)phys_rsp;
+	         pt4->entries[FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START)] = fpage_table_entry((uintptr_t)pt3, true);
+	         pt4->entries[                FPAGE_VIRT_L4(image_base)] = fpage_table_entry((uintptr_t)pt3_identity, true);
+	         pt3->entries[FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START)] = fpage_table_entry((uintptr_t)pt2, true);
+	pt3_identity->entries[                FPAGE_VIRT_L3(image_base)] = fpage_table_entry((uintptr_t)pt2_identity, true);
 
 	// set the outgoing value for the next l2 index
 	*next_l2 = next_l2_idx;
 
-	// overwrite the page table
-	__asm__(
-		"mov %0, %%cr3\n"
-		"mov %1, %%rbp\n"
-		"mov %2, %%rsp\n"
-		::
-		"r" (pt4),
-		"r" (virt_stack_bottom),
-		"r" ((uintptr_t)virt_stack_bottom - stack_diff)
-	);
+	// start the new mapping
+	fpage_begin_new_mapping(pt4, phys_frame_pointer, virt_stack_bottom);
 };
 
 // maps the regions that the kernel needs early on
@@ -135,14 +119,14 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 	size_t memory_regions_array_size = memory_region_count * sizeof(ferro_memory_region_t);
 	uint16_t l2_idx = (*next_l2)++;
 
-	page_table_level_2.entries[l2_idx] = FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_PHYS_ENTRY(FERRO_KERNEL_VIRT_TO_PHYS(&page_table_level_1) + image_base);
+	page_table_level_2.entries[l2_idx] = fpage_table_entry(FERRO_KERNEL_VIRT_TO_PHYS(&page_table_level_1) + (uintptr_t)image_base, true);
 
 	// first, map the memory region array itself
 	// it's guaranteed to be allocated on a page boundary
 	ferro_memory_region_t* physical_memory_regions_address = *memory_regions_ptr;
 	ferro_memory_region_t* new_memory_regions_address = (ferro_memory_region_t*)FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
 	for (size_t i = 0; i < memory_regions_array_size; i += FPAGE_PAGE_SIZE) {
-		page_table_level_1.entries[next_l1_idx++] = FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_PHYS_ENTRY((uintptr_t)physical_memory_regions_address + i);
+		page_table_level_1.entries[next_l1_idx++] = fpage_page_entry((uintptr_t)physical_memory_regions_address + i, true);
 	}
 	*memory_regions_ptr = new_memory_regions_address;
 
@@ -167,7 +151,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 					if (j == 0) {
 						region->virtual_start = FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), *next_l2, 0, 0);
 					}
-					page_table_level_2.entries[(*next_l2)++] = FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_HUGE_BIT | round_down_power_of_2(FPAGE_PHYS_ENTRY((uintptr_t)region->physical_start + (j * FPAGE_LARGE_PAGE_SIZE)), FPAGE_LARGE_PAGE_SIZE);
+					page_table_level_2.entries[(*next_l2)++] = fpage_large_page_entry((uintptr_t)region->physical_start + (j * FPAGE_LARGE_PAGE_SIZE), true);
 				}
 			} else {
 				// allocate it in 4KiB
@@ -175,7 +159,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 					if (j == 0) {
 						region->virtual_start = FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
 					}
-					page_table_level_1.entries[next_l1_idx++] = FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | round_down_power_of_2(FPAGE_PHYS_ENTRY((uintptr_t)region->physical_start + (j * FPAGE_PAGE_SIZE)), FPAGE_PAGE_SIZE);
+					page_table_level_1.entries[next_l1_idx++] = fpage_page_entry((uintptr_t)region->physical_start + (j * FPAGE_PAGE_SIZE), true);
 				}
 			}
 		}
@@ -212,7 +196,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 					if (j == 0) {
 						fb_info->base = (void*)FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), *next_l2, 0, 0);
 					}
-					page_table_level_2.entries[(*next_l2)++] = FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | FPAGE_HUGE_BIT | round_down_power_of_2(FPAGE_PHYS_ENTRY((uintptr_t)fb_phys + (j * FPAGE_LARGE_PAGE_SIZE)), FPAGE_LARGE_PAGE_SIZE);
+					page_table_level_2.entries[(*next_l2)++] = fpage_large_page_entry((uintptr_t)fb_phys + (j * FPAGE_LARGE_PAGE_SIZE), true);
 				}
 			} else {
 				// allocate it in 4KiB
@@ -220,7 +204,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 					if (j == 0) {
 						fb_info->base = (void*)FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
 					}
-					page_table_level_1.entries[next_l1_idx++] = FPAGE_PRESENT_BIT | FPAGE_WRITABLE_BIT | round_down_power_of_2(FPAGE_PHYS_ENTRY((uintptr_t)fb_phys + (j * FPAGE_PAGE_SIZE)), FPAGE_PAGE_SIZE);
+					page_table_level_1.entries[next_l1_idx++] = fpage_page_entry((uintptr_t)fb_phys + (j * FPAGE_PAGE_SIZE), true);
 				}
 			}
 		}
@@ -252,8 +236,8 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 	// ALWAYS DO THIS BEFORE ANY ACTUAL FUNCTION CALLS
 	setup_page_tables(&next_l2, image_base, image_size);
 
-	// finally, fully switch to the higher-half by jumping into the new virtual RIP
-	__asm__("jmp *%0" :: "r" (&&jump_here_for_virtual));
+	// finally, fully switch to the higher-half by jumping into the new virtual instruction pointer
+	fentry_jump_to_virtual(&&jump_here_for_virtual);
 jump_here_for_virtual:;
 
 	map_regions(&next_l2, &memory_map, memory_map_length, &initial_pool, initial_pool_page_count, &boot_data, boot_data_count, image_base, image_size);
@@ -268,5 +252,6 @@ jump_here_for_virtual:;
 	ferro_fb_init(fb_info);
 	fconsole_init();
 
-	hang_forever();
+	fentry_hang_forever();
 };
+

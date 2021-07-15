@@ -47,17 +47,10 @@ LDFLAGS_aarch64=(
 )
 
 SOURCES=(
+	src/core/entry.c
 	src/core/console.c
 	src/core/framebuffer.c
 	src/libk/libk.c
-)
-
-SOURCES_x86_64=(
-	src/core/x86_64/entry.c
-)
-
-SOURCES_aarch64=(
-	src/core/aarch64/entry.c
 )
 
 # generates CFLAGS_ALL, containing the full list of CFLAGS for the current architecture
