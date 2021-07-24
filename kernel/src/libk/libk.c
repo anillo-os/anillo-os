@@ -67,3 +67,10 @@ void* memmove(void* destination, const void* source, size_t n) {
 	}
 	return destination;
 };
+
+void* memset(void* destination, int value, size_t n) {
+	unsigned char* destbuf = destination;
+	while (n-- > 0)
+		*(destbuf++) = (unsigned char)value;
+	return destination;
+};

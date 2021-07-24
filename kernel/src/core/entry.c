@@ -33,13 +33,15 @@
 #include <ferro/core/framebuffer.h>
 #include <ferro/core/console.h>
 #include <ferro/core/paging.h>
+#include <ferro/core/panic.h>
+#include <libk/libk.h>
 
-static fpage_table_t page_table_level_1 FERRO_PAGE_ALIGNED = {0};
-static fpage_table_t page_table_level_2 FERRO_PAGE_ALIGNED = {0};
+static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
+static fpage_table_t page_table_level_2          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2_identity FERRO_PAGE_ALIGNED = {0};
-static fpage_table_t page_table_level_3 FERRO_PAGE_ALIGNED = {0};
+static fpage_table_t page_table_level_3          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_3_identity FERRO_PAGE_ALIGNED = {0};
-static fpage_table_t page_table_level_4 FERRO_PAGE_ALIGNED = {0};
+static fpage_table_t page_table_level_4          FERRO_PAGE_ALIGNED = {0};
 
 // from https://stackoverflow.com/a/9194117/6620880
 FERRO_ALWAYS_INLINE uint64_t round_up_power_of_2(uint64_t number, uint64_t multiple) {
@@ -71,7 +73,7 @@ FERRO_ALWAYS_INLINE void setup_page_tables(uint16_t* next_l2, void* image_base, 
 
 	// read the physical frame address
 	phys_frame_pointer = __builtin_frame_address(0);
-	phys_frame_pointer = (void*)fpage_virtual_to_physical((uintptr_t)phys_frame_pointer);
+	phys_frame_pointer = (void*)fpage_virtual_to_physical_early((uintptr_t)phys_frame_pointer);
 
 	// set up 2MiB pages for the kernel image
 	for (char* ptr = (char*)FERRO_KERNEL_VIRTUAL_START; (uintptr_t)ptr < FERRO_KERNEL_VIRTUAL_START + image_size; ptr += FPAGE_LARGE_PAGE_SIZE) {
@@ -86,7 +88,7 @@ FERRO_ALWAYS_INLINE void setup_page_tables(uint16_t* next_l2, void* image_base, 
 	pt2->entries[next_l2_idx] = fpage_large_page_entry((uintptr_t)stack_page, true);
 
 	// calculate the virtual address of the current stack frame
-	virt_stack_bottom = (void*)FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), next_l2_idx, 0, 0);
+	virt_stack_bottom = (void*)fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), next_l2_idx, 0, 0);
 	virt_stack_bottom = (void*)((uintptr_t)virt_stack_bottom + (phys_frame_pointer - stack_page));
 	++next_l2_idx;
 
@@ -124,7 +126,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 	// first, map the memory region array itself
 	// it's guaranteed to be allocated on a page boundary
 	ferro_memory_region_t* physical_memory_regions_address = *memory_regions_ptr;
-	ferro_memory_region_t* new_memory_regions_address = (ferro_memory_region_t*)FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
+	ferro_memory_region_t* new_memory_regions_address = (ferro_memory_region_t*)fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
 	for (size_t i = 0; i < memory_regions_array_size; i += FPAGE_PAGE_SIZE) {
 		page_table_level_1.entries[next_l1_idx++] = fpage_page_entry((uintptr_t)physical_memory_regions_address + i, true);
 	}
@@ -145,11 +147,11 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 				continue;
 			}
 			// we can only allocate 2MiB pages if the address is on a 2MiB page boundary
-			if ((region->physical_start & FPAGE_LARGE_PAGE_SIZE) == 0 && region->page_count > (512 - next_l1_idx)) {
+			if (fpage_is_large_page_aligned(region->physical_start) && region->page_count > (512 - next_l1_idx)) {
 				// allocate it in 2MiB pages
 				for (size_t j = 0; j < (region->page_count + 511) / 512; ++j) {
 					if (j == 0) {
-						region->virtual_start = FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), *next_l2, 0, 0);
+						region->virtual_start = fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), *next_l2, 0, 0);
 					}
 					page_table_level_2.entries[(*next_l2)++] = fpage_large_page_entry((uintptr_t)region->physical_start + (j * FPAGE_LARGE_PAGE_SIZE), true);
 				}
@@ -157,7 +159,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 				// allocate it in 4KiB
 				for (size_t j = 0; j < region->page_count; ++j) {
 					if (j == 0) {
-						region->virtual_start = FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
+						region->virtual_start = fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
 					}
 					page_table_level_1.entries[next_l1_idx++] = fpage_page_entry((uintptr_t)region->physical_start + (j * FPAGE_PAGE_SIZE), true);
 				}
@@ -183,6 +185,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 	}
 
 	// map the framebuffer (if we have one)
+	/*
 	for (size_t i = 0; i < boot_data_count; ++i) {
 		ferro_boot_data_info_t* data = &(*boot_data_ptr)[i];
 		if (data->type == ferro_boot_data_type_framebuffer_info) {
@@ -190,11 +193,11 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 			size_t fb_page_count = round_up_div(fb_info->scan_line_size * fb_info->height, FPAGE_PAGE_SIZE);
 			void* fb_phys = fb_info->base;
 			// we can only allocate 2MiB pages if the address is on a 2MiB page boundary
-			if (((uintptr_t)fb_phys & FPAGE_LARGE_PAGE_SIZE) == 0 && fb_page_count > (512 - next_l1_idx)) {
+			if (fpage_is_large_page_aligned((uintptr_t)fb_phys)&& fb_page_count > (512 - next_l1_idx)) {
 				// allocate it in 2MiB pages
 				for (size_t j = 0; j < (fb_page_count + 511) / 512; ++j) {
 					if (j == 0) {
-						fb_info->base = (void*)FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), *next_l2, 0, 0);
+						fb_info->base = (void*)fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), *next_l2, 0, 0);
 					}
 					page_table_level_2.entries[(*next_l2)++] = fpage_large_page_entry((uintptr_t)fb_phys + (j * FPAGE_LARGE_PAGE_SIZE), true);
 				}
@@ -202,13 +205,14 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 				// allocate it in 4KiB
 				for (size_t j = 0; j < fb_page_count; ++j) {
 					if (j == 0) {
-						fb_info->base = (void*)FPAGE_BUILD_VIRT(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
+						fb_info->base = (void*)fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
 					}
 					page_table_level_1.entries[next_l1_idx++] = fpage_page_entry((uintptr_t)fb_phys + (j * FPAGE_PAGE_SIZE), true);
 				}
 			}
 		}
 	}
+	*/
 };
 
 __attribute__((section(".text.ferro_entry")))
@@ -240,7 +244,11 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 	fentry_jump_to_virtual(&&jump_here_for_virtual);
 jump_here_for_virtual:;
 
+	// map basic regions we need to continue with our setup
 	map_regions(&next_l2, &memory_map, memory_map_length, &initial_pool, initial_pool_page_count, &boot_data, boot_data_count, image_base, image_size);
+
+	// initialize the paging subsystem so that we can start paging freely
+	fpage_init(next_l2, &page_table_level_4, memory_map, memory_map_length, image_base);
 
 	for (size_t i = 0; i < boot_data_count; ++i) {
 		ferro_boot_data_info_t* curr = &boot_data[i];
@@ -249,7 +257,11 @@ jump_here_for_virtual:;
 		}
 	}
 
-	ferro_fb_init(fb_info);
+	// map the framebuffer
+	if (fpage_map_kernel_any(fb_info->base, round_up_div(fb_info->scan_line_size * fb_info->height, FPAGE_PAGE_SIZE), &fb_info->base) == ferr_ok) {
+		ferro_fb_init(fb_info);
+	}
+
 	fconsole_init();
 
 	fentry_hang_forever();

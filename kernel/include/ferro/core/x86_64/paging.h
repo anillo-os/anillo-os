@@ -44,7 +44,7 @@ FERRO_DECLARATIONS_BEGIN;
 
 #define FPAGE_PHYS_ENTRY(x) ((uintptr_t)(x) & (0xffffffffff << 12))
 
-FERRO_ALWAYS_INLINE uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
+FERRO_ALWAYS_INLINE uintptr_t fpage_virtual_to_physical_early(uintptr_t virtual_address) {
 	fpage_table_t* l4;
 	fpage_table_t* l3;
 	fpage_table_t* l2;
@@ -77,7 +77,7 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 	uintptr_t stack_diff = 0;
 
 	__asm__("mov %%rsp, %0" : "=r" (rsp));
-	rsp = (void*)fpage_virtual_to_physical((uintptr_t)rsp);
+	rsp = (void*)fpage_virtual_to_physical_early((uintptr_t)rsp);
 	stack_diff = (uintptr_t)old_stack_bottom - (uintptr_t)rsp;
 
 	__asm__(
@@ -99,10 +99,33 @@ FERRO_ALWAYS_INLINE uint64_t fpage_large_page_entry(uintptr_t physical_address, 
 	return FPAGE_PRESENT_BIT | (writable ? FPAGE_WRITABLE_BIT : 0) | FPAGE_HUGE_BIT | FPAGE_PHYS_ENTRY(physical_address);
 };
 
+FERRO_ALWAYS_INLINE uint64_t fpage_very_large_page_entry(uintptr_t physical_address, bool writable) {
+	return FPAGE_PRESENT_BIT | (writable ? FPAGE_WRITABLE_BIT : 0) | FPAGE_HUGE_BIT | FPAGE_PHYS_ENTRY(physical_address);
+};
+
 FERRO_ALWAYS_INLINE uint64_t fpage_table_entry(uintptr_t physical_address, bool writable) {
 	return FPAGE_PRESENT_BIT | (writable ? FPAGE_WRITABLE_BIT : 0) | FPAGE_PHYS_ENTRY(physical_address);
 };
 
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
+	__asm__("invlpg %0" :: "m" (address));
+};
+
+FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value) {
+	return entry_value & FPAGE_PRESENT_BIT;
+};
+
+FERRO_ALWAYS_INLINE void fpage_synchronize_after_table_modification(void) {
+	// this isn't necessary on x86_64
+};
+
+FERRO_ALWAYS_INLINE bool fpage_entry_is_large_page_entry(uint64_t entry) {
+	return entry & FPAGE_HUGE_BIT;
+};
+
 FERRO_DECLARATIONS_END;
+
+#define USE_GENERIC_FPAGE_INVALIDATE_TLB_FOR_RANGE 1
+#include <ferro/core/generic/paging.h>
 
 #endif // _FERRO_CORE_X86_64_PAGING_H_

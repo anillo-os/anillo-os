@@ -29,9 +29,9 @@
 FERRO_DECLARATIONS_BEGIN;
 
 #define FPAGE_PRESENT_BIT                    (1ULL << 0)
-// for l0 table
+// for l1 table
 #define FPAGE_VALID_PAGE_BIT                 (1ULL << 1)
-// for l1 and l2 tables
+// for l2 and l3 tables
 #define FPAGE_TABLE_POINTER_BIT              (1ULL << 1)
 #define FPAGE_ATTRIBUTES_INDEX_BITS          (3ULL << 2)
 #define FPAGE_NONSECURE_BIT                  (1ULL << 5)
@@ -48,7 +48,7 @@ FERRO_DECLARATIONS_BEGIN;
 #define FPAGE_PRIVILEGED_EXECUTE_NEVER_BIT   (1ULL << 53)
 #define FPAGE_UNPRIVILEGED_EXECUTE_NEVER_BIT (1ULL << 54)
 
-FERRO_ALWAYS_INLINE uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
+FERRO_ALWAYS_INLINE uintptr_t fpage_virtual_to_physical_early(uintptr_t virtual_address) {
 	uintptr_t result = virtual_address;
 	__asm__(
 		"at s1e1r, %0\n"
@@ -65,10 +65,10 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 	uint64_t tcr_el1 = 0;
 
 	__asm__("mov %0, sp" : "=r" (stack_pointer));
-	stack_pointer = (void*)fpage_virtual_to_physical((uintptr_t)stack_pointer);
+	stack_pointer = (void*)fpage_virtual_to_physical_early((uintptr_t)stack_pointer);
 	stack_diff = (uintptr_t)old_stack_bottom - (uintptr_t)stack_pointer;
 
-	__asm__ volatile(
+	__asm__(
 		// make sure ttbr1_el1 is enabled/usable by clearing epd1
 		"mrs %0, tcr_el1\n"
 		// '\043' == '#'
@@ -107,10 +107,37 @@ FERRO_ALWAYS_INLINE uint64_t fpage_large_page_entry(uintptr_t physical_address, 
 	return FPAGE_PRESENT_BIT | (writable ? 0 : FPAGE_NO_WRITE_BIT) | FPAGE_ACCESS_BIT | (3ULL << 8) | (3ULL << 2) | (physical_address & (0x7ffffffULL << 21));
 };
 
+FERRO_ALWAYS_INLINE uint64_t fpage_very_large_page_entry(uintptr_t physical_address, bool writable) {
+	return FPAGE_PRESENT_BIT | (writable ? 0 : FPAGE_NO_WRITE_BIT) | FPAGE_ACCESS_BIT | (3ULL << 8) | (3ULL << 2) | (physical_address & (0xffffcULL << 30));
+};
+
 FERRO_ALWAYS_INLINE uint64_t fpage_table_entry(uintptr_t physical_address, bool writable) {
-	return FPAGE_PRESENT_BIT | FPAGE_TABLE_POINTER_BIT | (writable ? 0 : FPAGE_NO_WRITE_BIT) | (physical_address & (0xfffffffffULL << 12));
+	// FPAGE_ACCESS_BIT is normally ignored for table entries, but for recursive entries, it's treated like the access bit for page entries
+	return FPAGE_PRESENT_BIT | FPAGE_TABLE_POINTER_BIT | FPAGE_ACCESS_BIT | (writable ? 0 : FPAGE_NO_WRITE_BIT) | (physical_address & (0xfffffffffULL << 12));
+};
+
+FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value) {
+	return entry_value & FPAGE_PRESENT_BIT;
+};
+
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
+	uintptr_t input = (uintptr_t)address;
+	input >>= 12;
+	input &= 0xfffffffffff;
+	__asm__("tlbi vale1is, %0" :: "r" (input));
+};
+
+FERRO_ALWAYS_INLINE void fpage_synchronize_after_table_modification(void) {
+	__asm__("dsb sy");
+};
+
+FERRO_ALWAYS_INLINE bool fpage_entry_is_large_page_entry(uint64_t entry) {
+	return !(entry & FPAGE_TABLE_POINTER_BIT);
 };
 
 FERRO_DECLARATIONS_END;
+
+#define USE_GENERIC_FPAGE_INVALIDATE_TLB_FOR_RANGE 1
+#include <ferro/core/generic/paging.h>
 
 #endif // _FERRO_CORE_AARCH64_PAGING_H_

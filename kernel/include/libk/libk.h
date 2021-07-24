@@ -72,4 +72,17 @@ size_t strlen(const char* string);
  */
 void* memmove(void* destination, const void* source, size_t n);
 
+/**
+ * Sets `n` bytes in `destination` to `value`.
+ *
+ * @param destination Pointer to memory location to start assigning to.
+ * @param value       Value to assign to each byte. This parameter is an `int` (for historical reasons), but it is interpreted as an `unsigned char` when used.
+ * @param n           Number of bytes to assign to starting from `destination`.
+ *
+ * @returns `destination`.
+ *
+ * @note Standard C function.
+ */
+void* memset(void* destination, int value, size_t n);
+
 #endif // _LIBK_LIBK_H_

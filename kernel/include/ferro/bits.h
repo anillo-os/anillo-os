@@ -31,9 +31,13 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
-// TODO: possibly take advantadge of the compiler's builtin_clz
+// TODO: possibly take advantage of the compiler's builtin_clz
 // the problem with that is that it would have to assume the bit size of types like `unsigned int` and `unsigned long`, which we shouldn't do
 
+/**
+ * Returns the number of leading zeros in the argument.
+ * If the value is 0, it returns the full bit width of the type (e.g. 8 if it's a uint8_t).
+ */
 #define FERRO_BITS_CLZ_DEFINITION(ferro_suffix, type, bits) \
 	FERRO_ALWAYS_INLINE \
 	uint8_t ferro_bits_clz_ ## ferro_suffix(type value) { \
@@ -56,6 +60,12 @@ FERRO_BITS_CLZ_DEFINITION(u64, uint64_t, 64);
 
 #undef FERRO_BITS_CLZ_DEFINITION
 
+/**
+ * Returns the number of significant bits in the argument.
+ * If the value is 0, it returns 0.
+ *
+ * This can be used, for example, to find the position of the most significant bit in the argument (by subtracting 1 from the value returned).
+ */
 #define FERRO_BITS_IN_USE_DEFINITION(ferro_suffix, type, bits) \
 	FERRO_ALWAYS_INLINE \
 	uint8_t ferro_bits_in_use_ ## ferro_suffix(type value) { \
@@ -69,6 +79,10 @@ FERRO_BITS_IN_USE_DEFINITION(u64, uint64_t, 64);
 
 #undef FERRO_BITS_IN_USE_DEFINITION
 
+/**
+ * Returns the number of trailing zeros in the argument.
+ * If the value is 0, it returns the full bit width of the type (e.g. 8 if it's a uint8_t).
+ */
 #define FERRO_BITS_CTZ_DEFINITION(ferro_suffix, type, bits) \
 	FERRO_ALWAYS_INLINE \
 	uint8_t ferro_bits_ctz_ ## ferro_suffix(type value) { \
