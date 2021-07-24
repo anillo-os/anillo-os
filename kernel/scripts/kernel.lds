@@ -1,6 +1,6 @@
 ENTRY(kernel_start_physical)
 
-kernel_base_virtual  = 0xffffffff80000000;
+kernel_base_virtual  = 0xffff800000000000;
 kernel_base_physical = 0x0000000000000000;
 
 kernel_start_physical = kernel_start_virtual - kernel_base_virtual;

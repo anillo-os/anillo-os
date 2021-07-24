@@ -38,6 +38,7 @@ LDFLAGS=(
 	-nostdlib
 	-static
 	-target ${ARCH}-unknown-none-elf
+	"-T${KERNEL_SOURCE_ROOT}/scripts/kernel.lds"
 )
 LDFLAGS_x86_64=(
 	-Wl,-m,elf_x86_64
@@ -87,9 +88,7 @@ generate-ldflags-all() {
 	)
 
 	# these are architecture-dependent, automatically generated flags
-	LDFLAGS_ALL+=(
-		"-T${KERNEL_SOURCE_ROOT}/scripts/${ARCH}/kernel.lds"
-	)
+	LDFLAGS_ALL+=()
 }
 
 compile() {
