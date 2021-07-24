@@ -30,7 +30,8 @@ FERRO_DECLARATIONS_BEGIN;
 
 typedef struct ferro_kernel_segment ferro_kernel_segment_t;
 struct ferro_kernel_segment {
-	size_t page_count;
+	// the number of bytes the segment occupies in memory
+	size_t size;
 	void* physical_address;
 	void* virtual_address;
 };

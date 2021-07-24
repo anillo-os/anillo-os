@@ -43,7 +43,7 @@ FERRO_ENUM(int, ferro_memory_region_type) {
 	// memory that is reserved until ACPI is enabled; afterwards, it becomes general memory
 	ferro_memory_region_type_acpi_reclaim,
 
-	// memory reserved for process code; never to be touched by the OS
+	// memory reserved for processor code; never to be touched by the OS
 	ferro_memory_region_type_pal_code,
 
 	// memory where special kernel data is stored on boot; this is usually permanent

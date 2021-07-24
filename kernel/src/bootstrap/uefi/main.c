@@ -136,6 +136,8 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 	printf("Info: Initializing Ferro bootstrap...\n");
 
+	//printf("Info: UEFI image base: %p\n", (void*)(uintptr_t)sysconf(_SC_IMAGE_BASE));
+
 	graphics_available = sysconf(_SC_FB_AVAILABLE);
 	if (graphics_available) {
 		ferro_pool_size += sizeof(ferro_fb_info_t);
@@ -431,12 +433,12 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		if (program_header->type == ferro_elf_program_header_type_loadable) {
 			ferro_kernel_segment_t* segment = &kernel_image_info->segments[kernel_segment_index];
 
-			segment->page_count = (program_header->memory_size + 0xfff) / 0x1000;
+			segment->size = program_header->memory_size;
 			segment->physical_address = (void*)(uintptr_t)(program_header->physical_address - kernel_start_phys + kernel_image_base);
 			segment->virtual_address = (void*)(uintptr_t)(program_header->virtual_address);
 
 			// zero out the memory
-			memset(segment->physical_address, 0, segment->page_count * 0x1000);
+			memset(segment->physical_address, 0, segment->size);
 
 			// set the file position to read the segment
 			if (fseek(kernel_file, program_header->offset, SEEK_SET) != 0) {
@@ -530,37 +532,39 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	//printf("Info: Populated Ferro memory map\n");
 
 	// override types for special addresses
-	for (size_t i = 0; i < kernel_image_info->segment_count + 2; ++i) {
+	for (size_t i = 0; i < 3; ++i) {
 		uintptr_t physical_address = 0;
 		uintptr_t virtual_address = 0;
 		size_t page_count = 0;
 
-		if (i == kernel_image_info->segment_count) {
+		if (i == 0) {
 			physical_address = (uintptr_t)ferro_memory_map;
 			page_count = ROUND_UP_PAGE(ferro_map_size);
-		} else if (i == kernel_image_info->segment_count + 1) {
+		} else if (i == 1) {
 			physical_address = (uintptr_t)ferro_pool.base_address;
 			page_count = ROUND_UP_PAGE(ferro_pool_size);
 		} else {
-			ferro_kernel_segment_t* segment = &kernel_image_info->segments[i];
-			physical_address = (uintptr_t)segment->physical_address;
-			page_count = segment->page_count;
-			virtual_address = (uintptr_t)segment->virtual_address;
+			physical_address = (uintptr_t)kernel_image_base;
+			page_count = ROUND_UP_PAGE(kernel_image_info->size);
+		}
+
+		if (page_count == 0) {
+			continue;
 		}
 
 		for (size_t j = 0; j < map_entry_count; ++j) {
 			ferro_memory_region_t* ferro_region = &ferro_memory_map[j];
 
-			if ((uintptr_t)physical_address != ferro_region->physical_start && (uintptr_t)physical_address > ferro_region->physical_start && (uintptr_t)physical_address < ferro_region->physical_start + (ferro_region->page_count * 0x1000)) {
+			if (physical_address > ferro_region->physical_start && physical_address < ferro_region->physical_start + (ferro_region->page_count * 0x1000)) {
 				ferro_memory_region_t* new_ferro_region = &ferro_memory_map[j + 1];
-				for (size_t k = map_entry_count; k > j + 1; --k) {
+				for (size_t k = map_entry_count; k > j; --k) {
 					memcpy(&ferro_memory_map[k], &ferro_memory_map[k - 1], sizeof(ferro_memory_region_t));
 				}
 				++map_entry_count;
 				new_ferro_region->physical_start = (uintptr_t)physical_address;
-				new_ferro_region->page_count = ROUND_UP_PAGE(new_ferro_region->physical_start - ferro_region->physical_start);
+				ferro_region->page_count = ROUND_UP_PAGE(new_ferro_region->physical_start - ferro_region->physical_start);
+				new_ferro_region->page_count -= ferro_region->page_count;
 				new_ferro_region->type = ferro_region->type;
-				ferro_region->page_count -= new_ferro_region->page_count;
 				ferro_region = new_ferro_region;
 				++j;
 			}
@@ -569,16 +573,17 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 				if (ferro_region->page_count > page_count) {
 					// we have to create a new entry for the remaining memory
 					ferro_memory_region_t* new_ferro_region = &ferro_memory_map[j + 1];
-					for (size_t k = map_entry_count; k > j + 1; --k) {
+					for (size_t k = map_entry_count; k > j; --k) {
 						memcpy(&ferro_memory_map[k], &ferro_memory_map[k - 1], sizeof(ferro_memory_region_t));
 					}
 					++map_entry_count;
 					new_ferro_region->page_count = ferro_region->page_count - page_count;
-					new_ferro_region->physical_start = ferro_region->physical_start + (ferro_region->page_count * 0x1000);
+					new_ferro_region->physical_start = ferro_region->physical_start + (page_count * 0x1000);
 					new_ferro_region->type = ferro_region->type;
 				}
 				ferro_region->type = ferro_memory_region_type_kernel_reserved;
 				ferro_region->virtual_start = virtual_address;
+				ferro_region->page_count = page_count;
 				break;
 			}
 		}

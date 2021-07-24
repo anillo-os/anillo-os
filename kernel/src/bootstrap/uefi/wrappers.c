@@ -585,6 +585,10 @@ long long sysconf(int name) {
 		case _SC_FB_PIXELS_PER_SCANLINE: {
 			result = fuefi_graphics_protocol->mode->info->pixels_per_scanline;
 		} break;
+
+		case _SC_IMAGE_BASE: {
+			result = (uintptr_t)fuefi_image_protocol->image_base;
+		} break;
 	}
 
 	return *(long long*)&result;
