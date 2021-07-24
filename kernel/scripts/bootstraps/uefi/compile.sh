@@ -23,6 +23,7 @@ CFLAGS=(
 	-mno-red-zone
 	-c
 	-target ${ARCH}-unknown-windows
+	-ggdb3
 )
 LDFLAGS=(
 	"-fuse-ld=${LD}"
@@ -31,6 +32,7 @@ LDFLAGS=(
 	-nostdlib
 	-Wl,-entry:efi_main
 	-Wl,-subsystem:efi_application
+	-ggdb3
 )
 
 OBJECTS=()
