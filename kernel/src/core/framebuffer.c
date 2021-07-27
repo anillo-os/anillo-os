@@ -145,7 +145,7 @@ ferr_t ferro_fb_get_pixel(ferro_fb_pixel_t* pixel, size_t x, size_t y) {
 	if (!ferro_fb_available()) {
 		return ferr_permanent_outage;
 	} else if (x > fb_info->width || y > fb_info->height) {
-		return ferr_invalid_parameter;
+		return ferr_invalid_argument;
 	} else if (pixel == NULL) {
 		return ferr_ok;
 	}
@@ -163,7 +163,7 @@ ferr_t ferro_fb_set_pixel(const ferro_fb_pixel_t* pixel, size_t x, size_t y) {
 	if (!ferro_fb_available()) {
 		return ferr_permanent_outage;
 	} else if (x > fb_info->width || y > fb_info->height) {
-		return ferr_invalid_parameter;
+		return ferr_invalid_argument;
 	} else if (pixel == NULL) {
 		return ferr_ok;
 	}
@@ -181,7 +181,7 @@ ferr_t ferro_fb_set_area_clone(const ferro_fb_pixel_t* pixel, const ferro_fb_rec
 	if (!ferro_fb_available()) {
 		return ferr_permanent_outage;
 	} else if (!is_within_bounds_rect(area)) {
-		return ferr_invalid_parameter;
+		return ferr_invalid_argument;
 	}
 
 
@@ -205,7 +205,7 @@ ferr_t ferro_fb_move(const ferro_fb_rect_t* old_area, const ferro_fb_rect_t* new
 	if (!ferro_fb_available()) {
 		return ferr_permanent_outage;
 	} else if (!is_within_bounds_rect(old_area) || !is_within_bounds_rect(new_area) || !rects_are_equal_size(old_area, new_area)) {
-		return ferr_invalid_parameter;
+		return ferr_invalid_argument;
 	}
 
 	int comparison = compare_rects(old_area, new_area);

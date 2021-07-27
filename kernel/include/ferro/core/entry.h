@@ -97,7 +97,15 @@ struct ferro_boot_data_info {
  */
 void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count);
 
-typedef __attribute__((sysv_abi)) void (*ferro_entry_t)(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count);
+#if FERRO_ARCH == FERRO_ARCH_aarch64
+	#define FERRO_SYSV_ABI
+#elif FERRO_ARCH == FERRO_ARCH_x86_64
+	#define FERRO_SYSV_ABI __attribute__((sysv_abi))
+#else
+	#error Unrecognized/unsupported CPU architecture! (See <ferro/core/entry.h>)
+#endif
+
+typedef FERRO_SYSV_ABI void (*ferro_entry_t)(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count);
 
 // these are arch-dependent functions we expect all architectures to implement
 

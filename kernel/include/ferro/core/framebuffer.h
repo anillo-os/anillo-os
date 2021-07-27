@@ -96,7 +96,7 @@ const ferro_fb_info_t* ferro_fb_get_info(void);
  *
  * Return values:
  * @retval ferr_ok                Successfully retrieved pixel information into `pixel`.
- * @retval ferr_invalid_parameter Either `x` or `y` was out-of-bounds for the framebuffer. `pixel` remains unmodified and the framebuffer is never accessed.
+ * @retval ferr_invalid_argument  Either `x` or `y` was out-of-bounds for the framebuffer. `pixel` remains unmodified and the framebuffer is never accessed.
  * @retval ferr_permanent_outage  No framebuffer is available. `pixel` remains unmodified.
  */
 ferr_t ferro_fb_get_pixel(ferro_fb_pixel_t* pixel, size_t x, size_t y);
@@ -110,7 +110,7 @@ ferr_t ferro_fb_get_pixel(ferro_fb_pixel_t* pixel, size_t x, size_t y);
  *
  * Return values:
  * @retval ferr_ok                Successfully assigned pixel information from `pixel` into the framebuffer.
- * @retval ferr_invalid_parameter Either `x` or `y` was out-of-bounds for the framebuffer. The framebuffer remains unmodified and `pixel` is never accessed.
+ * @retval ferr_invalid_argument  Either `x` or `y` was out-of-bounds for the framebuffer. The framebuffer remains unmodified and `pixel` is never accessed.
  * @retval ferr_permanent_outage  No framebuffer is available. `pixel` is never accessed.
  */
 ferr_t ferro_fb_set_pixel(const ferro_fb_pixel_t* pixel, size_t x, size_t y);
@@ -123,7 +123,7 @@ ferr_t ferro_fb_set_pixel(const ferro_fb_pixel_t* pixel, size_t x, size_t y);
  *
  * Return values:
  * @retval ferr_ok                Successfully assigned pixel information from `pixel` into the framebuffer.
- * @retval ferr_invalid_parameter The area was out-of-bounds for the framebuffer. The framebuffer remains unmodified and `pixel` is never accessed.
+ * @retval ferr_invalid_argument  The area was out-of-bounds for the framebuffer. The framebuffer remains unmodified and `pixel` is never accessed.
  * @retval ferr_permanent_outage  No framebuffer is available. `pixel` and `area` are never accessed.
  */
 ferr_t ferro_fb_set_area_clone(const ferro_fb_pixel_t* pixel, const ferro_fb_rect_t* area);
@@ -136,7 +136,7 @@ ferr_t ferro_fb_set_area_clone(const ferro_fb_pixel_t* pixel, const ferro_fb_rec
  *
  * Return values:
  * @retval ferr_ok                Successfully copied the pixels from the area described by `old_area` to the area described by `new_area`.
- * @retval ferr_invalid_parameter One or both areas were out-of-bounds for the framebuffer, OR the areas were not simple translations of each other.
+ * @retval ferr_invalid_argument  One or both areas were out-of-bounds for the framebuffer, OR the areas were not simple translations of each other.
  * @retval ferr_permanent_outage  No framebuffer is available. `old_area` and `new_area` are never accessed.
  */
 ferr_t ferro_fb_move(const ferro_fb_rect_t* old_area, const ferro_fb_rect_t* new_area);

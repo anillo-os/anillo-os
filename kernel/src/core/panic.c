@@ -26,6 +26,8 @@
 #include <ferro/core/entry.h>
 
 FERRO_NO_RETURN void fpanic(void) {
+	__builtin_debugtrap();
+
 	// for now
 	fentry_hang_forever();
 };

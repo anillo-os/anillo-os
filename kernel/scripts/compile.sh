@@ -53,6 +53,7 @@ SOURCES=(
 	src/core/framebuffer.c
 	src/core/paging.c
 	src/core/panic.c
+	src/core/mempool.c
 	src/libk/libk.c
 )
 

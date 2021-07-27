@@ -96,12 +96,27 @@ FERRO_ALWAYS_INLINE size_t page_count_of_order(size_t order) {
 	return 1ULL << order;
 };
 
-FERRO_ALWAYS_INLINE size_t min_order_of_page_count(size_t page_count) {
+FERRO_ALWAYS_INLINE size_t min_order_for_page_count(size_t page_count) {
 	if (page_count == 0) {
 		return SIZE_MAX;
 	} else {
 		size_t result = ferro_bits_in_use_u64(page_count) - 1;
-		return (result >= MAX_ORDER) ? (MAX_ORDER - 1) : result;
+		if (result >= MAX_ORDER) {
+			return MAX_ORDER - 1;
+		}
+		return (page_count > page_count_of_order(result)) ? (result + 1) : result;
+	}
+};
+
+FERRO_ALWAYS_INLINE size_t max_order_of_page_count(size_t page_count) {
+	if (page_count == 0) {
+		return SIZE_MAX;
+	} else {
+		size_t result = ferro_bits_in_use_u64(page_count) - 1;
+		if (result >= MAX_ORDER) {
+			return MAX_ORDER - 1;
+		}
+		return result;
 	}
 };
 
@@ -199,7 +214,7 @@ static void set_block_is_in_use(fpage_region_header_t* parent_region, const fpag
 
 static void insert_free_block(fpage_region_header_t* parent_region, fpage_free_block_t* block, size_t block_page_count) {
 	fpage_free_block_t* phys_block = block;
-	size_t order = min_order_of_page_count(block_page_count);
+	size_t order = max_order_of_page_count(block_page_count);
 	fpage_region_header_t* phys_parent = parent_region;
 
 	parent_region = map_temporarily_auto(parent_region);
@@ -248,7 +263,7 @@ static fpage_free_block_t* find_buddy(fpage_region_header_t* parent_region, fpag
 };
 
 static void* allocate_frame(size_t page_count, size_t* out_allocated_page_count) {
-	size_t min_order = min_order_of_page_count(page_count);
+	size_t min_order = min_order_for_page_count(page_count);
 
 	fpage_region_header_t* candidate_parent_region = NULL;
 	fpage_free_block_t* candidate_block = NULL;
@@ -324,7 +339,7 @@ FERRO_ALWAYS_INLINE bool block_belongs_to_region(fpage_free_block_t* block, fpag
 };
 
 static void free_frame(void* frame, size_t page_count) {
-	size_t order = min_order_of_page_count(page_count);
+	size_t order = min_order_for_page_count(page_count);
 
 	fpage_region_header_t* parent_region = NULL;
 	fpage_free_block_t* block = frame;
@@ -566,7 +581,7 @@ static void set_virtual_block_is_in_use(fpage_region_header_t* parent_region, co
 };
 
 static void insert_virtual_free_block(fpage_region_header_t* parent_region, fpage_free_block_t* block, size_t block_page_count) {
-	size_t order = min_order_of_page_count(block_page_count);
+	size_t order = max_order_of_page_count(block_page_count);
 	fpage_free_block_t* phys_block = allocate_frame(fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE, NULL);
 
 	map_frame_fixed(phys_block, block, fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE);
@@ -602,7 +617,7 @@ static fpage_free_block_t* find_virtual_buddy(fpage_region_header_t* parent_regi
 };
 
 static void* allocate_virtual(size_t page_count, size_t* out_allocated_page_count, bool user) {
-	size_t min_order = min_order_of_page_count(page_count);
+	size_t min_order = min_order_for_page_count(page_count);
 
 	fpage_region_header_t* candidate_parent_region = NULL;
 	fpage_free_block_t* candidate_block = NULL;
@@ -663,7 +678,7 @@ FERRO_ALWAYS_INLINE bool virtual_block_belongs_to_region(fpage_free_block_t* blo
 };
 
 static void free_virtual(void* virtual, size_t page_count, bool user) {
-	size_t order = min_order_of_page_count(page_count);
+	size_t order = min_order_for_page_count(page_count);
 
 	fpage_region_header_t* parent_region = NULL;
 	fpage_free_block_t* block = virtual;
@@ -829,7 +844,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 		memset(&header->buckets[0], 0, sizeof(header->buckets));
 
 		while (pages_allocated < page_count) {
-			size_t order = min_order_of_page_count(page_count - pages_allocated);
+			size_t order = max_order_of_page_count(page_count - pages_allocated);
 			size_t pages = page_count_of_order(order);
 			void* phys_addr = (void*)((uintptr_t)usable_start + (pages_allocated * FPAGE_PAGE_SIZE));
 
@@ -1110,7 +1125,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 		memset(&header->buckets[0], 0, sizeof(header->buckets));
 
 		while (pages_allocated < virt_page_count) {
-			size_t order = min_order_of_page_count(virt_page_count - pages_allocated);
+			size_t order = max_order_of_page_count(virt_page_count - pages_allocated);
 			size_t pages = page_count_of_order(order);
 			void* addr = (void*)((uintptr_t)usable_start + (pages_allocated * FPAGE_PAGE_SIZE));
 
@@ -1135,7 +1150,7 @@ ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** ou
 	void* virt = NULL;
 
 	if (physical_address == NULL || page_count == 0 || page_count == SIZE_MAX || out_virtual_address == NULL) {
-		return ferr_invalid_parameter;
+		return ferr_invalid_argument;
 	}
 
 	virt = allocate_virtual(page_count, NULL, false);
@@ -1153,7 +1168,7 @@ ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** ou
 
 ferr_t fpage_unmap_kernel(void* virtual_address, size_t page_count) {
 	if (virtual_address == NULL || page_count == 0 || page_count == SIZE_MAX) {
-		return ferr_invalid_parameter;
+		return ferr_invalid_argument;
 	}
 
 	// TODO: invalidate the entries
@@ -1167,7 +1182,7 @@ ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address) {
 	void* virt = NULL;
 
 	if (page_count == 0 || page_count == SIZE_MAX || out_virtual_address == NULL) {
-		return ferr_invalid_parameter;
+		return ferr_invalid_argument;
 	}
 
 	virt = allocate_virtual(page_count, NULL, false);
@@ -1189,12 +1204,14 @@ ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address) {
 		map_frame_fixed(frame, (void*)((uintptr_t)virt + (i * FPAGE_PAGE_SIZE)), 1);
 	}
 
+	*out_virtual_address = virt;
+
 	return ferr_ok;
 };
 
 ferr_t fpage_free_kernel(void* virtual_address, size_t page_count) {
 	if (virtual_address == NULL || page_count == 0 || page_count == SIZE_MAX) {
-		return ferr_invalid_parameter;
+		return ferr_invalid_argument;
 	}
 
 	for (size_t i = 0; i < page_count; ++i) {

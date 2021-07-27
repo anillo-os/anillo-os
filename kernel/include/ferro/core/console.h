@@ -38,7 +38,7 @@ void fconsole_init(void);
  *
  * Return values:
  * @retval ferr_ok                Successfully logged the given string.
- * @retval ferr_invalid_parameter The given string was not a valid UTF-8 string.
+ * @retval ferr_invalid_argument  The given string was not a valid UTF-8 string.
  *
  * @note This method automatically determines the length of the string by counting the number of bytes before the first null terminator.
  *       As such, UTF-8 string containing null terminators cannot be logged with this function. Instead, use fconsole_logn().
@@ -53,7 +53,7 @@ ferr_t fconsole_log(const char* string);
  *
  * Return values:
  * @retval ferr_ok                Successfully logged the given character array.
- * @retval ferr_invalid_parameter The given character array contained one or more invalid UTF-8 sequences.
+ * @retval ferr_invalid_argument  The given character array contained one or more invalid UTF-8 sequences.
  */
 ferr_t fconsole_logn(const char* string, size_t size);
 

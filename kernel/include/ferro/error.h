@@ -25,13 +25,13 @@ FERRO_DECLARATIONS_BEGIN;
 
 FERRO_ENUM(int, ferr) {
 	// No error; success.
-	ferr_ok = 0,
+	ferr_ok               = 0,
 
 	// An unknown error occurred.
-	ferr_unknown = -1,
+	ferr_unknown          = -1,
 
-	// Invalid parameters given.
-	ferr_invalid_parameter = -2,
+	// One or more arguments provided are invalid.
+	ferr_invalid_argument = -2,
 
 	// The requested resource is temporarily unavailable.
 	ferr_temporary_outage = -3,
@@ -40,7 +40,7 @@ FERRO_ENUM(int, ferr) {
 	ferr_permanent_outage = -4,
 
 	// The requested action/service is unsupported.
-	ferr_unsupported = -5,
+	ferr_unsupported      = -5,
 };
 
 FERRO_DECLARATIONS_END;

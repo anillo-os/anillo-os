@@ -26,6 +26,8 @@
 
 #include <ferro/core/console.h>
 #include <ferro/core/framebuffer.h>
+#include <ferro/core/mempool.h>
+#include <ferro/core/panic.h>
 #include <libk/libk.h>
 
 #include <gen/ferro/font.h>
@@ -151,6 +153,21 @@ static size_t line_padding = FCONSOLE_LINE_PADDING_DEFAULT;
 
 void fconsole_init() {
 	fconsole_log("ferro kernel version 0.0.0 starting...\n");
+
+	const char* orig = "foo!";
+	char* copied = NULL;
+
+	if (fmempool_allocate(strlen(orig) + 1, NULL, (void*)&copied) != ferr_ok) {
+		fpanic();
+	}
+
+	memcpy(copied, orig, strlen(orig) + 1);
+
+	fconsole_log(copied);
+
+	if (fmempool_free(copied) != ferr_ok) {
+		fpanic();
+	}
 };
 
 ferr_t fconsole_logn(const char* string, size_t size) {
@@ -189,7 +206,7 @@ ferr_t fconsole_logn(const char* string, size_t size) {
 
 	return ferr_ok;
 err_out:
-	return ferr_invalid_parameter;
+	return ferr_invalid_argument;
 };
 
 ferr_t fconsole_log(const char* string) {

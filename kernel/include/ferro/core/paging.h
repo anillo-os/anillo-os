@@ -85,10 +85,10 @@ void fpage_init(size_t next_l2, fpage_table_t* root_table, ferro_memory_region_t
  *
  * Return values:
  * @retval ferr_ok                The address was successfully mapped. The resulting virtual address is written to `out_virtual_address`.
- * @retval ferr_invalid_parameter One or more of the following: 1) `physical_address` was an invalid address (e.g. NULL or unsupported on the current machine), 2) `page_count` was an invalid size (e.g. 0 or too large), 3) `out_virtual_address` was NULL.
+ * @retval ferr_invalid_argument  One or more of the following: 1) `physical_address` was an invalid address (e.g. NULL or unsupported on the current machine), 2) `page_count` was an invalid size (e.g. 0 or too large), 3) `out_virtual_address` was NULL.
  * @retval ferr_temporary_outage  The system did not have enough memory resources to map the given address.
  */
-ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address);
+FERRO_WUR ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address);
 
 /**
  * Unmaps the virtual region of the given size identified by the given address.
@@ -98,9 +98,9 @@ ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** ou
  *
  * Return values:
  * @retval ferr_ok                The address was successfully unmapped.
- * @retval ferr_invalid_parameter One or more of the following: 1) `virtual_address` was an invalid address (e.g. NULL or unsupported on the current machine), 2) `page_count` was an invalid size (e.g. 0 or too large).
+ * @retval ferr_invalid_argument  One or more of the following: 1) `virtual_address` was an invalid address (e.g. NULL or unsupported on the current machine), 2) `page_count` was an invalid size (e.g. 0 or too large).
  */
-ferr_t fpage_unmap_kernel(void* virtual_address, size_t page_count);
+FERRO_WUR ferr_t fpage_unmap_kernel(void* virtual_address, size_t page_count);
 
 /**
  * Maps the next available physical region(s) of the given size to the next available contiguous virtual region in the kernel's address space.
@@ -110,13 +110,13 @@ ferr_t fpage_unmap_kernel(void* virtual_address, size_t page_count);
  *
  * Return values:
  * @retval ferr_ok                The address was successfully mapped. The resulting virtual address is written to `out_virtual_address`.
- * @retval ferr_invalid_parameter One or more of the following: 1) `page_count` was an invalid size (e.g. 0 or too large), 2) `out_virtual_address` was NULL.
+ * @retval ferr_invalid_argument  One or more of the following: 1) `page_count` was an invalid size (e.g. 0 or too large), 2) `out_virtual_address` was NULL.
  * @retval ferr_temporary_outage  The system did not have enough memory resources to map the given address.
  *
  * @note The resulting region *cannot* be freed using @link{fpage_unmap_kernel}. It *must* be freed using @link{fpage_free_kernel}.
  *       This is because @link{fpage_unmap_kernel} only unmaps the virtual memory, whereas @link{fpage_free_kernel} both unmaps the virtual memory and frees the physical memory.
  */
-ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address);
+FERRO_WUR ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address);
 
 /**
  * Frees the region of the given size identified by the given address previously allocated with `fpage_allocate_kernel`.
@@ -126,9 +126,9 @@ ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address);
  *
  * Return values:
  * @retval ferr_ok                The address was successfully unmapped.
- * @retval ferr_invalid_parameter One or more of the following: 1) `virtual_address` was an invalid address (e.g. NULL or unsupported on the current machine), 2) `page_count` was an invalid size (e.g. 0 or too large).
+ * @retval ferr_invalid_argument  One or more of the following: 1) `virtual_address` was an invalid address (e.g. NULL or unsupported on the current machine), 2) `page_count` was an invalid size (e.g. 0 or too large).
  */
-ferr_t fpage_free_kernel(void* virtual_address, size_t page_count);
+FERRO_WUR ferr_t fpage_free_kernel(void* virtual_address, size_t page_count);
 
 FERRO_ALWAYS_INLINE bool fpage_is_page_aligned(uintptr_t address) {
 	return (address & (FPAGE_PAGE_SIZE - 1)) == 0;

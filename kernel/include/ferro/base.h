@@ -49,4 +49,6 @@
 	typedef type name ## _t; \
 	enum __attribute__((flag_enum)) name
 
+#define FERRO_WUR __attribute__((warn_unused_result))
+
 #endif // _FERRO_BASE_H_
