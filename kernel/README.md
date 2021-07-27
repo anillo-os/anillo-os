@@ -1,5 +1,5 @@
 # Ferro
-Anillo OS' microkernel
+Anillo OS's microkernel
 
 ## Layout
 `bootstrap` contains various bootloaders to allow the kernel to be booted via different methods for different supported architectures/platforms (e.g. UEFI, Multiboot, etc.).
