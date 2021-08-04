@@ -34,6 +34,7 @@
 #include <ferro/core/console.h>
 #include <ferro/core/paging.h>
 #include <ferro/core/panic.h>
+#include <ferro/core/interrupts.h>
 #include <libk/libk.h>
 
 static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
@@ -262,7 +263,11 @@ jump_here_for_virtual:;
 		ferro_fb_init(fb_info);
 	}
 
+	// initialize the console subsystem
 	fconsole_init();
+
+	// initialize the interrupts subsystem
+	fint_init();
 
 	fentry_hang_forever();
 };

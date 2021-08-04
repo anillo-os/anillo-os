@@ -27,7 +27,7 @@ FERRO_DECLARATIONS_BEGIN;
 
 FERRO_ALWAYS_INLINE FERRO_NO_RETURN void fentry_hang_forever(void) {
 	while (1) {
-		__asm__(
+		__asm__ volatile(
 			"cli\n"
 			"hlt\n"
 		);
@@ -35,7 +35,7 @@ FERRO_ALWAYS_INLINE FERRO_NO_RETURN void fentry_hang_forever(void) {
 };
 
 FERRO_ALWAYS_INLINE void fentry_jump_to_virtual(void* address) {
-	__asm__("jmp *%0" :: "r" (address));
+	__asm__ volatile("jmp *%0" :: "r" (address));
 };
 
 FERRO_DECLARATIONS_END;

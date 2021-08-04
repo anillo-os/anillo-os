@@ -80,7 +80,7 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 	rsp = (void*)fpage_virtual_to_physical_early((uintptr_t)rsp);
 	stack_diff = (uintptr_t)old_stack_bottom - (uintptr_t)rsp;
 
-	__asm__(
+	__asm__ volatile(
 		"mov %0, %%cr3\n"
 		"mov %1, %%rbp\n"
 		"mov %2, %%rsp\n"
@@ -88,6 +88,8 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 		"r" (l4_address),
 		"r" (new_stack_bottom),
 		"r" ((uintptr_t)new_stack_bottom - stack_diff)
+		:
+		"memory"
 	);
 };
 
@@ -108,7 +110,7 @@ FERRO_ALWAYS_INLINE uint64_t fpage_table_entry(uintptr_t physical_address, bool 
 };
 
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
-	__asm__("invlpg %0" :: "m" (address));
+	__asm__ volatile("invlpg %0" :: "m" (address) : "memory");
 };
 
 FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value) {

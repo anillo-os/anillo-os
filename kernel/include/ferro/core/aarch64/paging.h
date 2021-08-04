@@ -68,7 +68,7 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 	stack_pointer = (void*)fpage_virtual_to_physical_early((uintptr_t)stack_pointer);
 	stack_diff = (uintptr_t)old_stack_bottom - (uintptr_t)stack_pointer;
 
-	__asm__(
+	__asm__ volatile(
 		// make sure ttbr1_el1 is enabled/usable by clearing epd1
 		"mrs %0, tcr_el1\n"
 		// '\043' == '#'
@@ -96,6 +96,8 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 		"r" (l4_address),
 		"r" (new_stack_bottom),
 		"r" ((uintptr_t)new_stack_bottom - stack_diff)
+		:
+		"memory"
 	);
 };
 
@@ -124,11 +126,11 @@ FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
 	uintptr_t input = (uintptr_t)address;
 	input >>= 12;
 	input &= 0xfffffffffff;
-	__asm__("tlbi vale1is, %0" :: "r" (input));
+	__asm__ volatile("tlbi vale1is, %0" :: "r" (input) : "memory");
 };
 
 FERRO_ALWAYS_INLINE void fpage_synchronize_after_table_modification(void) {
-	__asm__("dsb sy");
+	__asm__ volatile("dsb sy" ::: "memory");
 };
 
 FERRO_ALWAYS_INLINE bool fpage_entry_is_large_page_entry(uint64_t entry) {

@@ -16,29 +16,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _FERRO_CORE_X86_64_ENTRY_H_
-#define _FERRO_CORE_X86_64_ENTRY_H_
+#ifndef _FERRO_CORE_AARCH64_INTERRUPTS_H_
+#define _FERRO_CORE_AARCH64_INTERRUPTS_H_
 
 #include <ferro/base.h>
 
-#include <ferro/core/entry.h>
+#include <ferro/core/interrupts.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
-FERRO_ALWAYS_INLINE FERRO_NO_RETURN void fentry_hang_forever(void) {
-	while (true) {
-		__asm__ volatile(
-			// '\043' == '#'
-			"msr daifset, \0433\n"
-			"hlt 0\n"
-		);
-	}
-};
-
-FERRO_ALWAYS_INLINE void fentry_jump_to_virtual(void* address) {
-	__asm__ volatile("br %0" :: "r" (address));
-};
+#error Not implemented yet
 
 FERRO_DECLARATIONS_END;
 
-#endif // _FERRO_CORE_X86_64_ENTRY_H_
+#endif // _FERRO_CORE_AARCH64_INTERRUPTS_H_

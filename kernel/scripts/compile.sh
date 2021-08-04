@@ -59,6 +59,7 @@ SOURCES=(
 
 SOURCES_x86_64=(
 	src/core/x86_64/paging.c
+	src/core/x86_64/interrupts.c
 )
 
 SOURCES_aarch64=(

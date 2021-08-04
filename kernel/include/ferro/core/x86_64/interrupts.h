@@ -16,29 +16,50 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _FERRO_CORE_X86_64_ENTRY_H_
-#define _FERRO_CORE_X86_64_ENTRY_H_
+#ifndef _FERRO_CORE_X86_64_INTERRUPTS_H_
+#define _FERRO_CORE_X86_64_INTERRUPTS_H_
 
 #include <ferro/base.h>
 
-#include <ferro/core/entry.h>
+#include <ferro/core/interrupts.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
-FERRO_ALWAYS_INLINE FERRO_NO_RETURN void fentry_hang_forever(void) {
-	while (true) {
-		__asm__ volatile(
-			// '\043' == '#'
-			"msr daifset, \0433\n"
-			"hlt 0\n"
-		);
-	}
+FERRO_ALWAYS_INLINE void fint_disable(void) {
+	__asm__ volatile("cli" ::: "memory");
 };
 
-FERRO_ALWAYS_INLINE void fentry_jump_to_virtual(void* address) {
-	__asm__ volatile("br %0" :: "r" (address));
+FERRO_ALWAYS_INLINE void fint_enable(void) {
+	__asm__ volatile("sti" ::: "memory");
+};
+
+FERRO_ALWAYS_INLINE uint64_t farch_save_flags(void) {
+	uint64_t flags = 0;
+
+	__asm__ volatile(
+		"pushfq\n"
+		"pop %0\n"
+		:
+		"=rm" (flags)
+		::
+		"memory"
+	);
+
+	return flags;
+};
+
+FERRO_ALWAYS_INLINE uint64_t fint_save(void) {
+	return farch_save_flags() & 0x200ULL;
+};
+
+FERRO_ALWAYS_INLINE void fint_restore(uint64_t state) {
+	if (state & 0x200ULL) {
+		fint_enable();
+	} else {
+		fint_disable();
+	}
 };
 
 FERRO_DECLARATIONS_END;
 
-#endif // _FERRO_CORE_X86_64_ENTRY_H_
+#endif // _FERRO_CORE_X86_64_INTERRUPTS_H_

@@ -154,7 +154,7 @@ static size_t line_padding = FCONSOLE_LINE_PADDING_DEFAULT;
 void fconsole_init() {
 	fconsole_log("ferro kernel version 0.0.0 starting...\n");
 
-	const char* orig = "foo!";
+	const char* orig = "foo!\n";
 	char* copied = NULL;
 
 	if (fmempool_allocate(strlen(orig) + 1, NULL, (void*)&copied) != ferr_ok) {
