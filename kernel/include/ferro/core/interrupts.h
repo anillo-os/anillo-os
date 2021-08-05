@@ -32,26 +32,42 @@ FERRO_DECLARATIONS_BEGIN;
 void fint_init(void);
 
 // these are arch-dependent functions we expect all architectures to implement
+//
+// the declarations that are commented-out are still expected to be defined by the arch-dependent headers,
+// it's just that they must declare them themselves because the `fint_state_t` type is arch-dependent
 
 /**
- * Disables all interrupts unconditionally.
+ * Disables all interrupts.
+ *
+ * This also increments the outstanding-interrupt-disable count.
+ * As long as this value is greater than 0, interrupts will not be enabled.
  */
 FERRO_ALWAYS_INLINE void fint_disable(void);
 
 /**
- * Enables all interrupts unconditionally.
+ * Enables all interrupts.
+ *
+ * This first decrements the outstanding-interrupt-disable count. If this value is now 0, interrupts are enabled.
+ * Otherwise, interrupts remain enabled.
  */
 FERRO_ALWAYS_INLINE void fint_enable(void);
 
 /**
+ * The type used to represent the interrupt state returned by `fint_save` and accepted by `fint_restore`.
+ */
+//typedef <something> fint_state_t;
+
+/**
  * Returns the current interrupt state. Useful to save the current state and restore it later.
  */
-FERRO_ALWAYS_INLINE uint64_t fint_save(void);
+//FERRO_ALWAYS_INLINE fint_state_t fint_save(void);
 
 /**
  * Applies the given interrupt state. Useful to restore a previously saved interrupt state.
+ *
+ * Note that it is unsafe to use `fint_enable`/`fint_disable` and this function in the same context (as it will lead to the outstanding-interrupt-disable count becoming unbalanced).
  */
-FERRO_ALWAYS_INLINE void fint_restore(uint64_t state);
+//FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state);
 
 FERRO_DECLARATIONS_END;
 

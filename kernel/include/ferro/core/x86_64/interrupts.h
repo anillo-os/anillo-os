@@ -19,20 +19,32 @@
 #ifndef _FERRO_CORE_X86_64_INTERRUPTS_H_
 #define _FERRO_CORE_X86_64_INTERRUPTS_H_
 
-#include <ferro/base.h>
+#include <stdbool.h>
 
+#include <ferro/base.h>
+#include <ferro/core/x86_64/per-cpu.h>
 #include <ferro/core/interrupts.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
+/**
+ * The type used to represent the interrupt state returned by `fint_save` and accepted by `fint_restore`.
+ */
+typedef FARCH_PER_CPU_TYPEOF(outstanding_interrupt_disable_count) fint_state_t;
+
 FERRO_ALWAYS_INLINE void fint_disable(void) {
-	__asm__ volatile("cli" ::: "memory");
+	if (FARCH_PER_CPU(outstanding_interrupt_disable_count)++ == 0) {
+		__asm__ volatile("cli" ::: "memory");
+	}
 };
 
 FERRO_ALWAYS_INLINE void fint_enable(void) {
-	__asm__ volatile("sti" ::: "memory");
+	if (--FARCH_PER_CPU(outstanding_interrupt_disable_count) == 0) {
+		__asm__ volatile("sti" ::: "memory");
+	}
 };
 
+#if 0
 FERRO_ALWAYS_INLINE uint64_t farch_save_flags(void) {
 	uint64_t flags = 0;
 
@@ -47,16 +59,27 @@ FERRO_ALWAYS_INLINE uint64_t farch_save_flags(void) {
 
 	return flags;
 };
+#endif
 
-FERRO_ALWAYS_INLINE uint64_t fint_save(void) {
-	return farch_save_flags() & 0x200ULL;
+/**
+ * Returns the current interrupt state. Useful to save the current state and restore it later.
+ */
+FERRO_ALWAYS_INLINE fint_state_t fint_save(void) {
+	return FARCH_PER_CPU(outstanding_interrupt_disable_count);
 };
 
-FERRO_ALWAYS_INLINE void fint_restore(uint64_t state) {
-	if (state & 0x200ULL) {
-		fint_enable();
+/**
+ * Applies the given interrupt state. Useful to restore a previously saved interrupt state.
+ *
+ * Note that it is unsafe to use `fint_enable`/`fint_disable` and this function in the same context (as it will lead to the outstanding-interrupt-disable count becoming unbalanced).
+ */
+FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state) {
+	FARCH_PER_CPU(outstanding_interrupt_disable_count) = state;
+
+	if (state == 0) {
+		__asm__ volatile("sti" ::: "memory");
 	} else {
-		fint_disable();
+		__asm__ volatile("cli" ::: "memory");
 	}
 };
 

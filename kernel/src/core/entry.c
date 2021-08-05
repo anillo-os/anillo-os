@@ -245,6 +245,9 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 	fentry_jump_to_virtual(&&jump_here_for_virtual);
 jump_here_for_virtual:;
 
+	// interrupts are already disabled, but let our interrupt handler code know that
+	fint_disable();
+
 	// map basic regions we need to continue with our setup
 	map_regions(&next_l2, &memory_map, memory_map_length, &initial_pool, initial_pool_page_count, &boot_data, boot_data_count, image_base, image_size);
 

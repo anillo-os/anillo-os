@@ -28,6 +28,7 @@
 #include <ferro/bits.h>
 #include <ferro/core/paging.h>
 #include <ferro/core/panic.h>
+#include <ferro/core/locks.h>
 #include <libk/libk.h>
 
 // maximum order of a single allocation
@@ -44,7 +45,7 @@
 
 // alright, so, each block here needs a byte for bookkeeping.
 // the overhead of this bookkeeping is 6.25% of the total memory for a region.
-// e.g. for a region of 64KiB, an additional 1KiB would be needed for bookkeeping.
+// e.g. with a leaf size of 16 bytes, a region of 64KiB would require an additional 4KiB for bookkeeping.
 // yikes. but that's the cost of allowing `free` without needing the memory size!
 
 FERRO_STRUCT(fmempool_free_leaf) {
@@ -60,6 +61,9 @@ FERRO_STRUCT(fmempool_region_header) {
 	void* start;
 	fmempool_free_leaf_t* buckets[MAX_ORDER];
 
+	// this lock protects the entire region (including leaves) from both reads and writes
+	flock_spin_intsafe_t lock;
+
 	// each byte has the following layout:
 	//   * top bit (bit 7) = in-use bit (1 if in-use, 0 otherwise)
 	//   * bottom 5 bits (bits 0-4) = order (value from 0-31, inclusive)
@@ -69,7 +73,10 @@ FERRO_STRUCT(fmempool_region_header) {
 
 #define HEADER_BOOKKEEPING_COUNT (FPAGE_PAGE_SIZE - sizeof(fmempool_region_header_t))
 
-fmempool_region_header_t* regions_head = NULL;
+static fmempool_region_header_t* regions_head = NULL;
+
+// protects `regions_head` from both reads and writes
+static flock_spin_intsafe_t regions_head_lock = FLOCK_SPIN_INTSAFE_INIT;
 
 FERRO_ALWAYS_INLINE uint64_t fmempool_round_up_leaf(uint64_t number) {
 	return (number + LEAF_SIZE - 1) & -LEAF_SIZE;
@@ -109,14 +116,29 @@ FERRO_ALWAYS_INLINE size_t min_order_for_byte_count(size_t byte_count) {
 	return min_order_for_leaf_count(fmempool_round_up_leaf(byte_count));
 };
 
+/**
+ * Returns the given leaf's order.
+ *
+ * The parent region's lock MUST be held.
+ */
 FERRO_ALWAYS_INLINE size_t leaf_index(const fmempool_region_header_t* parent_region, const fmempool_free_leaf_t* leaf) {
 	return ((uintptr_t)leaf - (uintptr_t)parent_region->start) / LEAF_SIZE;
 };
 
+/**
+ * Returns whether the given leaf is in-use or not.
+ *
+ * The parent region's lock MUST be held.
+ */
 static bool leaf_is_in_use(const fmempool_region_header_t* parent_region, const fmempool_free_leaf_t* leaf) {
 	return parent_region->bookkeeping[leaf_index(parent_region, leaf)] & (1 << 7);
 };
 
+/**
+ * Sets whether the given leaf is in-use or not.
+ *
+ * The parent region's lock MUST be held.
+ */
 static void set_leaf_is_in_use(fmempool_region_header_t* parent_region, const fmempool_free_leaf_t* leaf, bool is_in_use) {
 	uint8_t* byte = &parent_region->bookkeeping[leaf_index(parent_region, leaf)];
 	if (is_in_use) {
@@ -126,15 +148,30 @@ static void set_leaf_is_in_use(fmempool_region_header_t* parent_region, const fm
 	}
 };
 
+/**
+ * Returns the given leaf's order.
+ *
+ * The parent region's lock MUST be held.
+ */
 static size_t leaf_order(const fmempool_region_header_t* parent_region, const fmempool_free_leaf_t* leaf) {
 	return parent_region->bookkeeping[leaf_index(parent_region, leaf)] & 0x1f;
 };
 
+/**
+ * Sets the given leaf's order.
+ *
+ * The parent region's lock MUST be held.
+ */
 static void set_leaf_order(fmempool_region_header_t* parent_region, const fmempool_free_leaf_t* leaf, size_t order) {
 	uint8_t* byte = &parent_region->bookkeeping[leaf_index(parent_region, leaf)];
 	*byte = (*byte & ~(0x1f)) | (order & 0x1f);
 };
 
+/**
+ * Inserts the given leaf into the appropriate bucket in the parent region.
+ *
+ * The parent region's lock MUST be held.
+ */
 static void insert_free_leaf(fmempool_region_header_t* parent_region, fmempool_free_leaf_t* leaf, size_t order) {
 	leaf->prev = &parent_region->buckets[order];
 	leaf->next = parent_region->buckets[order];
@@ -150,6 +187,11 @@ static void insert_free_leaf(fmempool_region_header_t* parent_region, fmempool_f
 	parent_region->free_count += leaf_count_of_order(order);
 };
 
+/**
+ * Removes the given leaf from the appropriate bucket in the parent region.
+ *
+ * The parent region's lock MUST be held.
+ */
 static void remove_free_leaf(fmempool_region_header_t* parent_region, fmempool_free_leaf_t* leaf, size_t order) {
 	*leaf->prev = leaf->next;
 	if (leaf->next) {
@@ -159,6 +201,11 @@ static void remove_free_leaf(fmempool_region_header_t* parent_region, fmempool_f
 	parent_region->free_count -= leaf_count_of_order(order);
 };
 
+/**
+ * Finds the given leaf's buddy.
+ *
+ * The parent region's lock MUST be held.
+ */
 static fmempool_free_leaf_t* find_buddy(fmempool_region_header_t* parent_region, fmempool_free_leaf_t* leaf, size_t order) {
 	uintptr_t parent_start = (uintptr_t)parent_region->start;
 	size_t leaf_count = leaf_count_of_order(order);
@@ -171,7 +218,9 @@ static fmempool_free_leaf_t* find_buddy(fmempool_region_header_t* parent_region,
 	return (fmempool_free_leaf_t*)maybe_buddy;
 };
 
-// region size, including header and bookkeeping info space
+/**
+ * Returns the necessary region size for the given leaf count, including header and bookkeeping info space.
+ */
 static size_t region_size_for_leaf_count(size_t leaf_count, size_t* out_extra_bookkeeping_page_count) {
 	size_t region_size = fpage_round_up_page(leaf_count * LEAF_SIZE);
 	size_t extra_bookkeeping_page_count = 0;
@@ -191,69 +240,203 @@ static size_t region_size_for_leaf_count(size_t leaf_count, size_t* out_extra_bo
 };
 
 /**
+ * Reads and acquires the lock for the first region at `regions_head`.
+ *
+ * The `region_head` lock and the first region's lock MUST NOT be held.
+ */
+static fmempool_region_header_t* acquire_first_region(void) {
+	fmempool_region_header_t* region;
+	flock_spin_intsafe_lock(&regions_head_lock);
+	region = regions_head;
+	if (region) {
+		flock_spin_intsafe_lock(&region->lock);
+	}
+	flock_spin_intsafe_unlock(&regions_head_lock);
+	return region;
+};
+
+/**
+ * Reads and acquires the lock the lock for the next region after the given region.
+ * Afterwards, it releases the lock for the given region.
+ *
+ * The given region's lock MUST be held and next region's lock MUST NOT be held.
+ */
+static fmempool_region_header_t* acquire_next_region(fmempool_region_header_t* prev) {
+	fmempool_region_header_t* next = prev->next;
+	if (next) {
+		flock_spin_intsafe_lock(&next->lock);
+	}
+	flock_spin_intsafe_unlock(&prev->lock);
+	return next;
+};
+
+/**
+ * Like `acquire_next_region`, but if the given region matches the given exception region, its lock is NOT released.
+ */
+static fmempool_region_header_t* acquire_next_region_with_exception(fmempool_region_header_t* prev, fmempool_region_header_t* exception) {
+	fmempool_region_header_t* next = prev->next;
+	if (next) {
+		flock_spin_intsafe_lock(&next->lock);
+	}
+	if (prev != exception) {
+		flock_spin_intsafe_unlock(&prev->lock);
+	}
+	return next;
+};
+
+/**
+ * Returns a pointer to the previous region of the given region.
+ *
+ * Care must be taken to ensure the given region is NOT the first region in the list.
+ *
+ * The region's lock MUST be held.
+ */
+FERRO_ALWAYS_INLINE fmempool_region_header_t* region_from_prev(fmempool_region_header_t* region) {
+	return (fmempool_region_header_t*)((uintptr_t)region->prev - offsetof(fmempool_region_header_t, next));
+};
+
+/**
+ * Removes the region from the given list.
+ *
+ * The region's lock MUST be held and the head lock, previous region's lock, and next region's lock MUST NOT be held.
+ */
+static void remove_region(fmempool_region_header_t* region, fmempool_region_header_t** head, flock_spin_intsafe_t* head_lock) {
+	if (region->prev == head) {
+		flock_spin_intsafe_lock(head_lock);
+	} else {
+		flock_spin_intsafe_lock(&region_from_prev(region)->lock);
+	}
+
+	if (region->next) {
+		flock_spin_intsafe_lock(&region->next->lock);
+	}
+
+	*region->prev = region->next;
+	if (region->next) {
+		region->next->prev = region->prev;
+	}
+
+	if (region->next) {
+		flock_spin_intsafe_unlock(&region->next->lock);
+	}
+
+	if (region->prev == head) {
+		flock_spin_intsafe_unlock(head_lock);
+	} else {
+		flock_spin_intsafe_unlock(&region_from_prev(region)->lock);
+	}
+};
+
+/**
+ * Inserts the given region into the given region list.
+ *
+ * The region's lock MUST be held and the region list's lock and the first region's lock MUST NOT be held.
+ */
+static void insert_region(fmempool_region_header_t* region, fmempool_region_header_t** head, flock_spin_intsafe_t* head_lock) {
+	fmempool_region_header_t* old_first;
+
+	flock_spin_intsafe_lock(head_lock);
+
+	old_first = *head;
+
+	if (old_first) {
+		flock_spin_intsafe_lock(&old_first->lock);
+		old_first->prev = &region->next;
+		flock_spin_intsafe_unlock(&old_first->lock);
+	}
+
+	region->prev = head;
+	region->next = old_first;
+	*head = region;
+
+	flock_spin_intsafe_unlock(head_lock);
+};
+
+/**
  * Iterates through the list of regions and frees unnecessary regions.
  *
  * This function tries to keep the `n` largest regions, where `n` is `KEPT_REGION_COUNT`.
+ *
+ * Must be called with the `regions_head` lock and all region locks unheld.
  */
 static void do_region_free(void) {
 	fmempool_region_header_t* kept[KEPT_REGION_COUNT] = {0};
+	fmempool_region_header_t* free_these = NULL;
+	flock_spin_intsafe_t free_lock = FLOCK_SPIN_INTSAFE_INIT;
 
-	// first, find the regions we want to keep
-	for (fmempool_region_header_t* region = regions_head; region != NULL; region = region->next) {
+	// first, find the free regions
+	for (fmempool_region_header_t* region = acquire_first_region(); region != NULL;) {
+		fmempool_region_header_t* next_region;
+		bool kept_it = false;
+
 		// not completely unused; skip it
 		if (region->free_count != region->leaf_count) {
+			region = acquire_next_region(region);
 			continue;
 		}
 
+		// no matter what we do next, we're going to remove this region from the region list
+		remove_region(region, &regions_head, &regions_head_lock);
+
+		// go ahead and release the lock on this one and acquire the next one
+		// we know that no one else has access to the current region because we removed it from the region list
+		next_region = acquire_next_region(region);
+
 		for (size_t i = 0; i < KEPT_REGION_COUNT; ++i) {
-			if (!kept[i] || kept[i]->leaf_count < region->leaf_count) {
+			if (!kept[i]) {
 				kept[i] = region;
+				kept_it = true;
+				break;
+			}
+
+			if (kept[i]->leaf_count < region->leaf_count) {
+				// insert the previously kept region into the free list
+				insert_region(kept[i], &free_these, &free_lock);
+				kept[i] = region;
+				kept_it = true;
 				break;
 			}
 		}
+
+		// if we're not going to keep it, add it to the list of regions to free
+		if (!kept_it) {
+			insert_region(region, &free_these, &free_lock);
+		}
+
+		region = next_region;
+	}
+
+	// add the regions we decided to keep back into the region list
+	for (size_t i = 0; i < KEPT_REGION_COUNT; ++i) {
+		if (!kept[i]) {
+			continue;
+		}
+		insert_region(kept[i], &regions_head, &regions_head_lock);
 	}
 
 	// now free the others
-	for (fmempool_region_header_t* region = regions_head; region != NULL; region = region->next) {
-		bool keep_it = false;
+	// no need to bother with locks here; no one else has access to these regions
+	for (fmempool_region_header_t* region = free_these; region != NULL;) {
+		fmempool_region_header_t* next_region = region->next;
 
-		// not completely unused; skip it
-		if (region->free_count != region->leaf_count) {
-			continue;
-		}
-
-		for (size_t i = 0; i < KEPT_REGION_COUNT; ++i) {
-			if (kept[i] == region) {
-				keep_it = true;
-				break;
-			}
-		}
-
-		// we're keeping it; skip it
-		if (keep_it) {
-			continue;
-		}
-
-		// remove it from the region list
-		*region->prev = region->next;
-		if (region->next) {
-			region->next->prev = region->prev;
-		}
-
-		// now free it
+		// free it
 		if (fpage_free_kernel(region, region_size_for_leaf_count(region->leaf_count, NULL)) != ferr_ok) {
 			// huh. something's up.
 			// just re-insert it for now.
 			// TODO: maybe panic here?
 
-			*region->prev = region;
-			if (region->next) {
-				region->next->prev = &region->next;
-			}
+			insert_region(region, &regions_head, &regions_head_lock);
 		}
+
+		region = next_region;
 	}
 };
 
+/**
+ * Attempts to fulfill the given allocation using an existing region already present in the region list.
+ *
+ * The `regions_head` lock and all of the region locks MUST NOT be held.
+ */
 static void* allocate_existing(size_t byte_count) {
 	size_t min_order = min_order_for_byte_count(byte_count);
 
@@ -263,11 +446,14 @@ static void* allocate_existing(size_t byte_count) {
 	uintptr_t start_split = 0;
 
 	// first, look for the smallest usable block from any region
-	for (fmempool_region_header_t* region = regions_head; region != NULL; region = region->next) {
+	for (fmempool_region_header_t* region = acquire_first_region(); region != NULL; region = acquire_next_region_with_exception(region, candidate_parent_region)) {
 		for (size_t order = min_order; order < MAX_ORDER && order < candidate_order; ++order) {
 			fmempool_free_leaf_t* leaf = region->buckets[order];
 
 			if (leaf) {
+				if (candidate_parent_region) {
+					flock_spin_intsafe_unlock(&candidate_parent_region->lock);
+				}
 				candidate_order = order;
 				candidate_leaf = leaf;
 				candidate_parent_region = region;
@@ -285,6 +471,8 @@ static void* allocate_existing(size_t byte_count) {
 		return NULL;
 	}
 
+	// the candidate parent region's lock is still held here
+
 	remove_free_leaf(candidate_parent_region, candidate_leaf, candidate_order);
 
 	// we might have gotten a bigger block than we wanted. split it up.
@@ -299,9 +487,16 @@ static void* allocate_existing(size_t byte_count) {
 	set_leaf_order(candidate_parent_region, candidate_leaf, min_order);
 	set_leaf_is_in_use(candidate_parent_region, candidate_leaf, true);
 
+	flock_spin_intsafe_unlock(&candidate_parent_region->lock);
+
 	return candidate_leaf;
 };
 
+/**
+ * Allocates a brand new region for the given allocation and inserts it into the region list.
+ *
+ * The `regions_head` lock and the first region's lock MUST NOT be held.
+ */
 static void* allocate_new(size_t byte_count) {
 	size_t min_order = min_order_for_byte_count(byte_count);
 	size_t region_order = min_order * 4;
@@ -330,14 +525,10 @@ try_order:
 		goto try_order;
 	}
 
-	header->prev = &regions_head;
-	header->next = regions_head;
+	flock_spin_intsafe_init(&header->lock);
+	flock_spin_intsafe_lock(&header->lock);
 
-	regions_head = header;
-
-	if (header->next) {
-		header->next->prev = &header->next;
-	}
+	insert_region(header, &regions_head, &regions_head_lock);
 
 	header->leaf_count = leaf_count;
 
@@ -361,17 +552,25 @@ try_order:
 		leaves_allocated += leaves;
 	}
 
+	flock_spin_intsafe_unlock(&header->lock);
+
 	// alright, this has to succeed now
 	return allocate_existing(byte_count);
 };
 
+/**
+ * Returns `true` if the given leaf belongs to the given region. The region's lock MUST be held.
+ */
 FERRO_ALWAYS_INLINE bool leaf_belongs_to_region(fmempool_free_leaf_t* leaf, fmempool_region_header_t* region) {
 	return (uintptr_t)leaf >= (uintptr_t)region->start && (uintptr_t)leaf < (uintptr_t)region->start + (region->leaf_count * LEAF_SIZE);
 };
 
+/**
+ * Finds the leaf's parent region and returns it with its lock held.
+ */
 static fmempool_region_header_t* find_parent_region(fmempool_free_leaf_t* leaf) {
 	fmempool_region_header_t* parent_region = NULL;
-	for (fmempool_region_header_t* region = regions_head; region != NULL; region = region->next) {
+	for (fmempool_region_header_t* region = acquire_first_region(); region != NULL; region = acquire_next_region(region)) {
 		if (leaf_belongs_to_region(leaf, region)) {
 			parent_region = region;
 			break;
@@ -384,10 +583,13 @@ static bool free_leaf(void* address) {
 	size_t order = 0;
 	fmempool_free_leaf_t* leaf = address;
 	fmempool_region_header_t* parent_region = find_parent_region(leaf);
+	bool is_free = false;
 
 	if (!parent_region) {
 		return false;
 	}
+
+	// parent region's lock is held here
 
 	order = leaf_order(parent_region, leaf);
 
@@ -427,8 +629,12 @@ static bool free_leaf(void* address) {
 	// (this will also take care of updating the leaf's order in the bookkeeping info)
 	insert_free_leaf(parent_region, leaf, order);
 
+	is_free = parent_region->free_count == parent_region->leaf_count;
+
+	flock_spin_intsafe_unlock(&parent_region->lock);
+
 	// if this region is now completely unused, now's a good time to check for regions we can free
-	if (parent_region->free_count == parent_region->leaf_count) {
+	if (is_free) {
 		do_region_free();
 	}
 
@@ -503,11 +709,15 @@ ferr_t fmempool_reallocate(void* old_address, size_t new_byte_count, size_t* out
 		return ferr_invalid_argument;
 	}
 
+	// old parent region's lock is held here
+
 	old_order = leaf_order(old_parent_region, old_address);
 
 	if (new_order == old_order) {
 		// great! we can just hand them back the same region.
 		new_address = old_address;
+
+		flock_spin_intsafe_unlock(&old_parent_region->lock);
 	} else if (new_order < old_order) {
 		// awesome, we're shrinking. we can always do this in-place.
 		uintptr_t start_split = 0;
@@ -524,6 +734,8 @@ ferr_t fmempool_reallocate(void* old_address, size_t new_byte_count, size_t* out
 		}
 
 		new_address = old_address;
+
+		flock_spin_intsafe_unlock(&old_parent_region->lock);
 	} else {
 		// okay, this is the hard case: we're expanding.
 		bool can_expand_in_place = true;
@@ -570,11 +782,18 @@ ferr_t fmempool_reallocate(void* old_address, size_t new_byte_count, size_t* out
 
 			// now expand ourselves
 			set_leaf_order(old_parent_region, old_address, new_order);
+
+			// we can now drop the lock
+			flock_spin_intsafe_unlock(&old_parent_region->lock);
 		} else {
 			// alright, looks like we gotta allocate a new region
+			ferr_t status;
 
-			// first, allocate the new region
-			ferr_t status = fmempool_allocate(new_byte_count, NULL, new_address);
+			// we need to drop the old parent region lock
+			flock_spin_intsafe_unlock(&old_parent_region->lock);
+
+			// then allocate the new region
+			status = fmempool_allocate(new_byte_count, NULL, new_address);
 
 			if (status != ferr_ok) {
 				return status;

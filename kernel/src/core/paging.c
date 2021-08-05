@@ -22,6 +22,7 @@
 //
 
 #include <ferro/core/paging.h>
+#include <ferro/core/locks.h>
 #include <ferro/bits.h>
 #include <libk/libk.h>
 
@@ -55,6 +56,9 @@ FERRO_STRUCT(fpage_region_header) {
 	void* start;
 	fpage_free_block_t* buckets[MAX_ORDER];
 
+	// this lock protects the region and all of its blocks from reads and writes (for the bookkeeping info; not the actual content itself, obviously)
+	flock_spin_intsafe_t lock;
+
 	// if a bit is 0, the block corresponding to that bit is free.
 	// if a bit is 1, the block corresponding to that bit is in use.
 	uint8_t bitmap[];
@@ -73,10 +77,17 @@ static uint16_t kernel_l4_index = 0;
 static uint16_t kernel_l3_index = 0;
 static uint16_t root_recursive_index = TABLE_ENTRY_COUNT - 1;
 static fpage_region_header_t* regions_head = NULL;
+
+// we're never going to get more physical memory, so the regions head is never going to be modified; thus, we don't need a lock
+//static flock_spin_intsafe_t regions_head_lock = FLOCK_SPIN_INTSAFE_INIT;
+
 // the L2 index pointing to the temporary table
 static uint16_t temporary_table_index = 0;
 static fpage_table_t temporary_table FERRO_PAGE_ALIGNED = {0};
 static fpage_region_header_t* kernel_virtual_regions_head = NULL;
+
+// at the moment, we never modify the virtual regions head. however, in the future, we may want to, so this is necessary.
+static flock_spin_intsafe_t kernel_virtual_regions_head_lock = FLOCK_SPIN_INTSAFE_INIT;
 
 uintptr_t fpage_virtual_address_for_table(size_t levels, uint16_t l4_index, uint16_t l3_index, uint16_t l2_index) {
 	if (levels == 0) {
@@ -157,6 +168,11 @@ FERRO_ALWAYS_INLINE void* map_temporarily_auto(void* physical_address) {
 	return address;
 };
 
+/**
+ * Returns the bitmap bit index for the given block.
+ *
+ * The parent region's lock MUST be held.
+ */
 FERRO_ALWAYS_INLINE size_t bitmap_bit_index_for_block(const fpage_region_header_t* parent_region, const fpage_free_block_t* block) {
 	uintptr_t relative_address = 0;
 	parent_region = map_temporarily_auto((void*)parent_region);
@@ -172,6 +188,11 @@ FERRO_ALWAYS_INLINE size_t byte_bit_index_for_bit(size_t bit_index) {
 	return bit_index % 8;
 };
 
+/**
+ * Returns a pointer to the byte where the bitmap entry for the given block is stored, as well as the bit index of the entry in this byte.
+ *
+ * The parent region's lock MUST be held.
+ */
 static const uint8_t* bitmap_entry_for_block(const fpage_region_header_t* parent_region, const fpage_free_block_t* block, size_t* out_bit_index) {
 	size_t bitmap_index = bitmap_bit_index_for_block(parent_region, block);
 	size_t byte_index = byte_index_for_bit(bitmap_index);
@@ -194,6 +215,11 @@ static const uint8_t* bitmap_entry_for_block(const fpage_region_header_t* parent
 	return byte;
 };
 
+/**
+ * Returns `true` if the given block is in-use.
+ *
+ * The parent region's lock MUST be held.
+ */
 static bool block_is_in_use(const fpage_region_header_t* parent_region, const fpage_free_block_t* block) {
 	size_t byte_bit_index = 0;
 	const uint8_t* byte = bitmap_entry_for_block(parent_region, block, &byte_bit_index);
@@ -201,6 +227,11 @@ static bool block_is_in_use(const fpage_region_header_t* parent_region, const fp
 	return (*byte) & (1 << byte_bit_index);
 };
 
+/**
+ * Sets whether the given block is in-use.
+ *
+ * The parent region's lock MUST be held.
+ */
 static void set_block_is_in_use(fpage_region_header_t* parent_region, const fpage_free_block_t* block, bool in_use) {
 	size_t byte_bit_index = 0;
 	uint8_t* byte = (uint8_t*)bitmap_entry_for_block(parent_region, block, &byte_bit_index);
@@ -212,6 +243,11 @@ static void set_block_is_in_use(fpage_region_header_t* parent_region, const fpag
 	}
 };
 
+/**
+ * Inserts the given block into the appropriate bucket in the parent region.
+ *
+ * The parent region's lock MUST be held.
+ */
 static void insert_free_block(fpage_region_header_t* parent_region, fpage_free_block_t* block, size_t block_page_count) {
 	fpage_free_block_t* phys_block = block;
 	size_t order = max_order_of_page_count(block_page_count);
@@ -231,6 +267,11 @@ static void insert_free_block(fpage_region_header_t* parent_region, fpage_free_b
 	parent_region->buckets[order] = phys_block;
 };
 
+/**
+ * Removes the given block from the appropriate bucket in the parent region.
+ *
+ * The parent region's lock MUST be held.
+ */
 static void remove_free_block(fpage_free_block_t* block) {
 	fpage_free_block_t** prev = NULL;
 	fpage_free_block_t* next = NULL;
@@ -247,6 +288,11 @@ static void remove_free_block(fpage_free_block_t* block) {
 	}
 };
 
+/**
+ * Finds the region's buddy.
+ *
+ * The parent region's lock MUST be held.
+ */
 static fpage_free_block_t* find_buddy(fpage_region_header_t* parent_region, fpage_free_block_t* block, size_t block_page_count) {
 	uintptr_t maybe_buddy = 0;
 	uintptr_t parent_start = 0;
@@ -262,6 +308,58 @@ static fpage_free_block_t* find_buddy(fpage_region_header_t* parent_region, fpag
 	return (fpage_free_block_t*)maybe_buddy;
 };
 
+/**
+ * Reads and acquires the lock for the first region at `regions_head`.
+ *
+ * The first region's lock MUST NOT be held.
+ */
+static fpage_region_header_t* acquire_first_region(void) {
+	fpage_region_header_t* region;
+	//flock_spin_intsafe_lock(&regions_head_lock);
+	region = regions_head;
+	if (region) {
+		flock_spin_intsafe_lock(&((fpage_region_header_t*)map_temporarily_auto(region))->lock);
+	}
+	//flock_spin_intsafe_unlock(&regions_head_lock);
+	return region;
+};
+
+/**
+ * Reads and acquires the lock the lock for the next region after the given region.
+ * Afterwards, it releases the lock for the given region.
+ *
+ * The given region's lock MUST be held and next region's lock MUST NOT be held.
+ */
+static fpage_region_header_t* acquire_next_region(fpage_region_header_t* prev) {
+	fpage_region_header_t* virt_prev = map_temporarily_auto(prev);
+	fpage_region_header_t* next = virt_prev->next;
+	if (next) {
+		flock_spin_intsafe_lock(&((fpage_region_header_t*)map_temporarily_auto(next))->lock);
+	}
+	flock_spin_intsafe_unlock(&virt_prev->lock);
+	return next;
+};
+
+/**
+ * Like `acquire_next_region`, but if the given region matches the given exception region, its lock is NOT released.
+ */
+static fpage_region_header_t* acquire_next_region_with_exception(fpage_region_header_t* prev, fpage_region_header_t* exception) {
+	fpage_region_header_t* virt_prev = map_temporarily_auto(prev);
+	fpage_region_header_t* next = virt_prev->next;
+	if (next) {
+		flock_spin_intsafe_lock(&((fpage_region_header_t*)map_temporarily_auto(next))->lock);
+	}
+	if (prev != exception) {
+		flock_spin_intsafe_unlock(&virt_prev->lock);
+	}
+	return next;
+};
+
+/**
+ * Allocates a physical frame of the given size.
+ *
+ * The `regions_head` lock and all the region locks MUST NOT be held.
+ */
 static void* allocate_frame(size_t page_count, size_t* out_allocated_page_count) {
 	size_t min_order = min_order_for_page_count(page_count);
 
@@ -271,13 +369,16 @@ static void* allocate_frame(size_t page_count, size_t* out_allocated_page_count)
 	uintptr_t start_split = 0;
 
 	// first, look for the smallest usable block from any region
-	for (fpage_region_header_t* phys_region = regions_head; phys_region != NULL; /* handled in body */) {
+	for (fpage_region_header_t* phys_region = acquire_first_region(); phys_region != NULL; phys_region = acquire_next_region_with_exception(phys_region, candidate_parent_region)) {
 		fpage_region_header_t* region = map_temporarily_auto(phys_region);
 
 		for (size_t order = min_order; order < MAX_ORDER && order < candidate_order; ++order) {
 			fpage_free_block_t* phys_block = region->buckets[order];
 
 			if (phys_block) {
+				if (candidate_parent_region) {
+					flock_spin_intsafe_unlock(&((fpage_region_header_t*)map_temporarily_auto(candidate_parent_region))->lock);
+				}
 				candidate_order = order;
 				candidate_block = phys_block;
 				candidate_parent_region = phys_region;
@@ -289,14 +390,14 @@ static void* allocate_frame(size_t page_count, size_t* out_allocated_page_count)
 			// we can stop right here; we're not going to find a suitable block smaller than that!
 			break;
 		}
-
-		phys_region = region->next;
 	}
 
 	// uh-oh, we don't have any free blocks big enough in any region
 	if (!candidate_block) {
 		return NULL;
 	}
+
+	// the candidate parent region's lock is held here
 
 	// okay, we've chosen our candidate region. un-free it
 	remove_free_block(candidate_block);
@@ -324,6 +425,9 @@ static void* allocate_frame(size_t page_count, size_t* out_allocated_page_count)
 	// let's mark it as in-use...
 	set_block_is_in_use(candidate_parent_region, candidate_block, true);
 
+	// we can now release the parent region's lock
+	flock_spin_intsafe_unlock(&((fpage_region_header_t*)map_temporarily_auto(candidate_parent_region))->lock);
+
 	// ...let the user know how much we actually gave them (if they want to know that)...
 	if (out_allocated_page_count) {
 		*out_allocated_page_count = page_count_of_order(min_order);
@@ -333,32 +437,39 @@ static void* allocate_frame(size_t page_count, size_t* out_allocated_page_count)
 	return candidate_block;
 };
 
+/**
+ * Returns `true` if the given block belongs to the given region.
+ *
+ * The region's lock MUST be held.
+ */
 FERRO_ALWAYS_INLINE bool block_belongs_to_region(fpage_free_block_t* block, fpage_region_header_t* region) {
 	region = map_temporarily_auto(region);
 	return (uintptr_t)block >= (uintptr_t)region->start && (uintptr_t)block < (uintptr_t)region->start + (region->page_count * FPAGE_PAGE_SIZE);
 };
 
+/**
+ * Frees a physical frame of the given size.
+ *
+ * The `regions_head` lock and all the region locks MUST NOT be held.
+ */
 static void free_frame(void* frame, size_t page_count) {
 	size_t order = min_order_for_page_count(page_count);
 
 	fpage_region_header_t* parent_region = NULL;
 	fpage_free_block_t* block = frame;
 
-	for (fpage_region_header_t* phys_region = regions_head; phys_region != NULL; /* handled in body */) {
-		fpage_region_header_t* region = phys_region;
-
+	for (fpage_region_header_t* phys_region = acquire_first_region(); phys_region != NULL; phys_region = acquire_next_region_with_exception(phys_region, parent_region)) {
 		if (block_belongs_to_region(block, phys_region)) {
 			parent_region = phys_region;
 			break;
 		}
-
-		region = map_temporarily_auto(region);
-		phys_region = region->next;
 	}
 
 	if (!parent_region) {
 		return;
 	}
+
+	// parent region's lock is held here
 
 	// mark it as free
 	set_block_is_in_use(parent_region, block, false);
@@ -394,6 +505,9 @@ static void free_frame(void* frame, size_t page_count) {
 
 	// finally, insert the new (possibly merged) block into the appropriate bucket
 	insert_free_block(parent_region, block, page_count_of_order(order));
+
+	// we can now drop the lock
+	flock_spin_intsafe_unlock(&((fpage_region_header_t*)map_temporarily_auto(parent_region))->lock);
 };
 
 //
@@ -536,6 +650,11 @@ static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_coun
 	}
 };
 
+/**
+ * Returns the bitmap bit index for the given block.
+ *
+ * The parent region's lock MUST be held.
+ */
 FERRO_ALWAYS_INLINE size_t virtual_bitmap_bit_index_for_block(const fpage_region_header_t* parent_region, const fpage_free_block_t* block) {
 	uintptr_t relative_address = 0;
 	relative_address = (uintptr_t)block - (uintptr_t)parent_region->start;
@@ -550,6 +669,11 @@ FERRO_ALWAYS_INLINE size_t virtual_byte_bit_index_for_bit(size_t bit_index) {
 	return bit_index % 8;
 };
 
+/**
+ * Returns a pointer to the byte where the bitmap entry for the given block is stored, as well as the bit index of the entry in this byte.
+ *
+ * The parent region's lock MUST be held.
+ */
 static const uint8_t* virtual_bitmap_entry_for_block(const fpage_region_header_t* parent_region, const fpage_free_block_t* block, size_t* out_bit_index) {
 	size_t bitmap_index = virtual_bitmap_bit_index_for_block(parent_region, block);
 	size_t byte_index = virtual_byte_index_for_bit(bitmap_index);
@@ -562,6 +686,11 @@ static const uint8_t* virtual_bitmap_entry_for_block(const fpage_region_header_t
 	return byte;
 };
 
+/**
+ * Returns `true` if the given block is in-use.
+ *
+ * The parent region's lock MUST be held.
+ */
 static bool virtual_block_is_in_use(const fpage_region_header_t* parent_region, const fpage_free_block_t* block) {
 	size_t byte_bit_index = 0;
 	const uint8_t* byte = virtual_bitmap_entry_for_block(parent_region, block, &byte_bit_index);
@@ -569,6 +698,11 @@ static bool virtual_block_is_in_use(const fpage_region_header_t* parent_region, 
 	return (*byte) & (1 << byte_bit_index);
 };
 
+/**
+ * Sets whether the given block is in-use.
+ *
+ * The parent region's lock MUST be held.
+ */
 static void set_virtual_block_is_in_use(fpage_region_header_t* parent_region, const fpage_free_block_t* block, bool in_use) {
 	size_t byte_bit_index = 0;
 	uint8_t* byte = (uint8_t*)virtual_bitmap_entry_for_block(parent_region, block, &byte_bit_index);
@@ -580,6 +714,11 @@ static void set_virtual_block_is_in_use(fpage_region_header_t* parent_region, co
 	}
 };
 
+/**
+ * Inserts the given block into the appropriate bucket in the parent region.
+ *
+ * The parent region's lock MUST be held.
+ */
 static void insert_virtual_free_block(fpage_region_header_t* parent_region, fpage_free_block_t* block, size_t block_page_count) {
 	size_t order = max_order_of_page_count(block_page_count);
 	fpage_free_block_t* phys_block = allocate_frame(fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE, NULL);
@@ -596,6 +735,11 @@ static void insert_virtual_free_block(fpage_region_header_t* parent_region, fpag
 	parent_region->buckets[order] = block;
 };
 
+/**
+ * Removes the given block from the appropriate bucket in the parent region.
+ *
+ * The parent region's lock MUST be held.
+ */
 static void remove_virtual_free_block(fpage_free_block_t* block) {
 	*block->prev = block->next;
 	if (block->next) {
@@ -605,6 +749,11 @@ static void remove_virtual_free_block(fpage_free_block_t* block) {
 	free_frame((void*)fpage_virtual_to_physical((uintptr_t)block), fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE);
 };
 
+/**
+ * Finds the region's buddy.
+ *
+ * The parent region's lock MUST be held.
+ */
 static fpage_free_block_t* find_virtual_buddy(fpage_region_header_t* parent_region, fpage_free_block_t* block, size_t block_page_count) {
 	uintptr_t parent_start = (uintptr_t)parent_region->start;
 	uintptr_t maybe_buddy = (((uintptr_t)block - parent_start) ^ (block_page_count * FPAGE_PAGE_SIZE)) + parent_start;
@@ -616,6 +765,56 @@ static fpage_free_block_t* find_virtual_buddy(fpage_region_header_t* parent_regi
 	return (fpage_free_block_t*)maybe_buddy;
 };
 
+/**
+ * Reads and acquires the lock for the first region at `regions_head`.
+ *
+ * The `kernel_virtual_regions_head` lock and the first region's lock MUST NOT be held.
+ */
+static fpage_region_header_t* virtual_acquire_first_region(void) {
+	fpage_region_header_t* region;
+	flock_spin_intsafe_lock(&kernel_virtual_regions_head_lock);
+	region = kernel_virtual_regions_head;
+	if (region) {
+		flock_spin_intsafe_lock(&region->lock);
+	}
+	flock_spin_intsafe_unlock(&kernel_virtual_regions_head_lock);
+	return region;
+};
+
+/**
+ * Reads and acquires the lock the lock for the next region after the given region.
+ * Afterwards, it releases the lock for the given region.
+ *
+ * The given region's lock MUST be held and next region's lock MUST NOT be held.
+ */
+static fpage_region_header_t* virtual_acquire_next_region(fpage_region_header_t* prev) {
+	fpage_region_header_t* next = prev->next;
+	if (next) {
+		flock_spin_intsafe_lock(&next->lock);
+	}
+	flock_spin_intsafe_unlock(&prev->lock);
+	return next;
+};
+
+/**
+ * Like `acquire_next_region`, but if the given region matches the given exception region, its lock is NOT released.
+ */
+static fpage_region_header_t* virtual_acquire_next_region_with_exception(fpage_region_header_t* prev, fpage_region_header_t* exception) {
+	fpage_region_header_t* next = prev->next;
+	if (next) {
+		flock_spin_intsafe_lock(&next->lock);
+	}
+	if (prev != exception) {
+		flock_spin_intsafe_unlock(&prev->lock);
+	}
+	return next;
+};
+
+/**
+ * Allocates a virtual region of the given size.
+ *
+ * The `kernel_virtual_regions_head_lock` lock and all the region locks MUST NOT be held.
+ */
 static void* allocate_virtual(size_t page_count, size_t* out_allocated_page_count, bool user) {
 	size_t min_order = min_order_for_page_count(page_count);
 
@@ -625,11 +824,14 @@ static void* allocate_virtual(size_t page_count, size_t* out_allocated_page_coun
 	uintptr_t start_split = 0;
 
 	// first, look for the smallest usable block from any region
-	for (fpage_region_header_t* region = kernel_virtual_regions_head; region != NULL; region = region->next) {
+	for (fpage_region_header_t* region = virtual_acquire_first_region(); region != NULL; region = virtual_acquire_next_region_with_exception(region, candidate_parent_region)) {
 		for (size_t order = min_order; order < MAX_ORDER && order < candidate_order; ++order) {
 			fpage_free_block_t* block = region->buckets[order];
 
 			if (block) {
+				if (candidate_parent_region) {
+					flock_spin_intsafe_unlock(&candidate_parent_region->lock);
+				}
 				candidate_order = order;
 				candidate_block = block;
 				candidate_parent_region = region;
@@ -646,6 +848,8 @@ static void* allocate_virtual(size_t page_count, size_t* out_allocated_page_coun
 	if (!candidate_block) {
 		return NULL;
 	}
+
+	// the candidate parent region's lock is held here
 
 	// okay, we've chosen our candidate region. un-free it
 	remove_virtual_free_block(candidate_block);
@@ -664,6 +868,9 @@ static void* allocate_virtual(size_t page_count, size_t* out_allocated_page_coun
 	// let's mark it as in-use...
 	set_virtual_block_is_in_use(candidate_parent_region, candidate_block, true);
 
+	// drop the parent region lock
+	flock_spin_intsafe_unlock(&candidate_parent_region->lock);
+
 	// ...let the user know how much we actually gave them (if they want to know that)...
 	if (out_allocated_page_count) {
 		*out_allocated_page_count = page_count_of_order(min_order);
@@ -673,17 +880,27 @@ static void* allocate_virtual(size_t page_count, size_t* out_allocated_page_coun
 	return candidate_block;
 };
 
+/**
+ * Returns `true` if the given block belongs to the given region.
+ *
+ * The region's lock MUST be held.
+ */
 FERRO_ALWAYS_INLINE bool virtual_block_belongs_to_region(fpage_free_block_t* block, fpage_region_header_t* region) {
 	return (uintptr_t)block >= (uintptr_t)region->start && (uintptr_t)block < (uintptr_t)region->start + (region->page_count * FPAGE_PAGE_SIZE);
 };
 
+/**
+ * Frees a virtual region of the given size.
+ *
+ * The `kernel_virtual_regions_head_lock` lock and all the region locks MUST NOT be held.
+ */
 static void free_virtual(void* virtual, size_t page_count, bool user) {
 	size_t order = min_order_for_page_count(page_count);
 
 	fpage_region_header_t* parent_region = NULL;
 	fpage_free_block_t* block = virtual;
 
-	for (fpage_region_header_t* region = kernel_virtual_regions_head; region != NULL; region = region->next) {
+	for (fpage_region_header_t* region = virtual_acquire_first_region(); region != NULL; region = virtual_acquire_next_region_with_exception(region, parent_region)) {
 		if (virtual_block_belongs_to_region(block, region)) {
 			parent_region = region;
 			break;
@@ -693,6 +910,8 @@ static void free_virtual(void* virtual, size_t page_count, bool user) {
 	if (!parent_region) {
 		return;
 	}
+
+	// the parent region's lock is held here
 
 	// mark it as free
 	set_block_is_in_use(parent_region, block, false);
@@ -728,8 +947,12 @@ static void free_virtual(void* virtual, size_t page_count, bool user) {
 
 	// finally, insert the new (possibly merged) block into the appropriate bucket
 	insert_virtual_free_block(parent_region, block, page_count_of_order(order));
+
+	// drop the parent region's lock
+	flock_spin_intsafe_unlock(&parent_region->lock);
 };
 
+// we don't need to worry about locks in this function; interrupts are disabled and we're in a uniprocessor environment
 void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* memory_regions, size_t memory_region_count, void* image_base) {
 	fpage_table_t* l2_table = NULL;
 	uintptr_t virt_start = FERRO_KERNEL_VIRTUAL_START;
@@ -829,6 +1052,8 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 		}
 		header->page_count = page_count;
 		header->start = usable_start = (void*)(region->physical_start + ((region->page_count - page_count) * FPAGE_PAGE_SIZE));
+
+		flock_spin_intsafe_init(&header->lock);
 
 		regions_head = (fpage_region_header_t*)physical_start;
 		total_phys_page_count += page_count;
@@ -1088,6 +1313,8 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 		}
 		header->page_count = virt_page_count;
 		header->start = usable_start = (void*)(virt_start + FPAGE_PAGE_SIZE + (extra_bitmap_page_count * FPAGE_PAGE_SIZE));
+
+		flock_spin_intsafe_init(&header->lock);
 
 		kernel_virtual_regions_head = header;
 
