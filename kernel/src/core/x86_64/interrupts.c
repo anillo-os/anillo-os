@@ -197,10 +197,13 @@ fint_gdt_t gdt = {
 };
 
 FERRO_INTERRUPT void breakpoint_handler(fint_isr_frame_t* frame) {
-	fconsole_log("reached a breakpoint!\n");
+	fconsole_logf("hit a breakpoint at %p\n", (void*)((uintptr_t)frame->instruction_pointer - 1));
 };
 
 FERRO_INTERRUPT FERRO_NO_RETURN void double_fault_handler(fint_isr_frame_t* frame, uint64_t code) {
+	// interrupts are already disabled here, but let our interrupt management code know that
+	fint_disable();
+
 	fconsole_log("double faulted; going down now...\n");
 	fpanic();
 };

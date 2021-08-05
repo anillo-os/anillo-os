@@ -19,6 +19,11 @@ SECTIONS {
 
 	.data : AT(ADDR(.data) - kernel_base_virtual) {
 		*(.data.*)
+	}
+
+	. = ALIGN(1024);
+
+	.rodata : AT(ADDR(.rodata) - kernel_base_virtual) {
 		*(.rodata.*)
 	}
 

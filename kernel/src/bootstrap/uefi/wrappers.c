@@ -87,7 +87,7 @@ static size_t print_hex(uintmax_t value, bool uppercase) {
 		if (putchar('0') < 0) {
 			return -1;
 		}
-		++written;
+		return 1;
 	} else {
 		while (value > 0) {
 			char digit = (char)(value % 16);
@@ -118,7 +118,7 @@ static size_t print_octal(uintmax_t value) {
 		if (putchar('0') < 0) {
 			return -1;
 		}
-		++written;
+		return 1;
 	} else {
 		while (value > 0) {
 			buffer[written++] = (char)(value % 8) + '0';
@@ -144,7 +144,7 @@ static size_t print_decimal(uintmax_t value) {
 		if (putchar('0') < 0) {
 			return -1;
 		}
-		++written;
+		return 1;
 	} else {
 		while (value > 0) {
 			buffer[written++] = (char)(value % 10) + '0';

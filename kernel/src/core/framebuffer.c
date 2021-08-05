@@ -22,6 +22,7 @@
 //
 
 #include <ferro/core/framebuffer.h>
+#include <ferro/core/locks.h>
 #include <ferro/bits.h>
 #include <libk/libk.h>
 
@@ -37,6 +38,9 @@ static ferro_fb_pixel_t black_pixel = {
 	.green = 0,
 	.blue = 0,
 };
+
+// protects reading from and writing to the framebuffer (not the info)
+static flock_spin_intsafe_t fb_lock = FLOCK_SPIN_INTSAFE_INIT;
 
 FERRO_ALWAYS_INLINE bool is_within_bounds(size_t x, size_t y) {
 	return x < fb_info->width && y < fb_info->height;
@@ -154,7 +158,9 @@ ferr_t ferro_fb_get_pixel(ferro_fb_pixel_t* pixel, size_t x, size_t y) {
 	uint8_t* framebuffer = fb_info->base;
 	size_t base_index = (fb_info->scan_line_size * y) + (x * bytes_per_pixel);
 
+	flock_spin_intsafe_lock(&fb_lock);
 	buffer_to_pixel(framebuffer + base_index, pixel);
+	flock_spin_intsafe_unlock(&fb_lock);
 
 	return ferr_ok;
 };
@@ -172,7 +178,9 @@ ferr_t ferro_fb_set_pixel(const ferro_fb_pixel_t* pixel, size_t x, size_t y) {
 	uint8_t* framebuffer = fb_info->base;
 	size_t base_index = (fb_info->scan_line_size * y) + (x * bytes_per_pixel);
 
+	flock_spin_intsafe_lock(&fb_lock);
 	pixel_to_buffer(pixel, framebuffer + base_index);
+	flock_spin_intsafe_unlock(&fb_lock);
 
 	return ferr_ok;
 };
@@ -194,9 +202,11 @@ ferr_t ferro_fb_set_area_clone(const ferro_fb_pixel_t* pixel, const ferro_fb_rec
 
 	pixel_to_buffer(pixel, pixelbuf);
 
+	flock_spin_intsafe_lock(&fb_lock);
 	for (size_t i = 0; i < height; ++i) {
 		memclone(framebuffer + base_index + (fb_info->scan_line_size * i), pixelbuf, bytes_per_pixel, width);
 	}
+	flock_spin_intsafe_unlock(&fb_lock);
 
 	return ferr_ok;
 };
@@ -221,15 +231,19 @@ ferr_t ferro_fb_move(const ferro_fb_rect_t* old_area, const ferro_fb_rect_t* new
 	} else if (comparison < 0) {
 		// old_area comes before new_area
 		// start at the bottom
+		flock_spin_intsafe_lock(&fb_lock);
 		for (size_t i = height; i > 0; --i) {
 			memmove(framebuffer + new_base_index + (fb_info->scan_line_size * (i - 1)), framebuffer + old_base_index + (fb_info->scan_line_size * (i - 1)), width * bytes_per_pixel);
 		}
+		flock_spin_intsafe_unlock(&fb_lock);
 	} else if (comparison > 0) {
 		// new_area comes before old_area
 		// start at the top
+		flock_spin_intsafe_lock(&fb_lock);
 		for (size_t i = 0; i < height; ++i) {
 			memmove(framebuffer + new_base_index + (fb_info->scan_line_size * i), framebuffer + old_base_index + (fb_info->scan_line_size * i), width * bytes_per_pixel);
 		}
+		flock_spin_intsafe_unlock(&fb_lock);
 	}
 
 	return ferr_ok;

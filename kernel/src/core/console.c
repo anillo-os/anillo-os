@@ -28,6 +28,7 @@
 #include <ferro/core/framebuffer.h>
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>
+#include <ferro/core/locks.h>
 #include <libk/libk.h>
 
 #include <gen/ferro/font.h>
@@ -47,6 +48,10 @@ FERRO_PACKED_STRUCT(ferro_console_font) {
 };
 
 ferro_console_font_t* font = (ferro_console_font_t*)font_data;
+
+// protects a single character from being written
+// (this is so that we don't get jumbled character writes)
+flock_spin_intsafe_t character_log_lock = FLOCK_SPIN_INTSAFE_INIT;
 
 /**
  * Translates a single character from UTF-8 encoding into UTF-32 encoding.
@@ -154,6 +159,7 @@ static size_t line_padding = FCONSOLE_LINE_PADDING_DEFAULT;
 void fconsole_init() {
 	fconsole_log("ferro kernel version 0.0.0 starting...\n");
 
+#if 0
 	const char* orig = "foo!\n";
 	char* copied = NULL;
 
@@ -168,40 +174,76 @@ void fconsole_init() {
 	if (fmempool_free(copied) != ferr_ok) {
 		fpanic();
 	}
+#endif
+};
+
+static void fconsole_log_code_point(uint32_t code_point) {
+	const ferro_fb_info_t* fb_info = ferro_fb_get_info();
+	bool print_it = true;
+
+	if (!fb_info) {
+		return;
+	}
+
+	if (code_point == '\n') {
+		print_it = false;
+	}
+
+	flock_spin_intsafe_lock(&character_log_lock);
+
+	if (code_point == '\n' || next_location.x + font->glyph_width >= fb_info->width) {
+		next_location.x = 0;
+		next_location.y += font->glyph_height + line_padding;
+	}
+	if (next_location.y + font->glyph_height >= fb_info->height) {
+		ferro_fb_shift(true, font->glyph_height + line_padding, &black_pixel);
+		next_location.y -= font->glyph_height + line_padding;
+	}
+
+	if (print_it) {
+		fconsole_put_utf32_char(code_point, next_location.x, next_location.y, &white_pixel, &black_pixel);
+		next_location.x += font->glyph_width + character_padding;
+	}
+
+	flock_spin_intsafe_unlock(&character_log_lock);
+};
+
+static bool read_code_point(const char** string_pointer, size_t* size_pointer, uint32_t* out_code_point) {
+	size_t utf8_length = 0;
+	uint32_t code_point;
+	bool ok;
+
+	if (*size_pointer == 0) {
+		ok = false;
+		goto out;
+	}
+
+	code_point = utf8_to_utf32(*string_pointer, *size_pointer, &utf8_length);
+	ok = code_point != UINT32_MAX;
+
+	if (!ok) {
+		goto out;
+	}
+
+	*string_pointer += utf8_length;
+	*size_pointer -= utf8_length;
+
+out:
+	if (ok && out_code_point) {
+		*out_code_point = code_point;
+	}
+	return ok;
 };
 
 ferr_t fconsole_logn(const char* string, size_t size) {
-	const ferro_fb_info_t* fb_info = ferro_fb_get_info();
-
 	while (size > 0) {
-		size_t utf8_length = 0;
-		uint32_t code_point = utf8_to_utf32(string, size, &utf8_length);
-		bool print_it = true;
+		uint32_t code_point;
 
-		if (code_point == UINT32_MAX) {
+		if (!read_code_point(&string, &size, &code_point)) {
 			goto err_out;
 		}
 
-		string += utf8_length;
-		size -= utf8_length;
-
-		if (code_point == '\n') {
-			print_it = false;
-		}
-
-		if (code_point == '\n' || next_location.x + font->glyph_width >= fb_info->width) {
-			next_location.x = 0;
-			next_location.y += font->glyph_height + line_padding;
-		}
-		if (next_location.y + font->glyph_height >= fb_info->height) {
-			ferro_fb_shift(true, font->glyph_height + line_padding, &black_pixel);
-			next_location.y -= font->glyph_height + line_padding;
-		}
-
-		if (print_it) {
-			fconsole_put_utf32_char(code_point, next_location.x, next_location.y, &white_pixel, &black_pixel);
-			next_location.x += font->glyph_width + character_padding;
-		}
+		fconsole_log_code_point(code_point);
 	}
 
 	return ferr_ok;
@@ -211,4 +253,273 @@ err_out:
 
 ferr_t fconsole_log(const char* string) {
 	return fconsole_logn(string, strlen(string));
+};
+
+// 32 characters is enough for all three of these variations
+
+static void print_hex(uintmax_t value, bool uppercase) {
+	size_t index = 0;
+	char buffer[32] = {0};
+
+	if (value == 0) {
+		fconsole_log_code_point('0');
+		return;
+	}
+
+	while (value > 0) {
+		char digit = (char)(value % 16);
+		if (digit < 10) {
+			buffer[index++] = digit + '0';
+		} else {
+			buffer[index++] = (digit - 10) + (uppercase ? 'A' : 'a');
+		}
+		value /= 16;
+	}
+
+	// the buffer is in reverse order, so print it in reverse (to get it forwards)
+	for (size_t i = index; i > 0; --i) {
+		fconsole_log_code_point(buffer[i - 1]);
+	}
+};
+
+static void print_octal(uintmax_t value) {
+	size_t index = 0;
+	char buffer[32] = {0};
+
+	if (value == 0) {
+		fconsole_log_code_point('0');
+		return;
+	}
+
+	while (value > 0) {
+		buffer[index++] = (char)(value % 8) + '0';
+		value /= 8;
+	}
+
+	// the buffer is in reverse order, so print it in reverse (to get it forwards)
+	for (size_t i = index; i > 0; --i) {
+		fconsole_log_code_point(buffer[i - 1]);
+	}
+};
+
+static void print_decimal(uintmax_t value) {
+	size_t index = 0;
+	char buffer[32] = {0};
+
+	if (value == 0) {
+		fconsole_log_code_point('0');
+		return;
+	}
+
+	while (value > 0) {
+		buffer[index++] = (char)(value % 10) + '0';
+		value /= 10;
+	}
+
+	// the buffer is in reverse order, so print it in reverse (to get it forwards)
+	for (size_t i = index; i > 0; --i) {
+		fconsole_log_code_point(buffer[i - 1]);
+	}
+};
+
+ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
+	while (format_size > 0) {
+		uint32_t code_point;
+
+		#define READ_NEXT \
+			if (!read_code_point(&format, &format_size, &code_point)) { \
+				goto err_out; \
+			} \
+
+		READ_NEXT;
+
+		if (code_point == '%') {
+			READ_NEXT;
+
+			if (code_point == '%') {
+				fconsole_log_code_point('%');
+				continue;
+			}
+
+			FERRO_ENUM(uint8_t, printf_length) {
+				printf_length_default,
+				printf_length_short_short,
+				printf_length_short,
+				printf_length_long,
+				printf_length_long_long,
+				printf_length_intmax,
+				printf_length_size,
+				printf_length_ptrdiff,
+			};
+
+			printf_length_t length = printf_length_default;
+
+			if (code_point == 'h') {
+				READ_NEXT;
+
+				if (code_point == 'h') {
+					READ_NEXT;
+
+					length = printf_length_short_short;
+				} else {
+					length = printf_length_short;
+				}
+			} else if (code_point == 'l') {
+				READ_NEXT;
+
+				if (code_point == 'l') {
+					READ_NEXT;
+
+					length = printf_length_long_long;
+				} else {
+					length = printf_length_long;
+				}
+			} else if (code_point == 'j') {
+				READ_NEXT;
+
+				length = printf_length_intmax;
+			} else if (code_point == 'z') {
+				READ_NEXT;
+
+				length = printf_length_size;
+			} else if (code_point == 't') {
+				READ_NEXT;
+
+				length = printf_length_ptrdiff;
+			}
+
+			switch (code_point) {
+				case 'd':
+				case 'i': {
+					intmax_t value = 0;
+
+					switch (length) {
+						case printf_length_default:
+						case printf_length_short_short:
+						case printf_length_short:
+							value = va_arg(args, int);
+							break;
+						case printf_length_long:
+							value = va_arg(args, long int);
+							break;
+						case printf_length_long_long:
+							value = va_arg(args, long long int);
+							break;
+						case printf_length_intmax:
+							value = va_arg(args, intmax_t);
+							break;
+						case printf_length_size:
+							value = va_arg(args, size_t);
+							break;
+						case printf_length_ptrdiff:
+							value = va_arg(args, ptrdiff_t);
+							break;
+					}
+
+					if (value < 0) {
+						fconsole_log_code_point('-');
+						value *= -1;
+					}
+
+					print_decimal(value);
+				} break;
+
+				case 'u':
+				case 'o':
+				case 'x':
+				case 'X': {
+					uintmax_t value = 0;
+
+					switch (length) {
+						case printf_length_default:
+						case printf_length_short_short:
+						case printf_length_short:
+							value = va_arg(args, unsigned int);
+							break;
+						case printf_length_long:
+							value = va_arg(args, unsigned long int);
+							break;
+						case printf_length_long_long:
+							value = va_arg(args, unsigned long long int);
+							break;
+						case printf_length_intmax:
+							value = va_arg(args, uintmax_t);
+							break;
+						case printf_length_size:
+							value = va_arg(args, size_t);
+							break;
+						case printf_length_ptrdiff:
+							value = va_arg(args, ptrdiff_t);
+							break;
+					}
+
+					if (*format == 'x' || *format == 'X') {
+						print_hex(value, *format == 'X');
+					} else if (*format == 'o') {
+						print_octal(value);
+					} else {
+						print_decimal(value);
+					}
+				} break;
+
+				case 'c': {
+					char value = (char)va_arg(args, int);
+					fconsole_log_code_point(value);
+				} break;
+
+				case 's': {
+					const char* value = va_arg(args, const char*);
+					fconsole_log(value);
+				} break;
+
+				case 'p': {
+					const void* value = va_arg(args, const void*);
+
+					// in reality, this should pad to 16 characters (not including "0x")
+					fconsole_log_code_point('0');
+					fconsole_log_code_point('x');
+					print_hex((uintmax_t)(uintptr_t)value, false);
+				} break;
+
+				default: {
+					// invalid format
+					return -1;
+				} break;
+			}
+		} else {
+			fconsole_log_code_point(code_point);
+		}
+
+		#undef READ_NEXT
+	}
+
+	return ferr_ok;
+err_out:
+	return ferr_invalid_argument;
+};
+
+ferr_t fconsole_lognf(const char* format, size_t format_size, ...) {
+	va_list args;
+	ferr_t result;
+
+	va_start(args, format_size);
+	result = fconsole_lognfv(format, format_size, args);
+	va_end(args);
+
+	return result;
+};
+
+ferr_t fconsole_logfv(const char* format, va_list args) {
+	return fconsole_lognfv(format, strlen(format), args);
+};
+
+ferr_t fconsole_logf(const char* format, ...) {
+	va_list args;
+	ferr_t result;
+
+	va_start(args, format);
+	result = fconsole_logfv(format, args);
+	va_end(args);
+
+	return result;
 };

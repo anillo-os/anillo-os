@@ -379,6 +379,8 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 				kernel_start_phys = program_header->physical_address;
 			}
 
+			printf("Info: phys = 0x%zx, end = 0x%zx\n", program_header->physical_address, program_header->physical_address + program_header->memory_size);
+
 			if (program_header->physical_address + program_header->memory_size > kernel_end_phys) {
 				kernel_end_phys = program_header->physical_address + program_header->memory_size;
 			}
@@ -390,6 +392,8 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 	// update the kernel image info
 	kernel_image_info->size = kernel_end_phys - kernel_start_phys;
+
+	printf("Info: kernel image size = %zu (%zx); requested size for alignment = %zu (%zx)\n", kernel_image_info->size, kernel_image_info->size, kernel_image_info->size + 0x1fffffULL, kernel_image_info->size + 0x1fffffULL);
 
 	// allocate the block
 	// this is a little more complicated than just allocating some pages because our kernel requires 2MiB alignment
