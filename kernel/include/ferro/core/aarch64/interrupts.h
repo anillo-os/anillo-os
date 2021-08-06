@@ -20,12 +20,52 @@
 #define _FERRO_CORE_AARCH64_INTERRUPTS_H_
 
 #include <ferro/base.h>
-
+#include <ferro/core/aarch64/per-cpu.h>
 #include <ferro/core/interrupts.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
-#error Not implemented yet
+/**
+ * The type used to represent the interrupt state returned by `fint_save` and accepted by `fint_restore`.
+ */
+typedef FARCH_PER_CPU_TYPEOF(outstanding_interrupt_disable_count) fint_state_t;
+
+FERRO_ALWAYS_INLINE void fint_disable(void) {
+	if (FARCH_PER_CPU(outstanding_interrupt_disable_count)++ == 0) {
+		// '\043' == '#'
+		__asm__ volatile("msr daifset, \04315" ::: "memory");
+	}
+};
+
+FERRO_ALWAYS_INLINE void fint_enable(void) {
+	if (--FARCH_PER_CPU(outstanding_interrupt_disable_count) == 0) {
+		// '\043' == '#'
+		__asm__ volatile("msr daifset, \0430" ::: "memory");
+	}
+};
+
+/**
+ * Returns the current interrupt state. Useful to save the current state and restore it later.
+ */
+FERRO_ALWAYS_INLINE fint_state_t fint_save(void) {
+	return FARCH_PER_CPU(outstanding_interrupt_disable_count);
+};
+
+/**
+ * Applies the given interrupt state. Useful to restore a previously saved interrupt state.
+ *
+ * Note that it is unsafe to use `fint_enable`/`fint_disable` and this function in the same context (as it will lead to the outstanding-interrupt-disable count becoming unbalanced).
+ */
+FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state) {
+	FARCH_PER_CPU(outstanding_interrupt_disable_count) = state;
+
+	// '\043' == '#'
+	if (state == 0) {
+		__asm__ volatile("msr daifset, \0430" ::: "memory");
+	} else {
+		__asm__ volatile("msr daifset, \04315" ::: "memory");
+	}
+};
 
 FERRO_DECLARATIONS_END;
 

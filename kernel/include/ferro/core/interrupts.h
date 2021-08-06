@@ -28,6 +28,8 @@ FERRO_DECLARATIONS_BEGIN;
 
 /**
  * Initializes the interrupts subsystem. Called on kernel startup.
+ *
+ * After this function is called, interrupts are enabled.
  */
 void fint_init(void);
 

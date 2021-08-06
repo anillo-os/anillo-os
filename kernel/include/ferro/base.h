@@ -51,4 +51,12 @@
 
 #define FERRO_WUR __attribute__((warn_unused_result))
 
+FERRO_ALWAYS_INLINE void fassert_helper(int result, const char* expr) {
+	if (!result) {
+		__builtin_unreachable();
+	}
+};
+
+#define fassert(x) fassert_helper(!!(x), #x)
+
 #endif // _FERRO_BASE_H_

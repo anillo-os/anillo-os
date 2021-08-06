@@ -22,6 +22,7 @@
 #include <stddef.h>
 
 #include <ferro/base.h>
+#include <ferro/platform.h>
 #include <ferro/core/memory-regions.h>
 #include <ferro/elf.h>
 #include <ferro/core/framebuffer.h>
@@ -113,6 +114,11 @@ typedef FERRO_SYSV_ABI void (*ferro_entry_t)(void* initial_pool, size_t initial_
  * Hang the current CPU forever. Never returns.
  */
 FERRO_ALWAYS_INLINE FERRO_NO_RETURN void fentry_hang_forever(void);
+
+/**
+ * Puts the current CPU to sleep until the next interrupt occurs.
+ */
+FERRO_ALWAYS_INLINE void fentry_idle(void);
 
 /**
  * Permanently jump to a new (virtual) address. Never returns to the caller (at least not the same address).

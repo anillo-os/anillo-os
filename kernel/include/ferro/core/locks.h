@@ -22,6 +22,7 @@
 #include <stdbool.h>
 
 #include <ferro/base.h>
+#include <ferro/platform.h>
 
 FERRO_DECLARATIONS_BEGIN;
 

@@ -16,35 +16,26 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _FERRO_CORE_X86_64_ENTRY_H_
-#define _FERRO_CORE_X86_64_ENTRY_H_
+#ifndef _FERRO_CORE_AARCH64_PER_CPU_H_
+#define _FERRO_CORE_AARCH64_PER_CPU_H_
+
+#include <stdint.h>
+#include <stddef.h>
 
 #include <ferro/base.h>
-#include <ferro/core/interrupts.h>
-#include <ferro/core/entry.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
-FERRO_ALWAYS_INLINE FERRO_NO_RETURN void fentry_hang_forever(void) {
-	while (true) {
-		__asm__ volatile(
-			// '\043' == '#'
-			"msr daifset, \04315\n"
-			"wfi\n"
-			:::
-			"memory"
-		);
-	}
+FERRO_STRUCT(farch_per_cpu_data) {
+	farch_per_cpu_data_t* base;
+	uint64_t outstanding_interrupt_disable_count;
 };
 
-FERRO_ALWAYS_INLINE void fentry_idle(void) {
-	__asm__ volatile("wfi" ::: "memory");
-};
+farch_per_cpu_data_t* farch_per_cpu_base_address(void);
 
-FERRO_ALWAYS_INLINE void fentry_jump_to_virtual(void* address) {
-	__asm__ volatile("br %0" :: "r" (address));
-};
+#define FARCH_PER_CPU_TYPEOF(_name) __typeof__(((farch_per_cpu_data_t*)NULL)->_name)
+#define FARCH_PER_CPU(_name) (farch_per_cpu_base_address()->_name)
 
 FERRO_DECLARATIONS_END;
 
-#endif // _FERRO_CORE_X86_64_ENTRY_H_
+#endif // _FERRO_CORE_AARCH64_PER_CPU_H_

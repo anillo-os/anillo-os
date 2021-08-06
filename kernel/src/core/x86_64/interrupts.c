@@ -173,6 +173,10 @@ FERRO_PACKED_STRUCT(fint_gdt_pointer) {
 	fint_gdt_t* base;
 };
 
+FERRO_STRUCT(fint_handler_common_data) {
+	fint_state_t interrupt_state;
+};
+
 fint_idt_t idt = {0};
 
 fint_tss_t tss = {0};
@@ -196,16 +200,37 @@ fint_gdt_t gdt = {
 	},
 };
 
+static void fint_handler_common_begin(fint_handler_common_data_t* data) {
+	// for all our handlers, we set a bit in their configuration to tell the CPU to disable interrupts when handling them
+	// so we need to let our interrupt management code know this
+	data->interrupt_state = FARCH_PER_CPU(outstanding_interrupt_disable_count);
+	FARCH_PER_CPU(outstanding_interrupt_disable_count) = 1;
+};
+
+static void fint_handler_common_end(fint_handler_common_data_t* data) {
+	FARCH_PER_CPU(outstanding_interrupt_disable_count) = data->interrupt_state;
+};
+
 FERRO_INTERRUPT void breakpoint_handler(fint_isr_frame_t* frame) {
-	fconsole_logf("hit a breakpoint at %p\n", (void*)((uintptr_t)frame->instruction_pointer - 1));
+	fint_handler_common_data_t data;
+
+	fint_handler_common_begin(&data);
+
+	fconsole_logf("breakpoint at %p\n", (void*)((uintptr_t)frame->instruction_pointer - 1));
+
+	fint_handler_common_end(&data);
 };
 
 FERRO_INTERRUPT FERRO_NO_RETURN void double_fault_handler(fint_isr_frame_t* frame, uint64_t code) {
-	// interrupts are already disabled here, but let our interrupt management code know that
-	fint_disable();
+	fint_handler_common_data_t data;
+
+	fint_handler_common_begin(&data);
 
 	fconsole_log("double faulted; going down now...\n");
 	fpanic();
+
+	// unnecessary, but just for consistency
+	fint_handler_common_end(&data);
 };
 
 static void fint_reload_segment_registers(uint8_t cs, uint8_t ds) {
@@ -282,7 +307,7 @@ void fint_init(void) {
 	memclone(&idt, &missing_entry, sizeof(missing_entry), sizeof(idt) / sizeof(missing_entry));
 
 	// initialize the desired idt entries with actual values
-	fint_make_idt_entry(&idt.breakpoint, breakpoint_handler, fint_gdt_index_code, 0, true, 0);
+	fint_make_idt_entry(&idt.breakpoint, breakpoint_handler, fint_gdt_index_code, 0, false, 0);
 	fint_make_idt_entry(&idt.double_fault, double_fault_handler, fint_gdt_index_code, 1, false, 0);
 
 	// load the idt
@@ -300,7 +325,7 @@ void fint_init(void) {
 	fint_enable();
 
 	// test: trigger a breakpoint
-	//__asm__ volatile("int3" :::);
+	//__builtin_debugtrap();
 
 	// test: trigger a double fault
 	//*(volatile char*)0xdeadbeefULL = 42;

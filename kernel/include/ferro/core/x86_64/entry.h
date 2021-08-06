@@ -30,8 +30,14 @@ FERRO_ALWAYS_INLINE FERRO_NO_RETURN void fentry_hang_forever(void) {
 		__asm__ volatile(
 			"cli\n"
 			"hlt\n"
+			:::
+			"memory"
 		);
 	}
+};
+
+FERRO_ALWAYS_INLINE void fentry_idle(void) {
+	__asm__ volatile("hlt" ::: "memory");
 };
 
 FERRO_ALWAYS_INLINE void fentry_jump_to_virtual(void* address) {

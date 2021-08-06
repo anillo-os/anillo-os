@@ -66,6 +66,10 @@ SOURCES_x86_64=(
 
 SOURCES_aarch64=(
 	src/core/aarch64/paging.c
+	src/core/aarch64/interrupts.c
+	src/core/aarch64/locks.c
+	src/core/aarch64/per-cpu.c
+	src/core/aarch64/ivt.s
 )
 
 # generates CFLAGS_ALL, containing the full list of CFLAGS for the current architecture

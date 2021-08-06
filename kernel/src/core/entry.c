@@ -272,6 +272,8 @@ jump_here_for_virtual:;
 	// initialize the interrupts subsystem
 	fint_init();
 
-	fentry_hang_forever();
+	while (true) {
+		fentry_idle();
+	}
 };
 
