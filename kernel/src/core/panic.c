@@ -24,10 +24,30 @@
 
 #include <ferro/core/panic.h>
 #include <ferro/core/entry.h>
+#include <ferro/core/console.h>
+#include <ferro/core/interrupts.h>
 
-FERRO_NO_RETURN void fpanic(void) {
+void fpanicv(const char* reason_format, va_list args) {
 	__builtin_debugtrap();
+
+	// we're going to die, so don't let anyone interrupt us
+	fint_disable();
+
+	// technically, we shouldn't do this because the panic might've come from there, but oh well
+	fconsole_logfv(reason_format, args);
+	fconsole_log("\n");
 
 	// for now
 	fentry_hang_forever();
+};
+
+void fpanic(const char* reason_format, ...) {
+	va_list args;
+
+	va_start(args, reason_format);
+
+	fpanicv(reason_format, args);
+
+	// not necessary, but just for consistency
+	va_end(args);
 };

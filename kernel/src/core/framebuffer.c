@@ -89,7 +89,7 @@ void ferro_fb_init(ferro_fb_info_t* _fb_info) {
 				.y = fb_info->height - 1,
 			},
 		};
-		ferro_fb_set_area_clone(&black_pixel, &entire_screen);
+		(void)ferro_fb_set_area_clone(&black_pixel, &entire_screen);
 	}
 };
 
@@ -147,7 +147,7 @@ static void buffer_to_pixel(const uint8_t* buffer, ferro_fb_pixel_t* pixel) {
 
 ferr_t ferro_fb_get_pixel(ferro_fb_pixel_t* pixel, size_t x, size_t y) {
 	if (!ferro_fb_available()) {
-		return ferr_permanent_outage;
+		return ferr_temporary_outage;
 	} else if (x > fb_info->width || y > fb_info->height) {
 		return ferr_invalid_argument;
 	} else if (pixel == NULL) {
@@ -167,7 +167,7 @@ ferr_t ferro_fb_get_pixel(ferro_fb_pixel_t* pixel, size_t x, size_t y) {
 
 ferr_t ferro_fb_set_pixel(const ferro_fb_pixel_t* pixel, size_t x, size_t y) {
 	if (!ferro_fb_available()) {
-		return ferr_permanent_outage;
+		return ferr_temporary_outage;
 	} else if (x > fb_info->width || y > fb_info->height) {
 		return ferr_invalid_argument;
 	} else if (pixel == NULL) {
@@ -187,7 +187,7 @@ ferr_t ferro_fb_set_pixel(const ferro_fb_pixel_t* pixel, size_t x, size_t y) {
 
 ferr_t ferro_fb_set_area_clone(const ferro_fb_pixel_t* pixel, const ferro_fb_rect_t* area) {
 	if (!ferro_fb_available()) {
-		return ferr_permanent_outage;
+		return ferr_temporary_outage;
 	} else if (!is_within_bounds_rect(area)) {
 		return ferr_invalid_argument;
 	}
@@ -213,7 +213,7 @@ ferr_t ferro_fb_set_area_clone(const ferro_fb_pixel_t* pixel, const ferro_fb_rec
 
 ferr_t ferro_fb_move(const ferro_fb_rect_t* old_area, const ferro_fb_rect_t* new_area) {
 	if (!ferro_fb_available()) {
-		return ferr_permanent_outage;
+		return ferr_temporary_outage;
 	} else if (!is_within_bounds_rect(old_area) || !is_within_bounds_rect(new_area) || !rects_are_equal_size(old_area, new_area)) {
 		return ferr_invalid_argument;
 	}
@@ -251,7 +251,7 @@ ferr_t ferro_fb_move(const ferro_fb_rect_t* old_area, const ferro_fb_rect_t* new
 
 ferr_t ferro_fb_shift(bool up_if_true, size_t row_count, const ferro_fb_pixel_t* fill_value) {
 	if (!ferro_fb_available()) {
-		return ferr_permanent_outage;
+		return ferr_temporary_outage;
 	} else if (row_count > fb_info->height) {
 		row_count = fb_info->height;
 	}

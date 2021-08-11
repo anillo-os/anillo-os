@@ -26,6 +26,7 @@
 #include <ferro/core/memory-regions.h>
 #include <ferro/elf.h>
 #include <ferro/core/framebuffer.h>
+#include <ferro/core/acpi.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -69,6 +70,9 @@ FERRO_ENUM(int, ferro_boot_data_type) {
 
 	// pointer to where our memory map is stored
 	ferro_boot_data_type_memory_map,
+
+	// pointer to the ACPI XSDT pointer (`facpi_rsdp_t`)
+	ferro_boot_data_type_rsdp_pointer,
 };
 
 typedef struct ferro_boot_data_info ferro_boot_data_info_t;
@@ -106,7 +110,7 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 	#error Unrecognized/unsupported CPU architecture! (See <ferro/core/entry.h>)
 #endif
 
-typedef FERRO_SYSV_ABI void (*ferro_entry_t)(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count);
+typedef FERRO_SYSV_ABI void (*ferro_entry_f)(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count);
 
 // these are arch-dependent functions we expect all architectures to implement
 

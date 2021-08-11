@@ -1,0 +1,391 @@
+#include <ferro/core/timers.private.h>
+#include <ferro/core/locks.h>
+#include <ferro/core/mempool.h>
+#include <ferro/core/panic.h>
+#include <ferro/core/console.h>
+
+#include <stddef.h>
+
+FERRO_STRUCT(ftimers_timer) {
+	ftimers_backend_timestamp_t most_recent_timestamp;
+	uint64_t remaining_delay;
+	ftimers_id_t id;
+	ftimers_callback_f callback;
+	void* data;
+	bool disabled;
+};
+
+FERRO_STRUCT(ftimers_priority_queue) {
+	ftimers_timer_t* timers;
+	size_t length;
+	size_t size;
+};
+
+#define MAX_BACKENDS 10
+
+const ftimers_backend_t* backends[MAX_BACKENDS] = {0};
+uint8_t backend_count = 0;
+uint8_t backend = UINT8_MAX;
+// TODO: this should probably be an RW lock
+flock_spin_intsafe_t backend_lock = FLOCK_SPIN_INTSAFE_INIT;
+
+ftimers_priority_queue_t queue = {0};
+bool currently_firing = false;
+flock_spin_intsafe_t queue_lock = FLOCK_SPIN_INTSAFE_INIT;
+ftimers_id_t next_id = 0;
+
+FERRO_ALWAYS_INLINE size_t parent_index_for_index(size_t index) {
+	return (index - 1) / 2;
+};
+
+FERRO_ALWAYS_INLINE size_t left_child_index(size_t index) {
+	return (index * 2) + 1;
+};
+
+FERRO_ALWAYS_INLINE size_t right_child_index(size_t index) {
+	return (index * 2) + 2;
+};
+
+// needs the queue and backend locks
+static bool recalculate_delays_locked(ftimers_backend_timestamp_t timestamp) {
+	for (size_t i = 0; i < queue.length; ++i) {
+		ftimers_timer_t* timer = &queue.timers[i];
+		uint64_t ns = backends[backend]->delta_to_ns(timer->most_recent_timestamp, timestamp);
+		if (ns > timer->remaining_delay) {
+			timer->remaining_delay = 0;
+		} else {
+			timer->remaining_delay -= ns;
+		}
+		timer->most_recent_timestamp = timestamp;
+	}
+	return queue.length > 0 && (queue.timers[0].remaining_delay == 0 || queue.timers[0].disabled);
+};
+
+// needs the queue lock
+static void ftimers_priority_queue_remove_locked(void) {
+	size_t index = 0;
+
+	// replace the first timer with the last
+	queue.timers[0] = queue.timers[--queue.length];
+
+	// and move it down as necessary
+	while (true) {
+		size_t left_idx = left_child_index(index);
+		size_t right_idx = right_child_index(index);
+		uint64_t left_delay;
+		uint64_t right_delay;
+		uint64_t this_delay = queue.timers[index].remaining_delay;
+
+		if (left_idx >= queue.length) {
+			// since the left child MUST come first, we know that if we don't have a left child, then we don't have a right one either
+			break;
+		}
+
+		left_delay = queue.timers[left_idx].remaining_delay;
+		right_delay = (right_idx < queue.length) ? queue.timers[right_idx].remaining_delay : UINT64_MAX;
+
+		if (left_delay < this_delay || right_delay < this_delay) {
+			ftimers_timer_t tmp;
+
+			if (right_delay < left_delay) {
+				tmp = queue.timers[right_idx];
+				queue.timers[right_idx] = queue.timers[index];
+				queue.timers[index] = tmp;
+			} else {
+				tmp = queue.timers[left_idx];
+				queue.timers[left_idx] = queue.timers[index];
+				queue.timers[index] = tmp;
+			}
+		} else {
+			// if our delay is shorter than both of our children's delays, then we're already in the right spot
+			break;
+		}
+	}
+
+	// if the queue is now a fourth of the allocated size, we should shrink it to half its size
+	if (queue.length < queue.size / 4) {
+		if (fmempool_reallocate(queue.timers, sizeof(ftimers_timer_t) * (queue.size / 2), NULL, (void**)&queue.timers) != ferr_ok) {
+			// this should be impossible; shrinking is always possible
+			fpanic("failed to shrink timer priority queue");
+		}
+		queue.size /= 2;
+	}
+};
+
+static void ftimers_priority_queue_remove(void) {
+	flock_spin_intsafe_lock(&queue_lock);
+	ftimers_priority_queue_remove_locked();
+	flock_spin_intsafe_unlock(&queue_lock);
+};
+
+// needs the queue and backend locks.
+// note that this function might drop both the queue and backend locks and reacquire them afterwards
+// (so that the callback can call ftimers functions).
+static void fire_one_locked(void) {
+	ftimers_callback_f callback = queue.timers[0].callback;
+	void* data = queue.timers[0].data;
+	bool disabled = queue.timers[0].disabled;
+
+	ftimers_priority_queue_remove_locked();
+
+	if (disabled) {
+		// if it's disabled, we're done
+		return;
+	}
+
+	//__builtin_debugtrap();
+
+	flock_spin_intsafe_unlock(&queue_lock);
+	flock_spin_intsafe_unlock(&backend_lock);
+
+	//__builtin_debugtrap();
+
+	callback(data);
+
+	flock_spin_intsafe_lock(&backend_lock);
+	flock_spin_intsafe_lock(&queue_lock);
+};
+
+// needs the backend and queue locks
+static void fire_all_locked(void) {
+	// someone is already firing all the timers
+	// don't start firing in a nested call
+	if (currently_firing) {
+		return;
+	}
+
+	currently_firing = true;
+
+	while (recalculate_delays_locked(backends[backend]->current_timestamp())) {
+		fire_one_locked();
+	}
+
+	currently_firing = false;
+};
+
+// needs the backend and queue locks
+static void rearm_and_fire_all_locked(void) {
+	uint64_t delay = 0;
+
+	fire_all_locked();
+
+	if (queue.length > 0) {
+		delay = queue.timers[0].remaining_delay;
+	}
+
+	if (delay > 0) {
+		backends[backend]->schedule(delay);
+	}
+};
+
+static ftimers_id_t ftimers_priority_queue_add_locked(uint64_t delay, ftimers_callback_f callback, void* data, ftimers_backend_timestamp_t initial_timestamp) {
+	ftimers_timer_t* new_timer;
+	ftimers_id_t id = UINTPTR_MAX;
+	size_t index;
+
+	if (queue.length >= queue.size / 2) {
+		size_t new_size = 4;
+
+		if (queue.size > 0) {
+			new_size = queue.size * 2;
+		}
+
+		if (fmempool_reallocate(queue.timers, sizeof(ftimers_timer_t) * new_size, NULL, (void**)&queue.timers) != ferr_ok) {
+			goto out;
+		}
+
+		queue.size = new_size;
+	}
+
+	index = queue.length++;
+	new_timer = &queue.timers[index];
+
+	new_timer->id = id = next_id++;
+	if (next_id == UINTPTR_MAX) {
+		next_id = 0;
+	}
+	new_timer->remaining_delay = delay;
+	new_timer->most_recent_timestamp = initial_timestamp;
+	new_timer->disabled = false;
+	new_timer->callback = callback;
+	new_timer->data = data;
+
+	// we might actually already have to fire the timer, so we call `recalculate_delays_locked` after we've placed it in the queue.
+	// this function doesn't care about queue order, though, so we can fix that afterwards
+	recalculate_delays_locked(backends[backend]->current_timestamp());
+
+	// now find where it really belongs
+	while (index > 0) {
+		size_t parent_index = parent_index_for_index(index);
+		ftimers_timer_t tmp;
+
+		if (queue.timers[parent_index].remaining_delay > queue.timers[index].remaining_delay) {
+			break;
+		}
+
+		tmp = queue.timers[parent_index];
+		queue.timers[parent_index] = queue.timers[index];
+		queue.timers[index] = tmp;
+	}
+
+out:
+	return id;
+};
+
+static ftimers_id_t ftimers_priority_queue_add(uint64_t delay, ftimers_callback_f callback, void* data, ftimers_backend_timestamp_t initial_timestamp) {
+	ftimers_id_t id;
+	flock_spin_intsafe_lock(&queue_lock);
+	id = ftimers_priority_queue_add_locked(delay, callback, data, initial_timestamp);
+	flock_spin_intsafe_unlock(&queue_lock);
+	return id;
+};
+
+void ftimers_backend_fire(void) {
+	flock_spin_intsafe_lock(&backend_lock);
+	flock_spin_intsafe_lock(&queue_lock);
+
+	rearm_and_fire_all_locked();
+
+	flock_spin_intsafe_unlock(&queue_lock);
+	flock_spin_intsafe_unlock(&backend_lock);
+};
+
+// takes the backend lock and MAY take the queue lock
+ferr_t ftimers_register_backend(const ftimers_backend_t* new_backend) {
+	ferr_t status = ferr_ok;
+	uint8_t index = 0;
+
+	if (!new_backend || !new_backend->schedule || !new_backend->current_timestamp || !new_backend->delta_to_ns || !new_backend->cancel) {
+		status = ferr_invalid_argument;
+		goto out_unlocked;
+	}
+
+	flock_spin_intsafe_lock(&backend_lock);
+
+	if (backend_count >= MAX_BACKENDS) {
+		status = ferr_permanent_outage;
+		goto out;
+	}
+
+	index = backend_count++;
+
+	backends[index] = new_backend;
+
+	if (index == 0) {
+		// if we didn't have a backend, use it
+		backend = index;
+
+		fconsole_logf("switching to timer backend \"%s\" (with precision=%uns)\n", new_backend->name, new_backend->precision);
+
+		// we don't need to worry about pre-existing timers because we can't have any in this state!
+	} else if (new_backend->precision < backends[backend]->precision) {
+		// if this one is more precise, use it
+		const ftimers_backend_t* old_backend = backends[index];
+		ftimers_backend_timestamp_t timestamp;
+
+		fconsole_logf("switching to timer backend \"%s\" (with precision=%uns)\n", new_backend->name, new_backend->precision);
+
+		// since we're switching backends, we have to switch over the values for any existing timers, so lock the queue
+		flock_spin_intsafe_lock(&queue_lock);
+
+		// first, disarm the old backend
+		old_backend->cancel();
+
+		// next, get the most up to date values possible
+		// calculate our new timestamp here, too, so that they match up as much as possible
+		timestamp = new_backend->current_timestamp();
+		recalculate_delays_locked(old_backend->current_timestamp());
+
+		// now set the new backend
+		backend = index;
+
+		// and switch over the timestamps
+		for (size_t i = 0; i < queue.length; ++i) {
+			ftimers_timer_t* timer = &queue.timers[i];
+			timer->most_recent_timestamp = timestamp;
+		}
+
+		// finally, take care of any timers that are ready to fire
+		rearm_and_fire_all_locked();
+
+		flock_spin_intsafe_unlock(&queue_lock);
+	}
+
+out:
+	flock_spin_intsafe_unlock(&backend_lock);
+out_unlocked:
+	return ferr_ok;
+};
+
+ferr_t ftimers_oneshot_blocking(uint64_t delay, ftimers_callback_f callback, void* data, ftimers_id_t* out_id) {
+	ferr_t status = ferr_ok;
+	ftimers_id_t id;
+
+	if (!callback) {
+		status = ferr_invalid_argument;
+		goto out_unlocked;
+	}
+
+	flock_spin_intsafe_lock(&backend_lock);
+
+	if (backend_count == 0) {
+		status = ferr_temporary_outage;
+		goto out;
+	}
+
+	flock_spin_intsafe_lock(&queue_lock);
+
+	id = ftimers_priority_queue_add_locked(delay, callback, data, backends[backend]->current_timestamp());
+	if (id == UINTPTR_MAX) {
+		status = ferr_temporary_outage;
+		goto out2;
+	} else if (out_id) {
+		*out_id = id;
+	}
+
+	rearm_and_fire_all_locked();
+
+out2:
+	flock_spin_intsafe_unlock(&queue_lock);
+out:
+	flock_spin_intsafe_unlock(&backend_lock);
+out_unlocked:
+	return status;
+};
+
+ferr_t ftimers_cancel(ftimers_id_t id) {
+	ferr_t status = ferr_no_such_resource;
+
+	flock_spin_intsafe_lock(&backend_lock);
+
+	if (backend_count == 0) {
+		status = ferr_temporary_outage;
+		goto out;
+	}
+
+	flock_spin_intsafe_lock(&queue_lock);
+
+	for (size_t i = 0; i < queue.length; ++i) {
+		if (queue.timers[i].id == id) {
+			queue.timers[i].disabled = true;
+			status = ferr_ok;
+
+			// the shortest delay was determined by this timer, but it's no longer active.
+			// inform the backend about this. `rearm_and_fire_all_locked` will take care of removing this disabled timer
+			// and if there are any other timers in the queue, it'll arm the backend with the next appropriate delay.
+			if (i == 0) {
+				backends[backend]->cancel();
+			}
+			break;
+		}
+	}
+
+	rearm_and_fire_all_locked();
+
+	flock_spin_intsafe_unlock(&queue_lock);
+
+out:
+	flock_spin_intsafe_unlock(&backend_lock);
+out_unlocked:
+	return status;
+};

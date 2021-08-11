@@ -137,6 +137,11 @@ FERRO_ALWAYS_INLINE bool fpage_entry_is_large_page_entry(uint64_t entry) {
 	return !(entry & FPAGE_TABLE_POINTER_BIT);
 };
 
+FERRO_ALWAYS_INLINE uint64_t fpage_entry_disable_caching(uint64_t entry) {
+	// TODO
+	return entry;
+};
+
 FERRO_DECLARATIONS_END;
 
 #define USE_GENERIC_FPAGE_INVALIDATE_TLB_FOR_RANGE 1

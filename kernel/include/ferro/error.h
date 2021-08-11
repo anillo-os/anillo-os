@@ -41,6 +41,9 @@ FERRO_ENUM(int, ferr) {
 
 	// The requested action/service is unsupported.
 	ferr_unsupported      = -5,
+
+	// The requested resource cannot be found.
+	ferr_no_such_resource = -6,
 };
 
 FERRO_DECLARATIONS_END;

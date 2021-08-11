@@ -35,7 +35,13 @@
 #include <ferro/core/paging.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/interrupts.h>
+#include <ferro/core/acpi.h>
 #include <libk/libk.h>
+
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <ferro/core/x86_64/apic.h>
+	#include <ferro/core/x86_64/tsc.h>
+#endif
 
 static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2          FERRO_PAGE_ALIGNED = {0};
@@ -225,6 +231,7 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 	ferro_kernel_image_info_t* image_info = NULL;
 	void* image_base = NULL;
 	size_t image_size = 0;
+	facpi_rsdp_t* rsdp = NULL;
 
 	for (size_t i = 0; i < boot_data_count; ++i) {
 		ferro_boot_data_info_t* curr = &boot_data[i];
@@ -258,11 +265,13 @@ jump_here_for_virtual:;
 		ferro_boot_data_info_t* curr = &boot_data[i];
 		if (curr->type == ferro_boot_data_type_framebuffer_info) {
 			fb_info = curr->virtual_address;
+		} else if (curr->type == ferro_boot_data_type_rsdp_pointer) {
+			rsdp = curr->physical_address;
 		}
 	}
 
 	// map the framebuffer
-	if (fpage_map_kernel_any(fb_info->base, round_up_div(fb_info->scan_line_size * fb_info->height, FPAGE_PAGE_SIZE), &fb_info->base) == ferr_ok) {
+	if (fpage_map_kernel_any(fb_info->base, round_up_div(fb_info->scan_line_size * fb_info->height, FPAGE_PAGE_SIZE), &fb_info->base, 0) == ferr_ok) {
 		ferro_fb_init(fb_info);
 	}
 
@@ -271,6 +280,14 @@ jump_here_for_virtual:;
 
 	// initialize the interrupts subsystem
 	fint_init();
+
+	// initialize the ACPI subsystem
+	facpi_init(rsdp);
+
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	ftsc_init();
+	fapic_init();
+#endif
 
 	while (true) {
 		fentry_idle();

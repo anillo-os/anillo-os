@@ -1,5 +1,5 @@
 #include <ferro/core/locks.h>
-#include <immintrin.h>
+#include <x86intrin.h>
 
 void flock_spin_init(flock_spin_t* lock) {
 	lock->flag = 0;

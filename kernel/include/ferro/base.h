@@ -51,6 +51,8 @@
 
 #define FERRO_WUR __attribute__((warn_unused_result))
 
+#define FERRO_PRINTF(a, b) __attribute__((format(printf, a, b)))
+
 FERRO_ALWAYS_INLINE void fassert_helper(int result, const char* expr) {
 	if (!result) {
 		__builtin_unreachable();

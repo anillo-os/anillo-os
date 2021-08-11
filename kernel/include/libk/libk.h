@@ -85,4 +85,34 @@ void* memmove(void* destination, const void* source, size_t n);
  */
 void* memset(void* destination, int value, size_t n);
 
+/**
+ * Compares at most `n` bytes from both strings and returns an indication of the lexicographal order of the two strings.
+ *
+ * The function will stop whenever it encounters a null terminator ('\0') in either string, but it will also stop if it reaches the maximum number of characters that can be read.
+ *
+ * @param first  The first string to compare.
+ * @param second The second string to compare.
+ * @param n      The maximum number of bytes to read from each.
+ *
+ * @returns `-1` if `first` is sorted before `second`; `1` if `second` is sorted before `first`; `0` if both are sorted equally.
+ *
+ * @note Standard C function.
+ */
+int strncmp(const char* first, const char* second, size_t n);
+
+/**
+ * Compares `n` bytes from both arguments and returns an indication of which contains the first lower value.
+ *
+ * Unlike `strncmp`, this function will NOT stop when it encounters a null terminator. It will ALWAYS compare `n` bytes.
+ *
+ * @param first  The first memory region to compare.
+ * @param second The second memory region to compare.
+ * @param n      The number of bytes to read from each.
+ *
+ * @returns `-1` if `first` has the first lower value; `1` if `second` has the first lower value; `0` if they contain the exact same values.
+ *
+ * @note Standard C function.
+ */
+int memcmp(const void* first, const void* second, size_t n);
+
 #endif // _LIBK_LIBK_H_

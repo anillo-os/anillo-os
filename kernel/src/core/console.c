@@ -124,7 +124,7 @@ static ferr_t fconsole_put_utf32_char(uint32_t unichar, size_t x, size_t y, cons
 		uint8_t* row = &glyph[glyph_y * ((font->glyph_width + 7) / 8)];
 
 		for (uint32_t glyph_x = 0; glyph_x < font->glyph_width; ++glyph_x) {
-			ferro_fb_set_pixel((row[glyph_x / 8] & (1 << (7 - (glyph_x % 8)))) ? foreground : background, x + glyph_x, y + glyph_y);
+			(void)ferro_fb_set_pixel((row[glyph_x / 8] & (1 << (7 - (glyph_x % 8)))) ? foreground : background, x + glyph_x, y + glyph_y);
 		}
 	}
 
@@ -164,7 +164,7 @@ void fconsole_init() {
 	char* copied = NULL;
 
 	if (fmempool_allocate(strlen(orig) + 1, NULL, (void*)&copied) != ferr_ok) {
-		fpanic();
+		fpanic(NULL);
 	}
 
 	memcpy(copied, orig, strlen(orig) + 1);
@@ -172,7 +172,7 @@ void fconsole_init() {
 	fconsole_log(copied);
 
 	if (fmempool_free(copied) != ferr_ok) {
-		fpanic();
+		fpanic(NULL);
 	}
 #endif
 };
@@ -196,7 +196,7 @@ static void fconsole_log_code_point(uint32_t code_point) {
 		next_location.y += font->glyph_height + line_padding;
 	}
 	if (next_location.y + font->glyph_height >= fb_info->height) {
-		ferro_fb_shift(true, font->glyph_height + line_padding, &black_pixel);
+		(void)ferro_fb_shift(true, font->glyph_height + line_padding, &black_pixel);
 		next_location.y -= font->glyph_height + line_padding;
 	}
 
@@ -453,9 +453,9 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 							break;
 					}
 
-					if (*format == 'x' || *format == 'X') {
-						print_hex(value, *format == 'X');
-					} else if (*format == 'o') {
+					if (code_point == 'x' || code_point == 'X') {
+						print_hex(value, code_point == 'X');
+					} else if (code_point == 'o') {
 						print_octal(value);
 					} else {
 						print_decimal(value);

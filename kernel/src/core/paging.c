@@ -26,6 +26,9 @@
 #include <ferro/bits.h>
 #include <libk/libk.h>
 
+// magic value used to identify pages that need to mapped on-demand
+#define ON_DEMAND_MAGIC (0xdeadfeedf00dULL << FPAGE_VIRT_L1_SHIFT)
+
 #define TABLE_ENTRY_COUNT (sizeof(root_table->entries) / sizeof(*root_table->entries))
 // coefficient that is multiplied by the amount of physical memory available to determine the maximum amount of virtual memory
 // the buddy allocator can use. more virtual memory than this can be used, it's just that it'll use a less efficient method of allocation.
@@ -557,9 +560,10 @@ static void break_entry(size_t levels, size_t l4_index, size_t l3_index, size_t 
 };
 
 // NOTE: this function ***WILL*** overwrite existing entries!
-static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_count) {
+static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_count, fpage_page_flags_t flags) {
 	uintptr_t physical_frame = (uintptr_t)phys_frame;
 	uintptr_t virtual_frame = (uintptr_t)virt_frame;
+	bool no_cache = flags & fpage_page_flag_no_cache;
 
 	while (page_count > 0) {
 		size_t l4_index = FPAGE_VIRT_L4(virtual_frame);
@@ -586,6 +590,9 @@ static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_coun
 
 			// now map our entry
 			l3->entries[l3_index] = fpage_very_large_page_entry(physical_frame, true);
+			if (no_cache) {
+				l3->entries[l3_index] = fpage_entry_disable_caching(l3->entries[l3_index]);
+			}
 			fpage_synchronize_after_table_modification();
 
 			page_count -= FPAGE_VERY_LARGE_PAGE_COUNT;
@@ -618,6 +625,9 @@ static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_coun
 
 			// now map our entry
 			l2->entries[l2_index] = fpage_large_page_entry(physical_frame, true);
+			if (no_cache) {
+				l2->entries[l2_index] = fpage_entry_disable_caching(l2->entries[l2_index]);
+			}
 			fpage_synchronize_after_table_modification();
 
 			page_count -= FPAGE_LARGE_PAGE_COUNT;
@@ -642,6 +652,9 @@ static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_coun
 		}
 
 		l1->entries[l1_index] = fpage_page_entry(physical_frame, true);
+		if (no_cache) {
+			l1->entries[l1_index] = fpage_entry_disable_caching(l1->entries[l1_index]);
+		}
 		fpage_synchronize_after_table_modification();
 
 		page_count -= 1;
@@ -723,7 +736,7 @@ static void insert_virtual_free_block(fpage_region_header_t* parent_region, fpag
 	size_t order = max_order_of_page_count(block_page_count);
 	fpage_free_block_t* phys_block = allocate_frame(fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE, NULL);
 
-	map_frame_fixed(phys_block, block, fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE);
+	map_frame_fixed(phys_block, block, fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE, 0);
 
 	block->prev = &parent_region->buckets[order];
 	block->next = parent_region->buckets[order];
@@ -1304,7 +1317,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 
 		header = (fpage_region_header_t*)virt_start;
 
-		map_frame_fixed(phys_header, header, fpage_round_up_page(sizeof(fpage_region_header_t)) / FPAGE_PAGE_SIZE);
+		map_frame_fixed(phys_header, header, fpage_round_up_page(sizeof(fpage_region_header_t)) / FPAGE_PAGE_SIZE, 0);
 
 		header->prev = &kernel_virtual_regions_head;
 		header->next = kernel_virtual_regions_head;
@@ -1336,7 +1349,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 				break;
 			}
 
-			map_frame_fixed(phys_page, page, 1);
+			map_frame_fixed(phys_page, page, 1, 0);
 
 			memset(page, 0, FPAGE_PAGE_SIZE);
 		}
@@ -1373,7 +1386,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	}
 };
 
-ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address) {
+ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address, fpage_page_flags_t flags) {
 	void* virt = NULL;
 
 	if (physical_address == NULL || page_count == 0 || page_count == SIZE_MAX || out_virtual_address == NULL) {
@@ -1386,7 +1399,7 @@ ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** ou
 		return ferr_temporary_outage;
 	}
 
-	map_frame_fixed(physical_address, virt, page_count);
+	map_frame_fixed(physical_address, virt, page_count, flags);
 
 	*out_virtual_address = virt;
 
@@ -1428,7 +1441,7 @@ ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address) {
 			return ferr_temporary_outage;
 		}
 
-		map_frame_fixed(frame, (void*)((uintptr_t)virt + (i * FPAGE_PAGE_SIZE)), 1);
+		map_frame_fixed(frame, (void*)((uintptr_t)virt + (i * FPAGE_PAGE_SIZE)), 1, 0);
 	}
 
 	*out_virtual_address = virt;

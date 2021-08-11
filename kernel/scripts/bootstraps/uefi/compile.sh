@@ -26,7 +26,7 @@ CFLAGS=(
 	-ggdb3
 )
 LDFLAGS=(
-	"-fuse-ld=${LD}"
+	"-fuse-ld=lld"
 	#-Wl,-flavor,link
 	-target x86_64-unknown-windows
 	-nostdlib
@@ -64,6 +64,9 @@ OBJECTS+=("${CURRENT_BUILD_DIR}/src/bootstrap/uefi/main.c.o")
 
 compile "src/bootstrap/uefi/wrappers.c"
 OBJECTS+=("${CURRENT_BUILD_DIR}/src/bootstrap/uefi/wrappers.c.o")
+
+compile "src/libk/libk.c"
+OBJECTS+=("${CURRENT_BUILD_DIR}/src/libk/libk.c.o")
 
 if ! [ "x${ANILLO_GENERATING_COMPILE_COMMANDS}" == "x1" ]; then
 	echo "$(color-blue CC-LD) ferro-bootstrap.efi"

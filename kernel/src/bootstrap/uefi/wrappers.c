@@ -1,5 +1,6 @@
 #include <ferro/bootstrap/uefi/wrappers.h>
 #include <ferro/bits.h>
+#include <libk/libk.h>
 
 #define max(a, b) ({ \
 		__typeof__(a) _a = (a); \
@@ -386,15 +387,6 @@ int vprintf(const char* format, va_list args) {
 	return written;
 };
 
-size_t strlen(const char* string) {
-	size_t length = 0;
-	while (*string != '\0') {
-		++string;
-		++length;
-	}
-	return length;
-};
-
 FERRO_STRUCT(atw_context) {
 	wchar_t* string;
 	wchar_t cache[256];
@@ -479,28 +471,6 @@ int fseek(FILE* file, long long int offset, int origin) {
 	fuefi_file_protocol_t* protocol = (fuefi_file_protocol_t*)file;
 	errstat = protocol->set_position(protocol, *(unsigned long long int*)&offset);
 	return (errstat == fuefi_status_ok) ? 0 : -1;
-};
-
-void* memset(void* _destination, int value, size_t count) {
-	char* destination = (char*)_destination;
-	while (count > 0) {
-		*destination = (char)value;
-		++destination;
-		--count;
-	}
-	return _destination;
-};
-
-void* memcpy(void* _destination, const void* _source, size_t count) {
-	const char* source = (const char*)_source;
-	char* destination = (char*)_destination;
-	while (count > 0) {
-		*destination = *source;
-		++source;
-		++destination;
-		--count;
-	}
-	return _destination;
 };
 
 long long sysconf(int name) {
@@ -588,6 +558,16 @@ long long sysconf(int name) {
 
 		case _SC_IMAGE_BASE: {
 			result = (uintptr_t)fuefi_image_protocol->image_base;
+		} break;
+
+		case _SC_ACPI_RSDP: {
+			for (size_t i = 0; i < fuefi_system_table->configuration_table_entry_count; ++i) {
+				fuefi_configuration_table_entry_t* entry = &fuefi_system_table->configuration_table[i];
+				if (memcmp(&entry->guid[0], fuefi_guid_acpi_20_table, sizeof(fuefi_guid_acpi_20_table) / sizeof(*fuefi_guid_acpi_20_table)) == 0) {
+					result = (uintptr_t)entry->table;
+					break;
+				}
+			}
 		} break;
 	}
 

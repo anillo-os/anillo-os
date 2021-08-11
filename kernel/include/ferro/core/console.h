@@ -27,7 +27,7 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
-#define FERRO_PRINTF(a, b) __attribute__((format(printf, a, b)))
+// no warn-unused-result for these; logging is usually just fire-and-forget
 
 /**
  * Initializes the console subsystem. Called on kernel startup.
@@ -102,6 +102,8 @@ ferr_t fconsole_lognf(const char* format, size_t format_size, ...);
  */
 FERRO_PRINTF(1, 0)
 ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args);
+
+
 
 FERRO_DECLARATIONS_END;
 

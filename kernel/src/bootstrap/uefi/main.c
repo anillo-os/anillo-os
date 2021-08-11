@@ -106,7 +106,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	uintptr_t kernel_start_phys = 0;
 	uintptr_t kernel_end_phys = 0;
 	void* kernel_image_base = NULL;
-	ferro_entry_t kernel_entry = NULL;
+	ferro_entry_f kernel_entry = NULL;
 
 	bool graphics_available = false;
 	ferro_fb_info_t* ferro_framebuffer_info = NULL;
@@ -125,6 +125,8 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	};
 	fuefi_sysctl_bs_memory_map_info_t mm_info = {0};
 	fuefi_sysctl_bs_populate_memory_map_t populate_mm_info = {0};
+
+	uintptr_t rsdp_pointer = 0;
 
 	mib[0] = CTL_WRAPPERS;
 	mib[1] = WRAPPERS_INIT;
@@ -264,6 +266,11 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	++ferro_boot_data_count;
 	// and another for the initial pool
 	++ferro_boot_data_count;
+
+	rsdp_pointer = sysconf(_SC_ACPI_RSDP);
+	if (rsdp_pointer) {
+		++ferro_boot_data_count;
+	}
 
 	// reserve pool space for the boot data array
 	ferro_pool_size += sizeof(ferro_boot_data_info_t) * ferro_boot_data_count;
@@ -654,6 +661,14 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 			info->size = ramdisk_size;
 			info->virtual_address = NULL;
 			info->type = ferro_boot_data_type_ramdisk;
+		}
+
+		if (rsdp_pointer) {
+			info = &ferro_boot_data[i++];
+			info->physical_address = (void*)rsdp_pointer;
+			info->size = sizeof(facpi_rsdp_t);
+			info->virtual_address = NULL;
+			info->type = ferro_boot_data_type_rsdp_pointer;
 		}
 	};
 

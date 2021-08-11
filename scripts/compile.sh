@@ -7,5 +7,7 @@ source "${SOURCE_ROOT}/scripts/util.sh"
 
 "${SCRIPT_PATH}/generate.sh"
 
+"${SCRIPT_PATH}/compile-rtlib.sh" || command-failed
+
 "${SOURCE_ROOT}/kernel/scripts/bootstraps/uefi/compile.sh" || command-failed
 "${SOURCE_ROOT}/kernel/scripts/compile.sh" || command-failed

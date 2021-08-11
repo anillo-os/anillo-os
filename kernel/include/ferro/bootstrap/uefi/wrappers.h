@@ -86,6 +86,7 @@ enum {
 	_SC_FB_BIT_COUNT,
 	_SC_FB_PIXELS_PER_SCANLINE,
 	_SC_IMAGE_BASE,
+	_SC_ACPI_RSDP,
 };
 
 enum {

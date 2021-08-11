@@ -24,6 +24,7 @@
 #include <ferro/base.h>
 #include <ferro/core/x86_64/per-cpu.h>
 #include <ferro/core/interrupts.h>
+#include <ferro/error.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -82,6 +83,50 @@ FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state) {
 		__asm__ volatile("cli" ::: "memory");
 	}
 };
+
+FERRO_PACKED_STRUCT(fint_isr_frame) {
+	void* instruction_pointer;
+	uint64_t code_segment;
+	uint64_t cpu_flags;
+	void* stack_pointer;
+	uint64_t stack_segment;
+};
+
+/**
+ * A handler that is to be called when an interrupt is received.
+ *
+ * The handler ***is*** allowed to modify the given frame, which may alter the state of the processor upon return.
+ *
+ * The handler is called with interrupts disabled.
+ */
+typedef void (*fint_handler_f)(fint_isr_frame_t* frame);
+
+/**
+ * Registers the given handler for the given interrupt number.
+ *
+ * @note This function CANNOT be used to register handlers for the first 32 processor-reserved interrupts.
+ *
+ * @param interrupt The interrupt number to register the handler for.
+ * @param handler   The handler to call when the interrupt is received. See `fint_handler_t` for more details.
+ *
+ * Return values:
+ * @retval ferr_ok               The handler was registered successfully.
+ * @retval ferr_invalid_argument One or more of: 1) the given interrupt number is outside the permitted range (32-255, inclusive), 2) the handler is `NULL`.
+ * @retval ferr_temporary_outage A handler for the given interrupt is already registered and must be explicitly unregistered with `fint_unregister_handler`.
+ */
+FERRO_WUR ferr_t fint_register_handler(uint8_t interrupt, fint_handler_f handler);
+
+/**
+ * Unregisters the handler for the given interrupt number.
+ *
+ * @param interrupt The interrupt number for which to unregister the handler.
+ *
+ * Returns values:
+ * @retval ferr_ok               The handler for the interrupt was successfully unregistered.
+ * @retval ferr_invalid_argument The given interrupt number is outside the permitted range (32-255, inclusive)
+ * @retval ferr_no_such_resource There is no handler registered for the given interrupt number.
+ */
+FERRO_WUR ferr_t fint_unregister_handler(uint8_t interrupt);
 
 FERRO_DECLARATIONS_END;
 

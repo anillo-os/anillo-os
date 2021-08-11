@@ -28,7 +28,28 @@ FERRO_DECLARATIONS_BEGIN;
 
 FERRO_STRUCT(farch_per_cpu_data) {
 	farch_per_cpu_data_t* base;
+
+	/**
+	 * The number of interrupt-disables that have not been balanced with an interrupt-enable.
+	 *
+	 * Owner: interrupts subsystem.
+	 */
 	uint64_t outstanding_interrupt_disable_count;
+
+	/**
+	 * The TSC's tick rate, in Hz.
+	 *
+	 * Owner: TSC subsystem.
+	 * Also read by: APIC subsystem.
+	 */
+	uint64_t tsc_frequency;
+
+	/**
+	 * The LAPIC timer's tick rate, in Hz.
+	 *
+	 * Owner: APIC subsystem.
+	 */
+	uint64_t lapic_frequency;
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void);

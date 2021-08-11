@@ -113,7 +113,7 @@ FERRO_ALWAYS_INLINE size_t max_order_of_leaf_count(size_t leaf_count) {
 };
 
 FERRO_ALWAYS_INLINE size_t min_order_for_byte_count(size_t byte_count) {
-	return min_order_for_leaf_count(fmempool_round_up_leaf(byte_count));
+	return min_order_for_leaf_count(fmempool_round_up_leaf(byte_count) / LEAF_SIZE);
 };
 
 /**
@@ -805,7 +805,7 @@ ferr_t fmempool_reallocate(void* old_address, size_t new_byte_count, size_t* out
 			// finally, free the old region
 			if (fmempool_free(old_address) != ferr_ok) {
 				// this literally can't fail, so just panic
-				fpanic();
+				fpanic("failed to free old address during fmempool_reallocate");
 			}
 		}
 	}

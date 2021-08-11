@@ -1,0 +1,3 @@
+[submodule "deps/anillo-compiler-rt"]
+	path = deps/anillo-compiler-rt
+	url = ../anillo-compiler-rt.git

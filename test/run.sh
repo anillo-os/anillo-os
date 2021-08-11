@@ -69,6 +69,7 @@ for ((i=0; i <= "${#@}"; ++i)); do
 	if [ "x${arg}" == "x-k" ] || [ "x${arg}" == "x--kvm" ]; then
 		QEMU_ARGS+=(
 			-enable-kvm
+			-cpu host
 		)
 	fi
 	if [ "x${arg}" == "x-s" ] || [ "x${arg}" == "x--serial" ]; then
@@ -140,6 +141,7 @@ elif [ "${ARCH}" == "x86_64" ]; then
 		-drive "if=pflash,format=raw,unit=0,file=${EFI_CODE_PATH}"
 		-drive "if=pflash,format=raw,unit=1,file=${EFI_VARS_PATH}"
 		-drive "if=virtio,format=raw,file=${DISK_PATH}"
+		-machine type=q35
 	)
 fi
 

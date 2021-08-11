@@ -97,12 +97,12 @@ void fint_handler_current_with_spx_sync(fint_exception_frame_t* frame) {
 
 		case fint_esr_code_instruction_abort_same_el: {
 			fconsole_logf("instruction abort at %p on address %p\n", (void*)frame->elr, (void*)frame->far);
-			fpanic();
+			fpanic("instruction abort in kernel");
 		} break;
 
 		case fint_esr_code_data_abort_same_el: {
 			fconsole_logf("instruction abort at %p on address %p\n", (void*)frame->elr, (void*)frame->far);
-			fpanic();
+			fpanic("data abort in kernel");
 		} break;
 
 		case fint_esr_code_brk:
@@ -131,7 +131,7 @@ void fint_handler_current_with_spx_sync(fint_exception_frame_t* frame) {
 		// well, crap, we don't know what this is about! just die.
 		default: {
 			fconsole_log("received invalid synchronous exception!\n");
-			fpanic();
+			fpanic("invalid synchronous exception");
 		} break;
 	}
 
@@ -163,7 +163,7 @@ void fint_handler_current_with_spx_serror(fint_exception_frame_t* frame) {
 	fint_handler_common_begin(&data);
 
 	// SErrors are generally unrecoverable, so just die
-	fpanic();
+	fpanic("serror");
 
 	// unnecessary, but just for consistency
 	fint_handler_common_end(&data);

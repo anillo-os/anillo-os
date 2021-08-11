@@ -16,27 +16,33 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _FERRO_CORE_PANIC_H_
-#define _FERRO_CORE_PANIC_H_
+#ifndef _FERRO_CORE_X86_64_MSR_H_
+#define _FERRO_CORE_X86_64_MSR_H_
 
-#include <stdarg.h>
+#include <stdint.h>
 
 #include <ferro/base.h>
 
-/**
- * Sentences the kernel (and the entire system) to death, basically.
- *
- * This function will never return to its caller. It starts a chain of events that result in the kernel giving up control of the system.
- *
- * @param reason_format Optional reason format string to explain why the system is dying.
- */
-FERRO_PRINTF(1, 2)
-FERRO_NO_RETURN void fpanic(const char* reason_format, ...);
+FERRO_DECLARATIONS_BEGIN;
 
-/**
- * See `fpanic`.
- */
-FERRO_PRINTF(1, 0)
-FERRO_NO_RETURN void fpanicv(const char* reason_format, va_list args);
+FERRO_ENUM(uint64_t, farch_msr) {
+	farch_msr_apic_base    = 0x01b,
+	farch_msr_tsc_deadline = 0x6e0,
+};
 
-#endif // _FERRO_CORE_PANIC_H_
+FERRO_ALWAYS_INLINE uint64_t farch_msr_read(farch_msr_t msr) {
+	uint32_t low;
+	uint32_t high;
+	__asm__ volatile("rdmsr" : "=a" (low), "=d" (high) : "c" (msr));
+	return ((uint64_t)high << 32ULL) | (uint64_t)low;
+};
+
+FERRO_ALWAYS_INLINE void farch_msr_write(farch_msr_t msr, uint64_t value) {
+	uint32_t low = value & 0xffffffffULL;
+	uint32_t high = value >> 32ULL;
+	__asm__ volatile("wrmsr" :: "a" (low), "d" (high), "c" (msr));
+};
+
+FERRO_DECLARATIONS_END;
+
+#endif // _FERRO_CORE_X86_64_MSR_H_

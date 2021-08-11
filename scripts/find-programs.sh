@@ -13,15 +13,39 @@ if [ -z ${ARCH+x} ]; then
 fi
 
 if command-exists clang; then
-	CC="clang"
+	CC="$(command-path clang)"
 else
 	die-red "No compiler for ${ARCH} found"
 fi
 
-if command-exists "lld"; then
-	LD="lld"
+if command-exists "ld.lld"; then
+	LD="$(command-path ld.lld)"
 else
 	die-red "No linker for ${ARCH} found"
+fi
+
+if command-exists llvm-ar; then
+	AR="$(command-path llvm-ar)"
+else
+	die-red "No archiver for ${ARCH} found"
+fi
+
+if command-exists llvm-nm; then
+	NM="$(command-path llvm-nm)"
+else
+	die-red "No nm for ${ARCH} found"
+fi
+
+if command-exists llvm-ranlib; then
+	RANLIB="$(command-path llvm-ranlib)"
+else
+	die-red "No ranlib for ${ARCH} found"
+fi
+
+if command-exists llvm-config; then
+	LLVM_CONFIG="$(command-path llvm-config)"
+else
+	die-red "No llvm-config for ${ARCH} found"
 fi
 
 if [ "${VERBOSE}" == "true" ]; then

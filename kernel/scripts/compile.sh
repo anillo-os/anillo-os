@@ -31,7 +31,7 @@ CFLAGS=(
 	-target ${ARCH}-unknown-none-elf
 )
 LDFLAGS=(
-	"-fuse-ld=${LD}"
+	"-fuse-ld=lld"
 	#-Wl,-flavor,link
 	-ggdb3
 	-ffreestanding
@@ -54,6 +54,8 @@ SOURCES=(
 	src/core/paging.c
 	src/core/panic.c
 	src/core/mempool.c
+	src/core/acpi.c
+	src/core/timers.c
 	src/libk/libk.c
 )
 
@@ -62,6 +64,8 @@ SOURCES_x86_64=(
 	src/core/x86_64/interrupts.c
 	src/core/x86_64/locks.c
 	src/core/x86_64/per-cpu.c
+	src/core/x86_64/apic.c
+	src/core/x86_64/tsc.c
 )
 
 SOURCES_aarch64=(
@@ -71,6 +75,8 @@ SOURCES_aarch64=(
 	src/core/aarch64/per-cpu.c
 	src/core/aarch64/ivt.s
 )
+
+COMPILER_RT_BUILTINS="${BUILD_DIR}/compiler-rt/lib/${ARCH}-unknown-none-elf/libclang_rt.builtins.a"
 
 # generates CFLAGS_ALL, containing the full list of CFLAGS for the current architecture
 generate-cflags-all() {
@@ -119,7 +125,10 @@ compile() {
 	fi
 }
 
-OBJECTS=()
+OBJECTS=(
+	# statically link the compiler-rt builtins library
+	"${COMPILER_RT_BUILTINS}"
+)
 
 #
 # this is where the compilation actually starts

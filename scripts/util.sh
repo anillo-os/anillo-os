@@ -38,6 +38,13 @@ command-exists() {
 }
 
 #
+# returns the full path to the given command
+#
+command-path() {
+	which "$1"
+}
+
+#
 # echo to stderr
 #
 errcho() {

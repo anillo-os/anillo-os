@@ -65,6 +65,11 @@ extern char kernel_base_physical;
 extern char kernel_bss_start;
 extern char kernel_bss_end;
 
+FERRO_OPTIONS(uint64_t, fpage_page_flags) {
+	// Disables caching for the page(s).
+	fpage_page_flag_no_cache = 1 << 0,
+};
+
 /**
  * Initializes the paging subsystem. Called on kernel startup.
  *
@@ -82,13 +87,14 @@ void fpage_init(size_t next_l2, fpage_table_t* root_table, ferro_memory_region_t
  * @param physical_address    Starting address of the physical region to map. If this is not page-aligned, it will be rounded down to the nearest page-aligned address.
  * @param page_count          Number of pages to map for the region.
  * @param out_virtual_address Out-pointer to the resulting mapped virtual address.
+ * @param flags               Optional set of flags to modify how the page(s) is/are mapped.
  *
  * Return values:
  * @retval ferr_ok                The address was successfully mapped. The resulting virtual address is written to `out_virtual_address`.
  * @retval ferr_invalid_argument  One or more of the following: 1) `physical_address` was an invalid address (e.g. NULL or unsupported on the current machine), 2) `page_count` was an invalid size (e.g. 0 or too large), 3) `out_virtual_address` was NULL.
  * @retval ferr_temporary_outage  The system did not have enough memory resources to map the given address.
  */
-FERRO_WUR ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address);
+FERRO_WUR ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address, fpage_page_flags_t flags);
 
 /**
  * Unmaps the virtual region of the given size identified by the given address.
@@ -172,6 +178,15 @@ FERRO_ALWAYS_INLINE uint64_t fpage_round_up_page(uint64_t number) {
  */
 FERRO_ALWAYS_INLINE uint64_t fpage_round_down_page(uint64_t number) {
 	return number & -FPAGE_PAGE_SIZE;
+};
+
+/**
+ * Round the given number of bytes to a multiple of the page size, then return how many pages that is.
+ *
+ * e.g. If the input is 19 bytes, it'll round up to 4096 bytes, and then return 1 (because 4096 bytes is 1 page).
+ */
+FERRO_ALWAYS_INLINE uint64_t fpage_round_up_to_page_count(uint64_t byte_count) {
+	return fpage_round_up_page(byte_count) / FPAGE_PAGE_SIZE;
 };
 
 /**
@@ -259,6 +274,11 @@ FERRO_ALWAYS_INLINE bool fpage_entry_is_large_page_entry(uint64_t entry);
  * Invalidates the TLB entry/entries for the given range of virtual addresses (non-inclusive).
  */
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_range(void* start, void* end);
+
+/**
+ * Creates a modified page table entry from the given entry, disabling caching for that page.
+ */
+FERRO_ALWAYS_INLINE uint64_t fpage_entry_disable_caching(uint64_t entry);
 
 FERRO_DECLARATIONS_END;
 

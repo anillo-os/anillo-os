@@ -21,6 +21,8 @@
 // minimalistic library for kernel-space utilities
 //
 
+#include <stdint.h>
+
 #include <libk/libk.h>
 
 void* memcpy(void* restrict destination, const void* restrict source, size_t n) {
@@ -73,4 +75,39 @@ void* memset(void* destination, int value, size_t n) {
 	while (n-- > 0)
 		*(destbuf++) = (unsigned char)value;
 	return destination;
+};
+
+int strncmp(const char* first, const char* second, size_t n) {
+	while (n-- > 0) {
+		char first_char = *(first++);
+		char second_char = *(second++);
+
+		if (first_char < second_char) {
+			return -1;
+		} else if (first_char > second_char) {
+			return 1;
+		} else if (first_char == '\0') {
+			return 0;
+		}
+	}
+
+	return 0;
+};
+
+int memcmp(const void* _first, const void* _second, size_t n) {
+	const uint8_t* first = _first;
+	const uint8_t* second = _second;
+
+	while (n-- > 0) {
+		uint8_t first_char = *(first++);
+		uint8_t second_char = *(second++);
+
+		if (first_char < second_char) {
+			return -1;
+		} else if (first_char > second_char) {
+			return 1;
+		}
+	}
+
+	return 0;
 };
