@@ -290,7 +290,7 @@ static uint64_t determine_lapic_frequency(void) {
 	// so our final poll results might be much larger than what they should be.
 	// discard the results.
 	if (loop_count < TSC_LOOP_MIN_COUNT) {
-		fconsole_logf("LAPIC timer calibration failed; loop_count = %zu\n", loop_count);
+		//fconsole_logf("LAPIC timer calibration failed; loop_count = %zu\n", loop_count);
 		return UINT64_MAX;
 	}
 
@@ -298,7 +298,7 @@ static uint64_t determine_lapic_frequency(void) {
 	// then someone interrupted us and our results may be way off (e.g. maybe we were interrupted on the very last iteration).
 	// discard the results.
 	if (delta_max > (TSC_MIN_DELTA_COEFFICIENT * delta_min)) {
-		fconsole_logf("LAPIC timer calibration failed; delta_max = %zu, delta_min = %zu\n", delta_max, delta_min);
+		//fconsole_logf("LAPIC timer calibration failed; delta_max = %zu, delta_min = %zu\n", delta_max, delta_min);
 		return UINT64_MAX;
 	}
 
@@ -444,12 +444,4 @@ void fapic_init(void) {
 	} else {
 		fconsole_log("warning: CPU/APIC doesn't support TSC-deadline mode; no TSC-deadline timer will be available\n");
 	}
-
-#if 0
-	fconsole_log("setting up test timer for 5 seconds\n");
-
-	if (ftimers_oneshot_blocking(5 * 1000000000ULL, timer_callback, NULL, NULL) != ferr_ok) {
-		fpanic("failed to setup test timer");
-	}
-#endif
 };
