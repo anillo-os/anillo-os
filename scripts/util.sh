@@ -118,6 +118,13 @@ file-is-newer() {
 }
 
 #
+# returns the extension of the given filename, or an empty string if it has none
+#
+extname() {
+	sed 's/^[^.]\+.//' <<< "$(basename "${1}")"
+}
+
+#
 # variable setup
 #
 

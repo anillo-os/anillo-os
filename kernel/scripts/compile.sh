@@ -30,6 +30,12 @@ CFLAGS=(
 	-fno-pic
 	-target ${ARCH}-unknown-none-elf
 )
+ASFLAGS=(
+	"-I${KERNEL_SOURCE_ROOT}/include"
+	-ggdb3
+	-fno-pic
+	-target ${ARCH}-unknown-none-elf
+)
 LDFLAGS=(
 	"-fuse-ld=lld"
 	#-Wl,-flavor,link
@@ -117,13 +123,57 @@ generate-ldflags-all() {
 	LDFLAGS_ALL+=()
 }
 
+# generates ASFLAGS_ALL, containing the full list of ASFLAGS for the current architecture
+generate-asflags-all() {
+	# these are architecture-independent, manually maintained flags
+	ASFLAGS_ALL=(
+		"${ASFLAGS[@]}"
+	)
+
+	# these are architecture-dependent, manually maintained flags
+	ASFLAGS_ARCH_ALL="ASFLAGS_${ARCH}[@]"
+	ASFLAGS_ALL+=(
+		"${!ASFLAGS_ARCH_ALL}"
+	)
+
+	# these are architecture-dependent, automatically generated flags
+	ASFLAGS_ALL+=()
+}
+
 compile() {
+	EXTENSION="$(extname "${1}")"
+
 	if [ "x${ANILLO_GENERATING_COMPILE_COMMANDS}" == "x1" ]; then
-		add-compile-command "${KERNEL_SOURCE_ROOT}/${1}" "$(echo "${CC}" "${CFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o")"
+		case "${EXTENSION}" in
+			s)
+				add-compile-command "${KERNEL_SOURCE_ROOT}/${1}" "$(echo "${CC}" "${ASFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o")"
+				;;
+
+			c)
+				add-compile-command "${KERNEL_SOURCE_ROOT}/${1}" "$(echo "${CC}" "${CFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o")"
+				;;
+
+			*)
+				echo "$(color-yellow "warning: Unsupported/unrecognized file extension \"${EXTENSION}\" (for file \"${1}\")")"
+		esac
 	else
-		echo "$(color-blue CC) ${1}.o"
 		mkdir -p "${CURRENT_BUILD_DIR}/$(dirname "${1}")" || command-failed
-		run-command "${CC}" "${CFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o" || command-failed
+
+		case "${EXTENSION}" in
+			s)
+				echo "$(color-blue CC-AS) ${1}.o"
+				run-command "${CC}" "${ASFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o" || command-failed
+				;;
+
+			c)
+				echo "$(color-blue CC) ${1}.o"
+				run-command "${CC}" "${CFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o" || command-failed
+				;;
+
+			*)
+				die-red "Unsupported/unrecognized file extension \"${EXTENSION}\" (for file \"${1}\")"
+				;;
+		esac
 	fi
 }
 
@@ -144,8 +194,9 @@ if ! [ "x${ANILLO_GENERATING_COMPILE_COMMANDS}" == "x1" ]; then
 	"${SCRIPT_PATH}/generate.sh"
 fi
 
-# generate the full list of cflags for the current architecture
+# generate the full list of cflags and asflags for the current architecture
 generate-cflags-all
+generate-asflags-all
 
 for SOURCE in "${SOURCES[@]}"; do
 	compile "${SOURCE}" || die
