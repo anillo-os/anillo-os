@@ -89,6 +89,9 @@ void fpage_init(size_t next_l2, fpage_table_t* root_table, ferro_memory_region_t
  * @param out_virtual_address Out-pointer to the resulting mapped virtual address.
  * @param flags               Optional set of flags to modify how the page(s) is/are mapped.
  *
+ * @note If `physical_address` is not page-aligned, it will automatically be rounded down to the nearest page-aligned address.
+ *       In this case, the pointer written to `out_virtual_address` will ALSO be page-aligned. Therefore, you must ensure that you add any necessary offset to the result yourself.
+ *
  * Return values:
  * @retval ferr_ok                The address was successfully mapped. The resulting virtual address is written to `out_virtual_address`.
  * @retval ferr_invalid_argument  One or more of the following: 1) `physical_address` was an invalid address (e.g. NULL or unsupported on the current machine), 2) `page_count` was an invalid size (e.g. 0 or too large), 3) `out_virtual_address` was NULL.

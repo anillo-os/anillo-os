@@ -36,11 +36,15 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/interrupts.h>
 #include <ferro/core/acpi.h>
+#include <ferro/core/timers.h>
 #include <libk/libk.h>
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	#include <ferro/core/x86_64/apic.h>
 	#include <ferro/core/x86_64/tsc.h>
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#include <ferro/core/aarch64/gic.h>
+	#include <ferro/core/aarch64/generic-timer.h>
 #endif
 
 static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
@@ -222,6 +226,10 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 	*/
 };
 
+static void timer_callback(void* data) {
+	fconsole_logf("test timer fired with data: %p\n", data);
+};
+
 __attribute__((section(".text.ferro_entry")))
 void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count) {
 	uint16_t next_l2 = 0;
@@ -287,6 +295,17 @@ jump_here_for_virtual:;
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	ftsc_init();
 	fapic_init();
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	farch_gic_init();
+	farch_generic_timer_init();
+#endif
+
+#if 0
+	fconsole_log("setting up test timer for 5 seconds\n");
+
+	if (ftimers_oneshot_blocking(5 * 1000000000ULL, timer_callback, NULL, NULL) != ferr_ok) {
+		fpanic("failed to setup test timer");
+	}
 #endif
 
 	while (true) {

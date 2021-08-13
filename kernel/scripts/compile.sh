@@ -74,6 +74,8 @@ SOURCES_aarch64=(
 	src/core/aarch64/locks.c
 	src/core/aarch64/per-cpu.c
 	src/core/aarch64/ivt.s
+	src/core/aarch64/generic-timer.c
+	src/core/aarch64/gic.c
 )
 
 COMPILER_RT_BUILTINS="${BUILD_DIR}/compiler-rt/lib/${ARCH}-unknown-none-elf/libclang_rt.builtins.a"

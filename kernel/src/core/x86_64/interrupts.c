@@ -238,14 +238,16 @@ static FERRO_INTERRUPT void general_protection_fault_handler(fint_isr_frame_t* f
 #define INTERRUPT_HANDLER(number) \
 	static FERRO_INTERRUPT void interrupt_ ## number ## _handler(fint_isr_frame_t* frame) { \
 		fint_handler_common_data_t data; \
+		fint_handler_f handler = NULL; \
 		fint_handler_common_begin(&data); \
 		flock_spin_intsafe_lock(&handlers[number].lock); \
-		if (handlers[number].handler) { \
-			handlers[number].handler(frame); \
-		} else { \
-			fpanic("unhandled interrupt " #number); \
-		} \
+		handler = handlers[number].handler; \
 		flock_spin_intsafe_unlock(&handlers[number].lock); \
+		if (handler) { \
+			handler(frame); \
+		} else { \
+			fpanic("Unhandled interrupt " #number); \
+		} \
 		fint_handler_common_end(&data); \
 	};
 

@@ -561,13 +561,22 @@ long long sysconf(int name) {
 		} break;
 
 		case _SC_ACPI_RSDP: {
+			uintptr_t acpi_20_table = 0;
+			uintptr_t acpi_10_table = 0;
+
 			for (size_t i = 0; i < fuefi_system_table->configuration_table_entry_count; ++i) {
 				fuefi_configuration_table_entry_t* entry = &fuefi_system_table->configuration_table[i];
+				//printf("table with guid %x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x at %zu\n", entry->guid[0], entry->guid[1], entry->guid[2], entry->guid[3], entry->guid[4], entry->guid[5], entry->guid[6], entry->guid[7], entry->guid[8], entry->guid[9], entry->guid[10], entry->guid[11], entry->guid[12], entry->guid[13], entry->guid[14], entry->guid[15], i);
 				if (memcmp(&entry->guid[0], fuefi_guid_acpi_20_table, sizeof(fuefi_guid_acpi_20_table) / sizeof(*fuefi_guid_acpi_20_table)) == 0) {
-					result = (uintptr_t)entry->table;
-					break;
+					acpi_20_table = (uintptr_t)entry->table;
+				} else if (memcmp(&entry->guid[0], fuefi_guid_acpi_10_table, sizeof(fuefi_guid_acpi_10_table) / sizeof(*fuefi_guid_acpi_10_table)) == 0) {
+					acpi_10_table = (uintptr_t)entry->table;
 				}
 			}
+
+			//while (true);
+
+			result = (acpi_20_table) ? acpi_20_table : acpi_10_table;
 		} break;
 	}
 

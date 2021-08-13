@@ -123,7 +123,7 @@ FERRO_WUR ferr_t fint_register_handler(uint8_t interrupt, fint_handler_f handler
  *
  * Returns values:
  * @retval ferr_ok               The handler for the interrupt was successfully unregistered.
- * @retval ferr_invalid_argument The given interrupt number is outside the permitted range (32-255, inclusive)
+ * @retval ferr_invalid_argument The given interrupt number is outside the permitted range (32-255, inclusive).
  * @retval ferr_no_such_resource There is no handler registered for the given interrupt number.
  */
 FERRO_WUR ferr_t fint_unregister_handler(uint8_t interrupt);

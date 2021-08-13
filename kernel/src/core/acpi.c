@@ -65,12 +65,23 @@ ferr_t facpi_register_table(facpi_sdt_header_t* table) {
 	return ferr_ok;
 };
 
+static ferr_t map_with_offset(void* address, size_t page_count, void** out_pointer, fpage_page_flags_t flags) {
+	uintptr_t page_aligned = fpage_round_down_page((uintptr_t)address);
+	ferr_t status = fpage_map_kernel_any((void*)page_aligned, page_count, out_pointer, flags);
+
+	if (status == ferr_ok) {
+		*out_pointer = (void*)((uintptr_t)*out_pointer + ((uintptr_t)address - page_aligned));
+	}
+
+	return status;
+};
+
 void facpi_init(facpi_rsdp_t* physical_rsdp) {
 	if (!physical_rsdp) {
 		fpanic("no RSDP found");
 	}
 
-	if (fpage_map_kernel_any(physical_rsdp, fpage_round_up_page(sizeof(*rsdp)) / FPAGE_PAGE_SIZE, (void**)&rsdp, 0) != ferr_ok) {
+	if (map_with_offset(physical_rsdp, fpage_round_up_page(sizeof(*rsdp)) / FPAGE_PAGE_SIZE, (void**)&rsdp, 0) != ferr_ok) {
 		fpanic("failed to map RSDP");
 	}
 
@@ -95,13 +106,13 @@ void facpi_init(facpi_rsdp_t* physical_rsdp) {
 			fpanic("invalid RSDP (invalid checksum for entire table)");
 		}
 
-		if (fpage_map_kernel_any((void*)(uintptr_t)rsdp->xsdt_address, fpage_round_up_page(sizeof(*xsdt)) / FPAGE_PAGE_SIZE, (void**)&xsdt, 0) != ferr_ok) {
+		if (map_with_offset((void*)(uintptr_t)rsdp->xsdt_address, fpage_round_up_page(sizeof(*xsdt)) / FPAGE_PAGE_SIZE, (void**)&xsdt, 0) != ferr_ok) {
 			fpanic("failed to map XSDT");
 		}
 	} else {
 		fconsole_log("found legacy RSDP (with RSDT)\n");
 
-		if (fpage_map_kernel_any((void*)(uintptr_t)rsdp->legacy.rsdt_address, fpage_round_up_page(sizeof(*rsdt)) / FPAGE_PAGE_SIZE, (void**)&rsdt, 0) != ferr_ok) {
+		if (map_with_offset((void*)(uintptr_t)rsdp->legacy.rsdt_address, fpage_round_up_page(sizeof(*rsdt)) / FPAGE_PAGE_SIZE, (void**)&rsdt, 0) != ferr_ok) {
 			fpanic("failed to map RSDT");
 		}
 	}
@@ -129,7 +140,7 @@ void facpi_init(facpi_rsdp_t* physical_rsdp) {
 		facpi_sdt_header_t* header = phys_header;
 		char tmp[5] = {0};
 
-		if (fpage_map_kernel_any(phys_header, fpage_round_up_to_page_count(sizeof(*header)), (void**)&header, 0) != ferr_ok) {
+		if (map_with_offset(phys_header, fpage_round_up_to_page_count(sizeof(*header)), (void**)&header, 0) != ferr_ok) {
 			fconsole_logf("warning: failed to map ACPI table header at %p\n", header);
 			tables[i] = NULL;
 			continue;
@@ -143,7 +154,7 @@ void facpi_init(facpi_rsdp_t* physical_rsdp) {
 				fpanic("failed to unmap ACPI table header with virtual address %p (this is impossible)\n", header);
 			}
 
-			if (fpage_map_kernel_any(phys_header, fpage_round_up_to_page_count(length), (void**)&header, 0) != ferr_ok) {
+			if (map_with_offset(phys_header, fpage_round_up_to_page_count(length), (void**)&header, 0) != ferr_ok) {
 				fconsole_logf("warning: failed to map ACPI table at %p\n", header);
 				tables[i] = NULL;
 				continue;

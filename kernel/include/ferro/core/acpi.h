@@ -147,6 +147,13 @@ FERRO_ENUM(uint8_t, facpi_madt_entry_type) {
 	facpi_madt_entry_type_lapic_nmi_interrupts,
 	facpi_madt_entry_type_lapic_override,
 	facpi_madt_entry_type_processor_lapic_x2 = 9,
+
+
+	facpi_madt_entry_type_gicc    = 0x0b,
+	facpi_madt_entry_type_gicd    = 0x0c,
+	facpi_madt_entry_type_gic_msi = 0x0d,
+	facpi_madt_entry_type_gicr    = 0x0e,
+	facpi_madt_entry_type_gic_its = 0x0f,
 };
 
 FERRO_PACKED_STRUCT(facpi_madt_entry_header) {
@@ -209,11 +216,164 @@ FERRO_PACKED_STRUCT(facpi_madt_entry_processor_lapic_x2) {
 	uint32_t acpi_id;
 };
 
+FERRO_PACKED_STRUCT(facpi_madt_entry_gicc) {
+	facpi_madt_entry_header_t header;
+	uint16_t reserved;
+	uint32_t cpu_interface_number;
+	uint32_t acpi_processor_id;
+	uint32_t flags;
+	uint32_t parking_protocol_version;
+	uint32_t performance_interrupt_gsiv;
+	uint64_t parked_address;
+	uint64_t base;
+	uint64_t gicv_base;
+	uint64_t gich_base;
+	uint32_t vgic_maintenance_interrupt;
+	uint64_t gicr_base;
+	uint64_t mpidr;
+	uint8_t power_efficiency_class;
+	uint8_t reserved2;
+	uint32_t spe_overflow_interrupt;
+};
+
+FERRO_OPTIONS(uint32_t, facpi_madt_entry_gicc_flags) {
+	facpi_madt_entry_gicc_flag_enabled                    = 1 << 0,
+	facpi_madt_entry_gicc_flag_performance_interrupt_mode = 1 << 1,
+	facpi_madt_entry_gicc_flag_vgic_maintenance_mode      = 1 << 2,
+};
+
+FERRO_PACKED_STRUCT(facpi_madt_entry_gicd) {
+	facpi_madt_entry_header_t header;
+	uint16_t reserved;
+	uint32_t gic_id;
+	uint64_t base;
+	uint32_t reserved2;
+	uint8_t gic_version;
+	uint8_t reserved3[3];
+};
+
+FERRO_PACKED_STRUCT(facpi_madt_entry_gic_msi) {
+	facpi_madt_entry_header_t header;
+	uint16_t reserved;
+	uint32_t gic_msi_frame_id;
+	uint64_t base;
+	uint32_t flags;
+	uint16_t spi_count;
+	uint16_t spi_base;
+};
+
+FERRO_OPTIONS(uint32_t, facpi_madt_entry_gic_msi_flags) {
+	facpi_madt_entry_gic_msi_flag_spi_select = 1 << 0,
+};
+
+FERRO_PACKED_STRUCT(facpi_madt_entry_gicr) {
+	facpi_madt_entry_header_t header;
+	uint16_t reserved;
+	uint64_t discovery_range_base;
+	uint32_t discovery_range_length;
+};
+
+FERRO_PACKED_STRUCT(facpi_madt_entry_gic_its) {
+	facpi_madt_entry_header_t header;
+	uint16_t reserved;
+	uint32_t gic_its_id;
+	uint64_t base;
+	uint32_t reserved2;
+};
+
 FERRO_PACKED_STRUCT(facpi_madt) {
 	facpi_sdt_header_t header;
 	uint32_t lapic_address;
 	uint32_t flags;
 	uint8_t entries[];
+};
+
+FERRO_OPTIONS(uint32_t, facpi_gtdt_timer_flags) {
+	facpi_gtdt_timer_flag_level_triggered = 0 << 0,
+	facpi_gtdt_timer_flag_edge_triggered  = 1 << 0,
+	facpi_gtdt_timer_flag_active_high     = 0 << 1,
+	facpi_gtdt_timer_flag_active_low      = 1 << 1,
+	facpi_gtdt_timer_flag_always_on       = 1 << 2,
+};
+
+FERRO_PACKED_STRUCT(facpi_gtdt) {
+	facpi_sdt_header_t header;
+	uint64_t control_base;
+	uint32_t reserved;
+	uint32_t secure_el1_gsiv;
+	facpi_gtdt_timer_flags_t secure_el1_flags;
+	uint32_t non_secure_el1_gsiv;
+	facpi_gtdt_timer_flags_t non_secure_el1_flags;
+	uint32_t virtual_el1_gsiv;
+	facpi_gtdt_timer_flags_t virtual_el1_flags;
+	uint32_t el2_gsiv;
+	facpi_gtdt_timer_flags_t el2_flags;
+	uint64_t read_base;
+	uint32_t platform_timer_count;
+	uint32_t platform_timers_offset;
+	uint32_t virtual_el2_gsiv;
+	facpi_gtdt_timer_flags_t virtual_el2_flags;
+	// plus the platform timers array
+};
+
+FERRO_PACKED_STRUCT(facpi_gtdt_platform_timer_header) {
+	uint8_t type;
+	uint16_t length;
+};
+
+FERRO_ENUM(uint8_t, facpi_gtdt_platform_timer_type) {
+	facpi_gtdt_platform_timer_type_standard,
+	facpi_gtdt_platform_timer_type_sbsa_watchdog,
+};
+
+FERRO_PACKED_STRUCT(facpi_gtdt_platform_timer_standard) {
+	facpi_gtdt_platform_timer_header_t header;
+	uint8_t reserved;
+	uint64_t control_base;
+	uint32_t timer_count;
+	uint32_t timers_offset;
+	// plus the timers array
+};
+
+FERRO_OPTIONS(uint32_t, facpi_gtdt_platform_timer_standard_timer_flags) {
+	facpi_gtdt_platform_timer_standard_timer_flag_level_triggered = 0 << 0,
+	facpi_gtdt_platform_timer_standard_timer_flag_edge_triggered  = 1 << 0,
+	facpi_gtdt_platform_timer_standard_timer_flag_active_high     = 0 << 1,
+	facpi_gtdt_platform_timer_standard_timer_flag_active_low      = 1 << 1,
+};
+
+FERRO_OPTIONS(uint32_t, facpi_gtdt_platform_timer_standard_timer_common_flags) {
+	facpi_gtdt_platform_timer_standard_timer_common_flag_secure    = 1 << 0,
+	facpi_gtdt_platform_timer_standard_timer_common_flag_always_on = 1 << 1,
+};
+
+FERRO_PACKED_STRUCT(facpi_gtdt_platform_timer_standard_timer) {
+	uint8_t frame_number;
+	uint8_t reserved[3];
+	uint64_t base;
+	uint64_t el0_base;
+	uint32_t physical_gsiv;
+	facpi_gtdt_platform_timer_standard_timer_flags_t physical_flags;
+	uint32_t virtual_gsiv;
+	facpi_gtdt_platform_timer_standard_timer_flags_t virtual_flags;
+	facpi_gtdt_platform_timer_standard_timer_common_flags_t common_flags;
+};
+
+FERRO_ENUM(uint32_t, facpi_gtdt_platform_timer_sbsa_watchdog_flags) {
+	facpi_gtdt_platform_timer_sbsa_watchdog_flag_level_triggered = 0 << 0,
+	facpi_gtdt_platform_timer_sbsa_watchdog_flag_edge_triggered  = 1 << 0,
+	facpi_gtdt_platform_timer_sbsa_watchdog_flag_active_high     = 0 << 1,
+	facpi_gtdt_platform_timer_sbsa_watchdog_flag_active_low      = 1 << 1,
+	facpi_gtdt_platform_timer_sbsa_watchdog_flag_secure          = 1 << 2,
+};
+
+FERRO_PACKED_STRUCT(facpi_gtdt_platform_timer_sbsa_watchdog) {
+	facpi_gtdt_platform_timer_header_t header;
+	uint8_t reserved;
+	uint64_t refresh_base;
+	uint64_t control_base;
+	uint32_t gsiv;
+	facpi_gtdt_platform_timer_sbsa_watchdog_flags_t flags;
 };
 
 /**

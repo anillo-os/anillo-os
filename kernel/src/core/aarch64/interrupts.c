@@ -1,6 +1,7 @@
 #include <ferro/core/interrupts.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/console.h>
+#include <ferro/core/locks.h>
 
 FERRO_PACKED_STRUCT(fint_vector_table_block) {
 	uint8_t synchronous[0x80];
@@ -14,33 +15,6 @@ FERRO_PACKED_STRUCT(fint_vector_table) {
 	fint_vector_table_block_t current_with_spx;
 	fint_vector_table_block_t lower_with_aarch64;
 	fint_vector_table_block_t lower_with_aarch32;
-};
-
-FERRO_PACKED_STRUCT(fint_exception_frame) {
-	uint64_t x0;
-	uint64_t x1;
-	uint64_t x2;
-	uint64_t x3;
-	uint64_t x4;
-	uint64_t x5;
-	uint64_t x6;
-	uint64_t x7;
-	uint64_t x8;
-	uint64_t x9;
-	uint64_t x10;
-	uint64_t x11;
-	uint64_t x12;
-	uint64_t x13;
-	uint64_t x14;
-	uint64_t x15;
-	uint64_t x16;
-	uint64_t x17;
-	uint64_t x18;
-	uint64_t fp;
-	uint64_t lr;
-	uint64_t elr;
-	uint64_t esr;
-	uint64_t far;
 };
 
 FERRO_ENUM(uint8_t, fint_esr_code) {
@@ -66,6 +40,9 @@ FERRO_STRUCT(fint_handler_common_data) {
 };
 
 extern fint_vector_table_t fint_ivt;
+
+static farch_int_irq_handler_f irq_handler = NULL;
+static flock_spin_intsafe_t irq_handler_lock = FLOCK_SPIN_INTSAFE_INIT;
 
 FERRO_ALWAYS_INLINE fint_esr_code_t code_from_esr(uint64_t esr) {
 	return (esr & (0x3fULL << 26)) >> 26;
@@ -130,8 +107,7 @@ void fint_handler_current_with_spx_sync(fint_exception_frame_t* frame) {
 
 		// well, crap, we don't know what this is about! just die.
 		default: {
-			fconsole_log("received invalid synchronous exception!\n");
-			fpanic("invalid synchronous exception");
+			fpanic("invalid synchronous exception: %u; generated at %p", code, (void*)frame->elr);
 		} break;
 	}
 
@@ -140,20 +116,38 @@ void fint_handler_current_with_spx_sync(fint_exception_frame_t* frame) {
 
 void fint_handler_current_with_spx_irq(fint_exception_frame_t* frame) {
 	fint_handler_common_data_t data;
+	farch_int_irq_handler_f handler = NULL;
 
 	fint_handler_common_begin(&data);
 
-	fconsole_log("got an IRQ\n");
+	flock_spin_intsafe_lock(&irq_handler_lock);
+	handler = irq_handler;
+	flock_spin_intsafe_unlock(&irq_handler_lock);
+
+	if (handler) {
+		handler(false, frame);
+	} else {
+		fpanic("No FIQ/IRQ handler set");
+	}
 
 	fint_handler_common_end(&data);
 };
 
 void fint_handler_current_with_spx_fiq(fint_exception_frame_t* frame) {
 	fint_handler_common_data_t data;
+	farch_int_irq_handler_f handler = NULL;
 
 	fint_handler_common_begin(&data);
 
-	fconsole_log("got an FIQ\n");
+	flock_spin_intsafe_lock(&irq_handler_lock);
+	handler = irq_handler;
+	flock_spin_intsafe_unlock(&irq_handler_lock);
+
+	if (handler) {
+		handler(true, frame);
+	} else {
+		fpanic("No FIQ/IRQ handler set");
+	}
 
 	fint_handler_common_end(&data);
 };
@@ -192,4 +186,10 @@ void fint_init(void) {
 
 	// test: hit a breakpoint
 	//__builtin_debugtrap();
+};
+
+void farch_int_set_irq_handler(farch_int_irq_handler_f handler) {
+	flock_spin_intsafe_lock(&irq_handler_lock);
+	irq_handler = handler;
+	flock_spin_intsafe_unlock(&irq_handler_lock);
 };
