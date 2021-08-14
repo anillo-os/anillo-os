@@ -1,3 +1,26 @@
+/**
+ * This file is part of Anillo OS
+ * Copyright (C) 2021 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+//
+// src/core/x86_64/apic.c
+//
+// x86_64 APIC management, including timer backends
+//
+
 #include <ferro/core/x86_64/apic.h>
 #include <ferro/core/acpi.h>
 #include <ferro/core/paging.h>
@@ -106,11 +129,11 @@ FERRO_OPTIONS(uint32_t, fapic_lvt_flags) {
 
 static fapic_block_t* lapic = NULL;
 
-static void ignore_interrupt(fint_isr_frame_t* frame) {};
+static void ignore_interrupt(farch_int_isr_frame_t* frame) {};
 
 static void remap_and_disable_pic(void) {
 	for (size_t i = 0x20; i < 0x30; ++i) {
-		if (fint_register_handler(i, ignore_interrupt) != ferr_ok) {
+		if (farch_int_register_handler(i, ignore_interrupt) != ferr_ok) {
 			fpanic("failed to register PIC interrupt handler for %zu", i);
 		}
 	}
@@ -165,7 +188,7 @@ static bool supports_apic(void) {
 };
 
 static void arm_timer(uint64_t tsc_offset) {
-	uint64_t tsc = ftsc_read_weak() + tsc_offset;
+	uint64_t tsc = farch_tsc_read_weak() + tsc_offset;
 	farch_msr_write(farch_msr_tsc_deadline, tsc);
 };
 
@@ -174,20 +197,20 @@ static void disarm_timer(void) {
 };
 
 // this is the same for both the TSC-deadline and LAPIC timer backends
-static void timer_interrupt_handler(fint_isr_frame_t* frame) {
+static void timer_interrupt_handler(farch_int_isr_frame_t* frame) {
 	ftimers_backend_fire();
 };
 
 static void tsc_deadline_schedule(uint64_t delay) {
-	arm_timer(ftsc_ns_to_offset(delay));
+	arm_timer(farch_tsc_ns_to_offset(delay));
 };
 
 static uint64_t tsc_deadline_current_timestamp(void) {
-	return ftsc_read_weak();
+	return farch_tsc_read_weak();
 };
 
 static uint64_t tsc_deadline_delta_to_ns(ftimers_backend_timestamp_t initial, ftimers_backend_timestamp_t final) {
-	return ftsc_offset_to_ns(final - initial);
+	return farch_tsc_offset_to_ns(final - initial);
 };
 
 static void tsc_deadline_cancel(void) {
@@ -255,12 +278,12 @@ static uint64_t determine_lapic_frequency(void) {
 	//fconsole_logf("initial counter value: %u; current counter value: %u\n", lapic->timer_initial_counter, lapic->timer_current_counter);
 
 	// read the initial TSC value
-	initial_tsc = loop_initial_tsc = final_tsc = ftsc_read_weak();
+	initial_tsc = loop_initial_tsc = final_tsc = farch_tsc_read_weak();
 
 	// loop until the count is zero
 	while (lapic->timer_current_counter != 0) {
 		// read the current TSC value
-		final_tsc = ftsc_read_weak();
+		final_tsc = farch_tsc_read_weak();
 
 		// calculate the difference
 		delta = final_tsc - loop_initial_tsc;
@@ -313,7 +336,7 @@ static uint64_t determine_lapic_frequency(void) {
 
 static void lapic_timer_schedule(uint64_t delay) {
 	uint8_t divisor_value = 1;
-	uint64_t cycles = fapic_timer_ns_to_cycles(delay);
+	uint64_t cycles = farch_apic_timer_ns_to_cycles(delay);
 
 	while (cycles > UINT32_MAX && divisor_value < 8) {
 		++divisor_value;
@@ -338,11 +361,11 @@ static void lapic_timer_schedule(uint64_t delay) {
 
 // the LAPIC timer also uses the TSC for timestamps
 static ftimers_backend_timestamp_t lapic_timer_current_timestamp(void) {
-	return ftsc_read_weak();
+	return farch_tsc_read_weak();
 };
 
 static uint64_t lapic_timer_delta_to_ns(ftimers_backend_timestamp_t initial, ftimers_backend_timestamp_t final) {
-	return ftsc_offset_to_ns(final - initial);
+	return farch_tsc_offset_to_ns(final - initial);
 };
 
 static void lapic_timer_cancel(void) {
@@ -359,7 +382,7 @@ static ftimers_backend_t lapic_timer_backend = {
 	.cancel = lapic_timer_cancel,
 };
 
-void fapic_init(void) {
+void farch_apic_init(void) {
 	facpi_madt_t* madt = (facpi_madt_t*)facpi_find_table("APIC");
 	uintptr_t lapic_address = 0;
 	uint64_t lapic_frequency = UINT64_MAX;
@@ -394,7 +417,7 @@ void fapic_init(void) {
 	remap_and_disable_pic();
 
 	// ignore the spurious interrupt vector
-	if (fint_register_handler(0xff, ignore_interrupt) != ferr_ok) {
+	if (farch_int_register_handler(0xff, ignore_interrupt) != ferr_ok) {
 		fpanic("failed to register APIC spurious interrupt vector handler (for interrupt 255)");
 	}
 
@@ -424,13 +447,13 @@ void fapic_init(void) {
 		set_timer_mode(fapic_timer_mode_oneshot);
 
 		// add one to ensure the TSC timer takes precedence (if available)
-		lapic_timer_backend.precision = fapic_timer_cycles_to_ns(1) + 1;
+		lapic_timer_backend.precision = farch_apic_timer_cycles_to_ns(1) + 1;
 
 		ftimers_register_backend(&lapic_timer_backend);
 	}
 
 	// setup an interrupt handler for the timer
-	if (fint_register_handler(0x30, timer_interrupt_handler) != ferr_ok) {
+	if (farch_int_register_handler(0x30, timer_interrupt_handler) != ferr_ok) {
 		fpanic("failed to register APIC timer interrupt handler (for interrupt 48)");
 	}
 
@@ -438,7 +461,7 @@ void fapic_init(void) {
 		fconsole_log("info: CPU/APIC supports TSC-deadline mode; using it\n");
 		set_timer_mode(fapic_timer_mode_tsc_deadline);
 
-		tsc_deadline_backend.precision = ftsc_offset_to_ns(1);
+		tsc_deadline_backend.precision = farch_tsc_offset_to_ns(1);
 
 		ftimers_register_backend(&tsc_deadline_backend);
 	} else {

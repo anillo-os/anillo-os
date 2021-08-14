@@ -31,16 +31,16 @@ FERRO_DECLARATIONS_BEGIN;
 /**
  * Initializes the TSC subsystem.
  */
-void ftsc_init(void);
+void farch_tsc_init(void);
 
-FERRO_ALWAYS_INLINE uint64_t ftsc_read_weak(void) {
+FERRO_ALWAYS_INLINE uint64_t farch_tsc_read_weak(void) {
 	return __rdtsc();
 };
 
-FERRO_ALWAYS_INLINE uint64_t ftsc_read(void) {
+FERRO_ALWAYS_INLINE uint64_t farch_tsc_read(void) {
 	uint64_t value;
 	//_mm_mfence();
-	value = ftsc_read_weak();
+	value = farch_tsc_read_weak();
 	_mm_lfence();
 	return value;
 };
@@ -50,7 +50,7 @@ FERRO_ALWAYS_INLINE uint64_t ftsc_read(void) {
  *
  * When the TSC value reaches `current TSC + offset`, the given number of nanoseconds will have elapsed.
  */
-FERRO_ALWAYS_INLINE uint64_t ftsc_ns_to_offset(uint64_t ns) {
+FERRO_ALWAYS_INLINE uint64_t farch_tsc_ns_to_offset(uint64_t ns) {
 	// this is terribly unoptimized, but let's trust the compiler to do the right thing
 	__uint128_t tmp = ns;
 
@@ -67,7 +67,7 @@ FERRO_ALWAYS_INLINE uint64_t ftsc_ns_to_offset(uint64_t ns) {
  *
  * When the returned number of nanoseconds have elapsed, the TSC value will have reached `current TSC + offset`.
  */
-FERRO_ALWAYS_INLINE uint64_t ftsc_offset_to_ns(uint64_t offset) {
+FERRO_ALWAYS_INLINE uint64_t farch_tsc_offset_to_ns(uint64_t offset) {
 	// again, terribly unoptimized
 	__uint128_t tmp = offset;
 

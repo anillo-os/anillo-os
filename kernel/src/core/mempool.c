@@ -1,6 +1,6 @@
 /**
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 //
-// mempool.c
+// src/core/mempool.c
 //
 // kernel memory pool management (e.g. de/allocation)
 //

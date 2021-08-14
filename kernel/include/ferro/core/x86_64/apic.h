@@ -27,12 +27,12 @@ FERRO_DECLARATIONS_BEGIN;
 /**
  * Initializes the APIC subsystem.
  */
-void fapic_init(void);
+void farch_apic_init(void);
 
 /**
  * Converts the given number of nanoseconds into a number of APIC timer cycles (with a divider of 1).
  */
-FERRO_ALWAYS_INLINE uint64_t fapic_timer_ns_to_cycles(uint64_t ns) {
+FERRO_ALWAYS_INLINE uint64_t farch_apic_timer_ns_to_cycles(uint64_t ns) {
 	// this is terribly unoptimized, but let's trust the compiler to do the right thing
 	__uint128_t tmp = ns;
 
@@ -47,7 +47,7 @@ FERRO_ALWAYS_INLINE uint64_t fapic_timer_ns_to_cycles(uint64_t ns) {
 /**
  * Converts the given number of APIC timer cycles into a number of nanoseconds.
  */
-FERRO_ALWAYS_INLINE uint64_t fapic_timer_cycles_to_ns(uint64_t offset) {
+FERRO_ALWAYS_INLINE uint64_t farch_apic_timer_cycles_to_ns(uint64_t offset) {
 	// again, terribly unoptimized
 	__uint128_t tmp = offset;
 

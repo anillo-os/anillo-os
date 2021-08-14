@@ -1,3 +1,26 @@
+/**
+ * This file is part of Anillo OS
+ * Copyright (C) 2021 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+//
+// src/core/x86_64/paging.c
+//
+// x86_64-specific paging function implementations
+//
+
 #include <ferro/core/x86_64/paging.h>
 
 uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
@@ -11,14 +34,14 @@ uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
 	uint64_t entry;
 
 	entry = l3->entries[l3_index];
-	if (entry & FPAGE_HUGE_BIT) {
-		return FPAGE_PHYS_ENTRY(entry) | (virtual_address & FPAGE_VIRT_L3_HUGE_MASK);
+	if (entry & FARCH_PAGE_HUGE_BIT) {
+		return FARCH_PAGE_PHYS_ENTRY(entry) | (virtual_address & FARCH_PAGE_VIRT_L3_HUGE_MASK);
 	}
 
 	entry = l2->entries[l2_index];
-	if (entry & FPAGE_HUGE_BIT) {
-		return FPAGE_PHYS_ENTRY(entry) | (virtual_address & FPAGE_VIRT_L2_HUGE_MASK);
+	if (entry & FARCH_PAGE_HUGE_BIT) {
+		return FARCH_PAGE_PHYS_ENTRY(entry) | (virtual_address & FARCH_PAGE_VIRT_L2_HUGE_MASK);
 	}
 
-	return FPAGE_PHYS_ENTRY(l1->entries[l1_index]) | FPAGE_VIRT_OFFSET(virtual_address);
+	return FARCH_PAGE_PHYS_ENTRY(l1->entries[l1_index]) | FPAGE_VIRT_OFFSET(virtual_address);
 };

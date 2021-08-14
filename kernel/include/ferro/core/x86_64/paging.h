@@ -28,21 +28,21 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
-#define FPAGE_VIRT_L3_HUGE_MASK 0x000000003fffffffULL
-#define FPAGE_VIRT_L2_HUGE_MASK 0x00000000001fffffULL
+#define FARCH_PAGE_VIRT_L3_HUGE_MASK 0x000000003fffffffULL
+#define FARCH_PAGE_VIRT_L2_HUGE_MASK 0x00000000001fffffULL
 
-#define FPAGE_PRESENT_BIT        (1ULL << 0)
-#define FPAGE_WRITABLE_BIT       (1ULL << 1)
-#define FPAGE_USER_BIT           (1ULL << 2)
-#define FPAGE_WRITE_THROUGH_BIT  (1ULL << 3)
-#define FPAGE_NO_CACHE_BIT       (1ULL << 4)
-#define FPAGE_ACCESSED_BIT       (1ULL << 5)
-#define FPAGE_DIRTY_BIT          (1ULL << 6)
-#define FPAGE_HUGE_BIT           (1ULL << 7)
-#define FPAGE_GLOBAL_BIT         (1ULL << 8)
-#define FPAGE_NX_BIT             (1ULL << 63)
+#define FARCH_PAGE_PRESENT_BIT        (1ULL << 0)
+#define FARCH_PAGE_WRITABLE_BIT       (1ULL << 1)
+#define FARCH_PAGE_USER_BIT           (1ULL << 2)
+#define FARCH_PAGE_WRITE_THROUGH_BIT  (1ULL << 3)
+#define FARCH_PAGE_NO_CACHE_BIT       (1ULL << 4)
+#define FARCH_PAGE_ACCESSED_BIT       (1ULL << 5)
+#define FARCH_PAGE_DIRTY_BIT          (1ULL << 6)
+#define FARCH_PAGE_HUGE_BIT           (1ULL << 7)
+#define FARCH_PAGE_GLOBAL_BIT         (1ULL << 8)
+#define FARCH_PAGE_NX_BIT             (1ULL << 63)
 
-#define FPAGE_PHYS_ENTRY(x) ((uintptr_t)(x) & (0xffffffffff << 12))
+#define FARCH_PAGE_PHYS_ENTRY(x) ((uintptr_t)(x) & (0xffffffffff << 12))
 
 FERRO_ALWAYS_INLINE uintptr_t fpage_virtual_to_physical_early(uintptr_t virtual_address) {
 	fpage_table_t* l4;
@@ -53,23 +53,23 @@ FERRO_ALWAYS_INLINE uintptr_t fpage_virtual_to_physical_early(uintptr_t virtual_
 
 	__asm__("mov %%cr3, %0" : "=r" (l4));
 	l4 = (fpage_table_t*)(((uintptr_t)l4) & 0xfffffffffffff000ULL);
-	l3 = (fpage_table_t*)FPAGE_PHYS_ENTRY(l4->entries[FPAGE_VIRT_L4(virtual_address)]);
+	l3 = (fpage_table_t*)FARCH_PAGE_PHYS_ENTRY(l4->entries[FPAGE_VIRT_L4(virtual_address)]);
 
 	entry = l3->entries[FPAGE_VIRT_L3(virtual_address)];
-	if (entry & FPAGE_HUGE_BIT) {
-		return FPAGE_PHYS_ENTRY(entry) | (virtual_address & FPAGE_VIRT_L3_HUGE_MASK);
+	if (entry & FARCH_PAGE_HUGE_BIT) {
+		return FARCH_PAGE_PHYS_ENTRY(entry) | (virtual_address & FARCH_PAGE_VIRT_L3_HUGE_MASK);
 	} else {
-		l2 = (fpage_table_t*)FPAGE_PHYS_ENTRY(entry);
+		l2 = (fpage_table_t*)FARCH_PAGE_PHYS_ENTRY(entry);
 	}
 
 	entry = l2->entries[FPAGE_VIRT_L2(virtual_address)];
-	if (entry & FPAGE_HUGE_BIT) {
-		return FPAGE_PHYS_ENTRY(entry) | (virtual_address & FPAGE_VIRT_L2_HUGE_MASK);
+	if (entry & FARCH_PAGE_HUGE_BIT) {
+		return FARCH_PAGE_PHYS_ENTRY(entry) | (virtual_address & FARCH_PAGE_VIRT_L2_HUGE_MASK);
 	} else {
-		l1 = (fpage_table_t*)FPAGE_PHYS_ENTRY(entry);
+		l1 = (fpage_table_t*)FARCH_PAGE_PHYS_ENTRY(entry);
 	}
 
-	return FPAGE_PHYS_ENTRY(l1->entries[FPAGE_VIRT_L1(virtual_address)]) | FPAGE_VIRT_OFFSET(virtual_address);
+	return FARCH_PAGE_PHYS_ENTRY(l1->entries[FPAGE_VIRT_L1(virtual_address)]) | FPAGE_VIRT_OFFSET(virtual_address);
 };
 
 FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_stack_bottom, void* new_stack_bottom) {
@@ -94,19 +94,19 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 };
 
 FERRO_ALWAYS_INLINE uint64_t fpage_page_entry(uintptr_t physical_address, bool writable) {
-	return FPAGE_PRESENT_BIT | (writable ? FPAGE_WRITABLE_BIT : 0) | FPAGE_PHYS_ENTRY(physical_address);
+	return FARCH_PAGE_PRESENT_BIT | (writable ? FARCH_PAGE_WRITABLE_BIT : 0) | FARCH_PAGE_PHYS_ENTRY(physical_address);
 };
 
 FERRO_ALWAYS_INLINE uint64_t fpage_large_page_entry(uintptr_t physical_address, bool writable) {
-	return FPAGE_PRESENT_BIT | (writable ? FPAGE_WRITABLE_BIT : 0) | FPAGE_HUGE_BIT | FPAGE_PHYS_ENTRY(physical_address);
+	return FARCH_PAGE_PRESENT_BIT | (writable ? FARCH_PAGE_WRITABLE_BIT : 0) | FARCH_PAGE_HUGE_BIT | FARCH_PAGE_PHYS_ENTRY(physical_address);
 };
 
 FERRO_ALWAYS_INLINE uint64_t fpage_very_large_page_entry(uintptr_t physical_address, bool writable) {
-	return FPAGE_PRESENT_BIT | (writable ? FPAGE_WRITABLE_BIT : 0) | FPAGE_HUGE_BIT | FPAGE_PHYS_ENTRY(physical_address);
+	return FARCH_PAGE_PRESENT_BIT | (writable ? FARCH_PAGE_WRITABLE_BIT : 0) | FARCH_PAGE_HUGE_BIT | FARCH_PAGE_PHYS_ENTRY(physical_address);
 };
 
 FERRO_ALWAYS_INLINE uint64_t fpage_table_entry(uintptr_t physical_address, bool writable) {
-	return FPAGE_PRESENT_BIT | (writable ? FPAGE_WRITABLE_BIT : 0) | FPAGE_PHYS_ENTRY(physical_address);
+	return FARCH_PAGE_PRESENT_BIT | (writable ? FARCH_PAGE_WRITABLE_BIT : 0) | FARCH_PAGE_PHYS_ENTRY(physical_address);
 };
 
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
@@ -114,7 +114,7 @@ FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
 };
 
 FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value) {
-	return entry_value & FPAGE_PRESENT_BIT;
+	return entry_value & FARCH_PAGE_PRESENT_BIT;
 };
 
 FERRO_ALWAYS_INLINE void fpage_synchronize_after_table_modification(void) {
@@ -122,11 +122,11 @@ FERRO_ALWAYS_INLINE void fpage_synchronize_after_table_modification(void) {
 };
 
 FERRO_ALWAYS_INLINE bool fpage_entry_is_large_page_entry(uint64_t entry) {
-	return entry & FPAGE_HUGE_BIT;
+	return entry & FARCH_PAGE_HUGE_BIT;
 };
 
 FERRO_ALWAYS_INLINE uint64_t fpage_entry_disable_caching(uint64_t entry) {
-	return entry | FPAGE_NO_CACHE_BIT;
+	return entry | FARCH_PAGE_NO_CACHE_BIT;
 };
 
 FERRO_DECLARATIONS_END;

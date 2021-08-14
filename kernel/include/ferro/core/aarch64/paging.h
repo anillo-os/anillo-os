@@ -28,25 +28,25 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
-#define FPAGE_PRESENT_BIT                    (1ULL << 0)
+#define FARCH_PAGE_PRESENT_BIT                    (1ULL << 0)
 // for l1 table
-#define FPAGE_VALID_PAGE_BIT                 (1ULL << 1)
+#define FARCH_PAGE_VALID_PAGE_BIT                 (1ULL << 1)
 // for l2 and l3 tables
-#define FPAGE_TABLE_POINTER_BIT              (1ULL << 1)
-#define FPAGE_ATTRIBUTES_INDEX_BITS          (3ULL << 2)
-#define FPAGE_NONSECURE_BIT                  (1ULL << 5)
-#define FPAGE_ALLOW_UNPRIVILEGED_ACCESS_BIT  (1ULL << 6)
-#define FPAGE_NO_WRITE_BIT                   (1ULL << 7)
+#define FARCH_PAGE_TABLE_POINTER_BIT              (1ULL << 1)
+#define FARCH_PAGE_ATTRIBUTES_INDEX_BITS          (3ULL << 2)
+#define FARCH_PAGE_NONSECURE_BIT                  (1ULL << 5)
+#define FARCH_PAGE_ALLOW_UNPRIVILEGED_ACCESS_BIT  (1ULL << 6)
+#define FARCH_PAGE_NO_WRITE_BIT                   (1ULL << 7)
 // or bits 50 and 51 of the physical address when LPA is available
-#define FPAGE_SHAREABILITY_BITS              (3ULL << 8)
-#define FPAGE_ACCESS_BIT                     (1ULL << 10)
-#define FPAGE_NOT_GLOBAL_BIT                 (1ULL << 11)
-#define FPAGE_NO_TRANSLATION_BIT             (1ULL << 16)
-#define FPAGE_BTI_GUARDED_BIT                (1ULL << 50)
-#define FPAGE_DIRTY_BIT                      (1ULL << 51)
-#define FPAGE_CONTIGUOUS_BIT                 (1ULL << 52)
-#define FPAGE_PRIVILEGED_EXECUTE_NEVER_BIT   (1ULL << 53)
-#define FPAGE_UNPRIVILEGED_EXECUTE_NEVER_BIT (1ULL << 54)
+#define FARCH_PAGE_SHAREABILITY_BITS              (3ULL << 8)
+#define FARCH_PAGE_ACCESS_BIT                     (1ULL << 10)
+#define FARCH_PAGE_NOT_GLOBAL_BIT                 (1ULL << 11)
+#define FARCH_PAGE_NO_TRANSLATION_BIT             (1ULL << 16)
+#define FARCH_PAGE_BTI_GUARDED_BIT                (1ULL << 50)
+#define FARCH_PAGE_DIRTY_BIT                      (1ULL << 51)
+#define FARCH_PAGE_CONTIGUOUS_BIT                 (1ULL << 52)
+#define FARCH_PAGE_PRIVILEGED_EXECUTE_NEVER_BIT   (1ULL << 53)
+#define FARCH_PAGE_UNPRIVILEGED_EXECUTE_NEVER_BIT (1ULL << 54)
 
 FERRO_ALWAYS_INLINE uintptr_t fpage_virtual_to_physical_early(uintptr_t virtual_address) {
 	uintptr_t result = virtual_address;
@@ -102,24 +102,24 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 };
 
 FERRO_ALWAYS_INLINE uint64_t fpage_page_entry(uintptr_t physical_address, bool writable) {
-	return FPAGE_PRESENT_BIT | FPAGE_VALID_PAGE_BIT | FPAGE_ACCESS_BIT | (writable ? 0 : FPAGE_NO_WRITE_BIT) | (3ULL << 8) | (3ULL << 2) | (physical_address & (0xfffffffffULL << 12));
+	return FARCH_PAGE_PRESENT_BIT | FARCH_PAGE_VALID_PAGE_BIT | FARCH_PAGE_ACCESS_BIT | (writable ? 0 : FARCH_PAGE_NO_WRITE_BIT) | (3ULL << 8) | (3ULL << 2) | (physical_address & (0xfffffffffULL << 12));
 };
 
 FERRO_ALWAYS_INLINE uint64_t fpage_large_page_entry(uintptr_t physical_address, bool writable) {
-	return FPAGE_PRESENT_BIT | (writable ? 0 : FPAGE_NO_WRITE_BIT) | FPAGE_ACCESS_BIT | (3ULL << 8) | (3ULL << 2) | (physical_address & (0x7ffffffULL << 21));
+	return FARCH_PAGE_PRESENT_BIT | (writable ? 0 : FARCH_PAGE_NO_WRITE_BIT) | FARCH_PAGE_ACCESS_BIT | (3ULL << 8) | (3ULL << 2) | (physical_address & (0x7ffffffULL << 21));
 };
 
 FERRO_ALWAYS_INLINE uint64_t fpage_very_large_page_entry(uintptr_t physical_address, bool writable) {
-	return FPAGE_PRESENT_BIT | (writable ? 0 : FPAGE_NO_WRITE_BIT) | FPAGE_ACCESS_BIT | (3ULL << 8) | (3ULL << 2) | (physical_address & (0xffffcULL << 30));
+	return FARCH_PAGE_PRESENT_BIT | (writable ? 0 : FARCH_PAGE_NO_WRITE_BIT) | FARCH_PAGE_ACCESS_BIT | (3ULL << 8) | (3ULL << 2) | (physical_address & (0xffffcULL << 30));
 };
 
 FERRO_ALWAYS_INLINE uint64_t fpage_table_entry(uintptr_t physical_address, bool writable) {
-	// FPAGE_ACCESS_BIT is normally ignored for table entries, but for recursive entries, it's treated like the access bit for page entries
-	return FPAGE_PRESENT_BIT | FPAGE_TABLE_POINTER_BIT | FPAGE_ACCESS_BIT | (writable ? 0 : FPAGE_NO_WRITE_BIT) | (physical_address & (0xfffffffffULL << 12));
+	// FARCH_PAGE_ACCESS_BIT is normally ignored for table entries, but for recursive entries, it's treated like the access bit for page entries
+	return FARCH_PAGE_PRESENT_BIT | FARCH_PAGE_TABLE_POINTER_BIT | FARCH_PAGE_ACCESS_BIT | (writable ? 0 : FARCH_PAGE_NO_WRITE_BIT) | (physical_address & (0xfffffffffULL << 12));
 };
 
 FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value) {
-	return entry_value & FPAGE_PRESENT_BIT;
+	return entry_value & FARCH_PAGE_PRESENT_BIT;
 };
 
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
@@ -134,7 +134,7 @@ FERRO_ALWAYS_INLINE void fpage_synchronize_after_table_modification(void) {
 };
 
 FERRO_ALWAYS_INLINE bool fpage_entry_is_large_page_entry(uint64_t entry) {
-	return !(entry & FPAGE_TABLE_POINTER_BIT);
+	return !(entry & FARCH_PAGE_TABLE_POINTER_BIT);
 };
 
 FERRO_ALWAYS_INLINE uint64_t fpage_entry_disable_caching(uint64_t entry) {

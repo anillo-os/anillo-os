@@ -1,4 +1,28 @@
 #
+# This file is part of Anillo OS
+# Copyright (C) 2021 Anillo OS Developers
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Lesser General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU Lesser General Public License
+# along with this program.  If not, see <https://www.gnu.org/licenses/>.
+#
+
+#
+# src/core/aarch64/ivt.s
+#
+# AARCH64 IVT (interrupt vector table), mainly for forwarding to C handlers
+#
+
+#
 # The interrupt vector table (IVT) is defined in this assembly file rather than in a C file because of the following reasons:
 #   1. Because the IVT entires are actually instructions, each of which is limited to 32 instructions, and we will certainly
 #      want to use more, we need to branch somewhere else. However, branches are PC-relative and limited to 128MiB, so

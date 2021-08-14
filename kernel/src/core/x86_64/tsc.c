@@ -1,3 +1,26 @@
+/**
+ * This file is part of Anillo OS
+ * Copyright (C) 2021 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+//
+// src/core/x86_64/tsc.c
+//
+// TSC (timestamp counter) calibration
+//
+
 #include <ferro/core/x86_64/tsc.h>
 #include <ferro/core/x86_64/legacy-io.h>
 #include <ferro/core/panic.h>
@@ -94,12 +117,12 @@ static uint64_t determine_tsc_frequency(void) {
 	farch_lio_write_u8(farch_lio_port_pit_data_channel_2, PIT_LATCH_VALUE >> 8);
 
 	// read the initial TSC value
-	initial_tsc = loop_initial_tsc = final_tsc = ftsc_read_weak();
+	initial_tsc = loop_initial_tsc = final_tsc = farch_tsc_read_weak();
 
 	// loop until the gate bit is set
 	while (!(farch_lio_read_u8(farch_lio_port_pc_speaker) & PC_SPEAKER_GATE_BIT)) {
 		// read the current TSC value
-		final_tsc = ftsc_read_weak();
+		final_tsc = farch_tsc_read_weak();
 
 		// calculate the difference
 		delta = final_tsc - loop_initial_tsc;
@@ -144,7 +167,7 @@ static uint64_t determine_tsc_frequency(void) {
 	return (delta / PIT_CALIBRATION_MS) * HZ_PER_KHZ;
 };
 
-void ftsc_init(void) {
+void farch_tsc_init(void) {
 	uint64_t tsc_frequency = UINT64_MAX;
 
 	for (size_t i = 0; i < MAX_CALIBRATION_ATTEMPTS && tsc_frequency == UINT64_MAX; ++i) {

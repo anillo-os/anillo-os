@@ -1,6 +1,6 @@
 /**
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 //
-// entry.c
+// src/core/entry.c
 //
 // common kernel entry point
 //
@@ -293,8 +293,8 @@ jump_here_for_virtual:;
 	facpi_init(rsdp);
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
-	ftsc_init();
-	fapic_init();
+	farch_tsc_init();
+	farch_apic_init();
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
 	farch_gic_init();
 	farch_generic_timer_init();

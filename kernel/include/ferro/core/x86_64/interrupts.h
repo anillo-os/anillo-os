@@ -84,7 +84,7 @@ FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state) {
 	}
 };
 
-FERRO_PACKED_STRUCT(fint_isr_frame) {
+FERRO_PACKED_STRUCT(farch_int_isr_frame) {
 	void* instruction_pointer;
 	uint64_t code_segment;
 	uint64_t cpu_flags;
@@ -99,7 +99,7 @@ FERRO_PACKED_STRUCT(fint_isr_frame) {
  *
  * The handler is called with interrupts disabled.
  */
-typedef void (*fint_handler_f)(fint_isr_frame_t* frame);
+typedef void (*farch_int_handler_f)(farch_int_isr_frame_t* frame);
 
 /**
  * Registers the given handler for the given interrupt number.
@@ -112,9 +112,9 @@ typedef void (*fint_handler_f)(fint_isr_frame_t* frame);
  * Return values:
  * @retval ferr_ok               The handler was registered successfully.
  * @retval ferr_invalid_argument One or more of: 1) the given interrupt number is outside the permitted range (32-255, inclusive), 2) the handler is `NULL`.
- * @retval ferr_temporary_outage A handler for the given interrupt is already registered and must be explicitly unregistered with `fint_unregister_handler`.
+ * @retval ferr_temporary_outage A handler for the given interrupt is already registered and must be explicitly unregistered with `farch_int_unregister_handler`.
  */
-FERRO_WUR ferr_t fint_register_handler(uint8_t interrupt, fint_handler_f handler);
+FERRO_WUR ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler);
 
 /**
  * Unregisters the handler for the given interrupt number.
@@ -126,7 +126,7 @@ FERRO_WUR ferr_t fint_register_handler(uint8_t interrupt, fint_handler_f handler
  * @retval ferr_invalid_argument The given interrupt number is outside the permitted range (32-255, inclusive).
  * @retval ferr_no_such_resource There is no handler registered for the given interrupt number.
  */
-FERRO_WUR ferr_t fint_unregister_handler(uint8_t interrupt);
+FERRO_WUR ferr_t farch_int_unregister_handler(uint8_t interrupt);
 
 FERRO_DECLARATIONS_END;
 

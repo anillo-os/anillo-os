@@ -1,3 +1,26 @@
+/**
+ * This file is part of Anillo OS
+ * Copyright (C) 2021 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+//
+// src/core/x86_64/interrupts.c
+//
+// x86_64 interrupt handling
+//
+
 #include <ferro/core/interrupts.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/paging.h>
@@ -46,10 +69,10 @@ FERRO_ENUM(uint8_t, fint_ist_index) {
 	fint_ist_index_double_fault,
 };
 
-typedef FERRO_INTERRUPT void (*fint_isr_f)(fint_isr_frame_t* frame);
-typedef FERRO_INTERRUPT void (*fint_isr_with_code_f)(fint_isr_frame_t* frame, uint64_t code);
-typedef FERRO_INTERRUPT FERRO_NO_RETURN void (*fint_isr_noreturn_f)(fint_isr_frame_t* frame);
-typedef FERRO_INTERRUPT FERRO_NO_RETURN void (*fint_isr_with_code_noreturn_f)(fint_isr_frame_t* frame, uint64_t code);
+typedef FERRO_INTERRUPT void (*fint_isr_f)(farch_int_isr_frame_t* frame);
+typedef FERRO_INTERRUPT void (*fint_isr_with_code_f)(farch_int_isr_frame_t* frame, uint64_t code);
+typedef FERRO_INTERRUPT FERRO_NO_RETURN void (*fint_isr_noreturn_f)(farch_int_isr_frame_t* frame);
+typedef FERRO_INTERRUPT FERRO_NO_RETURN void (*fint_isr_with_code_noreturn_f)(farch_int_isr_frame_t* frame, uint64_t code);
 
 FERRO_OPTIONS(uint16_t, fint_idt_entry_options) {
 	fint_idt_entry_option_enable_interrupts = 1 << 8,
@@ -170,7 +193,7 @@ FERRO_STRUCT(fint_handler_common_data) {
 };
 
 FERRO_STRUCT(fint_handler_entry) {
-	fint_handler_f handler;
+	farch_int_handler_f handler;
 	flock_spin_intsafe_t lock;
 };
 
@@ -209,7 +232,7 @@ static void fint_handler_common_end(fint_handler_common_data_t* data) {
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = data->interrupt_state;
 };
 
-static FERRO_INTERRUPT void breakpoint_handler(fint_isr_frame_t* frame) {
+static FERRO_INTERRUPT void breakpoint_handler(farch_int_isr_frame_t* frame) {
 	fint_handler_common_data_t data;
 
 	fint_handler_common_begin(&data);
@@ -219,7 +242,7 @@ static FERRO_INTERRUPT void breakpoint_handler(fint_isr_frame_t* frame) {
 	fint_handler_common_end(&data);
 };
 
-static FERRO_INTERRUPT FERRO_NO_RETURN void double_fault_handler(fint_isr_frame_t* frame, uint64_t code) {
+static FERRO_INTERRUPT FERRO_NO_RETURN void double_fault_handler(farch_int_isr_frame_t* frame, uint64_t code) {
 	fint_handler_common_data_t data;
 
 	fint_handler_common_begin(&data);
@@ -231,14 +254,14 @@ static FERRO_INTERRUPT FERRO_NO_RETURN void double_fault_handler(fint_isr_frame_
 	fint_handler_common_end(&data);
 };
 
-static FERRO_INTERRUPT void general_protection_fault_handler(fint_isr_frame_t* frame, uint64_t code) {
+static FERRO_INTERRUPT void general_protection_fault_handler(farch_int_isr_frame_t* frame, uint64_t code) {
 	fconsole_logf("received general protection fault with code %lu at %p\n", code, frame->instruction_pointer);
 };
 
 #define INTERRUPT_HANDLER(number) \
-	static FERRO_INTERRUPT void interrupt_ ## number ## _handler(fint_isr_frame_t* frame) { \
+	static FERRO_INTERRUPT void interrupt_ ## number ## _handler(farch_int_isr_frame_t* frame) { \
 		fint_handler_common_data_t data; \
-		fint_handler_f handler = NULL; \
+		farch_int_handler_f handler = NULL; \
 		fint_handler_common_begin(&data); \
 		flock_spin_intsafe_lock(&handlers[number].lock); \
 		handler = handlers[number].handler; \
@@ -501,7 +524,7 @@ jump_here_for_cs_reload:;
 	);
 };
 
-ferr_t fint_register_handler(uint8_t interrupt, fint_handler_f handler) {
+ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler) {
 	ferr_t status = ferr_ok;
 	fint_handler_entry_t* entry;
 
@@ -527,7 +550,7 @@ out_unlocked:
 	return ferr_ok;
 };
 
-ferr_t fint_unregister_handler(uint8_t interrupt) {
+ferr_t farch_int_unregister_handler(uint8_t interrupt) {
 	ferr_t status = ferr_ok;
 	fint_handler_entry_t* entry;
 
