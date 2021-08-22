@@ -48,6 +48,9 @@ FERRO_ENUM(int, ferro_memory_region_type) {
 
 	// memory where special kernel data is stored on boot; this is usually permanent
 	ferro_memory_region_type_kernel_reserved,
+
+	// memory where the kernel's entry stack is stored; this is reserved in early boot but can be turned into general memory later
+	ferro_memory_region_type_kernel_stack,
 };
 
 typedef struct ferro_memory_region ferro_memory_region_t;

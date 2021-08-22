@@ -1,6 +1,6 @@
 /**
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,39 +16,50 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _FERRO_ERROR_H_
-#define _FERRO_ERROR_H_
+#ifndef _FERRO_CORE_X86_64_THREADS_BEFORE_H_
+#define _FERRO_CORE_X86_64_THREADS_BEFORE_H_
+
+#include <stdint.h>
 
 #include <ferro/base.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
-FERRO_ENUM(int, ferr) {
-	// No error; success.
-	ferr_ok                  = 0,
+FERRO_STRUCT(fthread_saved_context) {
+	//
+	// general purpose registers
+	//
+	uint64_t rax;
+	uint64_t rcx;
+	uint64_t rdx;
+	uint64_t rbx;
+	uint64_t rsi;
+	uint64_t rdi;
+	uint64_t rsp;
+	uint64_t rbp;
+	uint64_t r8;
+	uint64_t r9;
+	uint64_t r10;
+	uint64_t r11;
+	uint64_t r12;
+	uint64_t r13;
+	uint64_t r14;
+	uint64_t r15;
 
-	// An unknown error occurred.
-	ferr_unknown             = -1,
+	//
+	// special registers
+	//
+	uint64_t rip;
+	uint64_t rflags;
+	uint64_t cs;
+	uint64_t ss;
 
-	// One or more arguments provided are invalid.
-	ferr_invalid_argument    = -2,
-
-	// The requested resource is temporarily unavailable.
-	ferr_temporary_outage    = -3,
-
-	// The requested resource is permanently unavailable.
-	ferr_permanent_outage    = -4,
-
-	// The requested action/service is unsupported.
-	ferr_unsupported         = -5,
-
-	// The requested resource cannot be found.
-	ferr_no_such_resource    = -6,
-
-	// The requested action/service is already in progress.
-	ferr_already_in_progress = -7,
+	// the per-CPU interrupt-disable count
+	uint64_t interrupt_disable;
 };
 
 FERRO_DECLARATIONS_END;
 
-#endif // _FERRO_ERROR_H_
+#include <ferro/core/threads.h>
+
+#endif // _FERRO_CORE_X86_64_THREADS_BEFORE_H_

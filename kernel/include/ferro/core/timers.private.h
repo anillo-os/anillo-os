@@ -91,6 +91,9 @@ ferr_t ftimers_register_backend(const ftimers_backend_t* backend);
 
 /**
  * Indicates that the first-in-line timer has fired.
+ *
+ * @note In some cases, this function may not return quickly to its caller.
+ *       Callers must be aware of this and should not perform any time-sensitive work after a call to this function.
  */
 void ftimers_backend_fire(void);
 

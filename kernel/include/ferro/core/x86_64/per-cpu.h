@@ -26,6 +26,9 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
+FERRO_STRUCT_FWD(farch_int_isr_frame);
+FERRO_STRUCT_FWD(fthread);
+
 FERRO_STRUCT(farch_per_cpu_data) {
 	farch_per_cpu_data_t* base;
 
@@ -50,6 +53,31 @@ FERRO_STRUCT(farch_per_cpu_data) {
 	 * Owner: APIC subsystem.
 	 */
 	uint64_t lapic_frequency;
+
+	/**
+	 * The interrupt frame for the currently active/in-progress interrupt.
+	 *
+	 * Owner: interrupts subsystem.
+	 * Also read by: scheduler subsystem.
+	 */
+	farch_int_isr_frame_t* current_exception_frame;
+
+	/**
+	 * The unique ID assigned to this processor.
+	 *
+	 * Owner: APIC subsystem.
+	 * Also read by: pretty much everything.
+	 */
+	uint64_t processor_id;
+
+	/**
+	 * The thread that is currently executing on this CPU.
+	 *
+	 * @note In an interrupt context, if a context switch is performed, this will be the thread that will execute when the CPU returns from the interrupt.
+	 *
+	 * Owner: Officially? The threads subsystem. In reality? The scheduler subsystem.
+	 */
+	fthread_t* current_thread;
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void);

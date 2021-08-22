@@ -125,6 +125,15 @@ extname() {
 }
 
 #
+# normalizes a path to not contain `..`
+#
+# (credit to https://stackoverflow.com/a/3373298/6620880)
+#
+normalize() {
+	python -c "import os,sys; print(os.path.abspath(sys.argv[1]))" "${1}"
+}
+
+#
 # variable setup
 #
 

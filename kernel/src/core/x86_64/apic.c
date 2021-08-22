@@ -20,6 +20,8 @@
 //
 // x86_64 APIC management, including timer backends
 //
+// This file also handles a couple of the `fcpu` functions.
+//
 
 #include <ferro/core/x86_64/apic.h>
 #include <ferro/core/acpi.h>
@@ -198,6 +200,8 @@ static void disarm_timer(void) {
 
 // this is the same for both the TSC-deadline and LAPIC timer backends
 static void timer_interrupt_handler(farch_int_isr_frame_t* frame) {
+	// signal EOI here instead of after because it may never return here
+	lapic->end_of_interrupt = 0;
 	ftimers_backend_fire();
 };
 
@@ -382,6 +386,29 @@ static ftimers_backend_t lapic_timer_backend = {
 	.cancel = lapic_timer_cancel,
 };
 
+static uint64_t apic_current_processor_id(void) {
+	unsigned int eax;
+	unsigned int ebx;
+	unsigned int ecx;
+	unsigned int edx;
+
+	if (__get_cpuid(1, &eax, &ebx, &ecx, &edx)) {
+		return (ebx & (0xffULL << 24)) >> 24;
+	} else {
+		return UINT64_MAX;
+	}
+};
+
+static uint64_t cpu_count = 0;
+
+uint64_t fcpu_id(void) {
+	return FARCH_PER_CPU(processor_id);
+};
+
+uint64_t fcpu_count(void) {
+	return cpu_count;
+};
+
 void farch_apic_init(void) {
 	facpi_madt_t* madt = (facpi_madt_t*)facpi_find_table("APIC");
 	uintptr_t lapic_address = 0;
@@ -389,6 +416,11 @@ void farch_apic_init(void) {
 
 	if (!supports_apic()) {
 		fpanic("CPU has no APIC");
+	}
+
+	FARCH_PER_CPU(processor_id) = apic_current_processor_id();
+	if (FARCH_PER_CPU(processor_id) == UINT64_MAX) {
+		fpanic("Failed to determine CPU ID");
 	}
 
 	if (!madt) {
@@ -401,6 +433,10 @@ void farch_apic_init(void) {
 		facpi_madt_entry_header_t* header = (void*)&madt->entries[offset];
 
 		switch (header->type) {
+			case facpi_madt_entry_type_processor_lapic: {
+				facpi_madt_entry_processor_lapic_t* cpu = (void*)header;
+				++cpu_count;
+			} break;
 			case facpi_madt_entry_type_lapic_override: {
 				facpi_madt_entry_lapic_override_t* override = (void*)header;
 				lapic_address = override->address;

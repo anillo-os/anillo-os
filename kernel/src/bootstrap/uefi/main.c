@@ -100,6 +100,10 @@ FERRO_ALWAYS_INLINE uint64_t round_up_power_of_2(uint64_t number, uint64_t multi
 	return (number + multiple - 1) & -multiple;
 };
 
+FERRO_ALWAYS_INLINE uint64_t round_down_power_of_2(uint64_t number, uint64_t multiple) {
+	return number & -multiple;
+};
+
 fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_table_t* system_table) {
 	fuefi_status_t status = fuefi_status_load_error;
 	int err = 0;
@@ -150,6 +154,11 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	fuefi_sysctl_bs_populate_memory_map_t populate_mm_info = {0};
 
 	uintptr_t rsdp_pointer = 0;
+
+	// 2MiB stack
+	size_t stack_size = 0x200000;
+	uintptr_t stack_base = round_down_power_of_2((uintptr_t)__builtin_frame_address(0), stack_size);
+	//ferro_memory_region_type_kernel_stack
 
 	mib[0] = CTL_WRAPPERS;
 	mib[1] = WRAPPERS_INIT;
@@ -353,6 +362,8 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 			config_data_length = fread(config_data, config_data_length, 1, config_file);
 			printf("Info: Read configuration file into memory\n");
 		}
+
+		fclose(config_file);
 	}
 
 	// load in our ramdisk
@@ -379,6 +390,8 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 				printf("Info: Read ramdisk into memory\n");
 			}
 		}
+
+		fclose(ramdisk_file);
 	}
 
 	// allocate space for the kernel image info structure
@@ -497,6 +510,8 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	}
 	printf("Info: Loaded %zu kernel segments\n", kernel_segment_index);
 
+	fclose(kernel_file);
+
 	// get the required size for the UEFI memory map
 	printf("Info: Determining required size for memory map...\n");
 	mib[0] = CTL_BS;
@@ -526,6 +541,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	// allocate a memory map for Ferro
 	// `+ 4` so we can map the memory map and initial pool as their own entries marked as "kernel reserved"
 	// and we add the kernel segment count multiplied by two so we can map them as kernel reserved as well
+	// likewise for the stack
 	ferro_map_size = ((mm_info.map_size / mm_info.descriptor_size) + 4 + (kernel_image_info->segment_count * 2)) * sizeof(ferro_memory_region_t);
 	if ((ferro_memory_map = mmap(NULL, ROUND_UP_PAGE(ferro_map_size) * 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)) == MAP_FAILED) {
 		status = errstat;
@@ -566,10 +582,11 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	//printf("Info: Populated Ferro memory map\n");
 
 	// override types for special addresses
-	for (size_t i = 0; i < 3; ++i) {
+	for (size_t i = 0; i < 4; ++i) {
 		uintptr_t physical_address = 0;
 		uintptr_t virtual_address = 0;
 		size_t page_count = 0;
+		ferro_memory_region_type_t new_type = ferro_memory_region_type_kernel_reserved;
 
 		if (i == 0) {
 			physical_address = (uintptr_t)ferro_memory_map;
@@ -577,9 +594,13 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		} else if (i == 1) {
 			physical_address = (uintptr_t)ferro_pool.base_address;
 			page_count = ROUND_UP_PAGE(ferro_pool_size);
-		} else {
+		} else if (i == 2) {
 			physical_address = (uintptr_t)kernel_image_base;
 			page_count = ROUND_UP_PAGE(kernel_image_info->size);
+		} else if (i == 3) {
+			physical_address = stack_base;
+			page_count = ROUND_UP_PAGE(stack_size);
+			new_type = ferro_memory_region_type_kernel_stack;
 		}
 
 		if (page_count == 0) {
@@ -615,7 +636,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 					new_ferro_region->physical_start = ferro_region->physical_start + (page_count * 0x1000);
 					new_ferro_region->type = ferro_region->type;
 				}
-				ferro_region->type = ferro_memory_region_type_kernel_reserved;
+				ferro_region->type = new_type;
 				ferro_region->virtual_start = virtual_address;
 				ferro_region->page_count = page_count;
 				break;

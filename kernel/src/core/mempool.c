@@ -783,6 +783,8 @@ ferr_t fmempool_reallocate(void* old_address, size_t new_byte_count, size_t* out
 			// now expand ourselves
 			set_leaf_order(old_parent_region, old_address, new_order);
 
+			new_address = old_address;
+
 			// we can now drop the lock
 			flock_spin_intsafe_unlock(&old_parent_region->lock);
 		} else {
@@ -793,7 +795,7 @@ ferr_t fmempool_reallocate(void* old_address, size_t new_byte_count, size_t* out
 			flock_spin_intsafe_unlock(&old_parent_region->lock);
 
 			// then allocate the new region
-			status = fmempool_allocate(new_byte_count, NULL, new_address);
+			status = fmempool_allocate(new_byte_count, NULL, &new_address);
 
 			if (status != ferr_ok) {
 				return status;

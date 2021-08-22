@@ -15,39 +15,18 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/panic.c
-//
-// panic facilities for Ferro
-// (for when things go downhill)
-//
 
-#include <ferro/core/panic.h>
-#include <ferro/core/entry.h>
-#include <ferro/core/console.h>
-#include <ferro/core/interrupts.h>
+#ifndef _FERRO_CORE_X86_64_THREADS_BEFORE_H_
+#define _FERRO_CORE_X86_64_THREADS_BEFORE_H_
 
-void fpanicv(const char* reason_format, va_list args) {
-	//__builtin_debugtrap();
+#include <stdint.h>
 
-	// we're going to die, so don't let anyone interrupt us
-	fint_disable();
+#include <ferro/base.h>
 
-	// technically, we shouldn't do this because the panic might've come from there, but oh well
-	fconsole_logfv(reason_format, args);
-	fconsole_log("\n");
+#include <ferro/core/threads.h>
 
-	// for now
-	fentry_hang_forever();
-};
+FERRO_DECLARATIONS_BEGIN;
 
-void fpanic(const char* reason_format, ...) {
-	va_list args;
+FERRO_DECLARATIONS_END;
 
-	va_start(args, reason_format);
-
-	fpanicv(reason_format, args);
-
-	// not necessary, but just for consistency
-	va_end(args);
-};
+#endif // _FERRO_CORE_X86_64_THREADS_BEFORE_H_

@@ -20,6 +20,7 @@
 #define _FERRO_CORE_INTERRUPTS_H_
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include <ferro/base.h>
 #include <ferro/platform.h>
@@ -70,6 +71,11 @@ FERRO_ALWAYS_INLINE void fint_enable(void);
  * Note that it is unsafe to use `fint_enable`/`fint_disable` and this function in the same context (as it will lead to the outstanding-interrupt-disable count becoming unbalanced).
  */
 //FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state);
+
+/**
+ * Checks whether we're currently running in an interrupt context.
+ */
+FERRO_ALWAYS_INLINE bool fint_is_interrupt_context(void);
 
 FERRO_DECLARATIONS_END;
 

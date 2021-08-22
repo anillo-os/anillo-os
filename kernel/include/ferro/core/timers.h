@@ -41,7 +41,7 @@ typedef uintptr_t ftimers_id_t;
 /**
  * Sets up a timer that will only fire once.
  *
- * The callback MAY be called from within an interrupt context (but is not guaranteed to) but it will NOT be scheduled.
+ * The callback WILL be called from within an interrupt context and it will NOT be scheduled.
  *
  * Note that this kind of timer should almost never be used, only in special cases (e.g. the scheduler), because it WILL block the CPU until it returns
  * and it will delay other timers waiting to fire.

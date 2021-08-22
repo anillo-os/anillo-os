@@ -25,6 +25,7 @@
 #include <ferro/core/x86_64/per-cpu.h>
 #include <ferro/core/interrupts.h>
 #include <ferro/error.h>
+#include <ferro/core/x86_64/per-cpu.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -34,9 +35,8 @@ FERRO_DECLARATIONS_BEGIN;
 typedef FARCH_PER_CPU_TYPEOF(outstanding_interrupt_disable_count) fint_state_t;
 
 FERRO_ALWAYS_INLINE void fint_disable(void) {
-	if (FARCH_PER_CPU(outstanding_interrupt_disable_count)++ == 0) {
-		__asm__ volatile("cli" ::: "memory");
-	}
+	__asm__ volatile("cli" ::: "memory");
+	FARCH_PER_CPU(outstanding_interrupt_disable_count)++;
 };
 
 FERRO_ALWAYS_INLINE void fint_enable(void) {
@@ -45,8 +45,7 @@ FERRO_ALWAYS_INLINE void fint_enable(void) {
 	}
 };
 
-#if 0
-FERRO_ALWAYS_INLINE uint64_t farch_save_flags(void) {
+FERRO_ALWAYS_INLINE uint64_t farch_int_save_flags(void) {
 	uint64_t flags = 0;
 
 	__asm__ volatile(
@@ -60,7 +59,6 @@ FERRO_ALWAYS_INLINE uint64_t farch_save_flags(void) {
 
 	return flags;
 };
-#endif
 
 /**
  * Returns the current interrupt state. Useful to save the current state and restore it later.
@@ -84,12 +82,44 @@ FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state) {
 	}
 };
 
+FERRO_PACKED_STRUCT(farch_int_saved_registers) {
+	uint64_t rax;
+	uint64_t rcx;
+	uint64_t rdx;
+	uint64_t rbx;
+	uint64_t rsi;
+	uint64_t rdi;
+	// no RSP; this is saved by the CPU
+	uint64_t rbp;
+	uint64_t r8;
+	uint64_t r9;
+	uint64_t r10;
+	uint64_t r11;
+	uint64_t r12;
+	uint64_t r13;
+	uint64_t r14;
+	uint64_t r15;
+
+	// not actually a register, but is per-CPU and should be saved and restored
+	uint64_t interrupt_disable;
+};
+
 FERRO_PACKED_STRUCT(farch_int_isr_frame) {
-	void* instruction_pointer;
-	uint64_t code_segment;
-	uint64_t cpu_flags;
-	void* stack_pointer;
-	uint64_t stack_segment;
+	farch_int_saved_registers_t saved_registers;
+	uint64_t code;
+	void* rip;
+	uint64_t cs;
+	uint64_t rflags;
+	void* rsp;
+	uint64_t ss;
+};
+
+FERRO_ENUM(uint8_t, farch_int_gdt_index) {
+	farch_int_gdt_index_null,
+	farch_int_gdt_index_code,
+	farch_int_gdt_index_data,
+	farch_int_gdt_index_tss,
+	farch_int_gdt_index_tss_other,
 };
 
 /**
@@ -127,6 +157,20 @@ FERRO_WUR ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler
  * @retval ferr_no_such_resource There is no handler registered for the given interrupt number.
  */
 FERRO_WUR ferr_t farch_int_unregister_handler(uint8_t interrupt);
+
+/**
+ * Returns the number of the next unused/unregistered interrupt, or `0` if all interrupts are in-use/registered.
+ *
+ * @note This is a costly operation.
+ *
+ * @note By the time the function returns, the number returned may have already been registered. Thus, if this is used to determine
+ *       an interrupt number to register, you MUST check the return code of `farch_int_register_handler`.
+ */
+uint8_t farch_int_next_available(void);
+
+FERRO_ALWAYS_INLINE bool fint_is_interrupt_context(void) {
+	return FARCH_PER_CPU(current_exception_frame) != NULL;
+};
 
 FERRO_DECLARATIONS_END;
 

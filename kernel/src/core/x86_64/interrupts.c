@@ -27,10 +27,11 @@
 #include <ferro/core/console.h>
 #include <ferro/core/locks.h>
 #include <libk/libk.h>
+#include <ferro/core/threads.private.h>
 
 #include <stddef.h>
 
-#define FERRO_INTERRUPT __attribute__((interrupt))
+#define IST_STACK_PAGE_COUNT 4
 
 FERRO_PACKED_STRUCT(fint_tss) {
 	uint32_t reserved1;
@@ -57,22 +58,18 @@ FERRO_PACKED_STRUCT(fint_gdt) {
 	uint64_t entries[8];
 };
 
-FERRO_ENUM(uint8_t, fint_gdt_index) {
-	fint_gdt_index_null,
-	fint_gdt_index_code,
-	fint_gdt_index_data,
-	fint_gdt_index_tss,
-	fint_gdt_index_tss_other,
-};
-
 FERRO_ENUM(uint8_t, fint_ist_index) {
+	// used for all interrupts without their own IST stack
+	fint_ist_index_generic_interrupt,
+
+	// used for the double fault handler
 	fint_ist_index_double_fault,
 };
 
-typedef FERRO_INTERRUPT void (*fint_isr_f)(farch_int_isr_frame_t* frame);
-typedef FERRO_INTERRUPT void (*fint_isr_with_code_f)(farch_int_isr_frame_t* frame, uint64_t code);
-typedef FERRO_INTERRUPT FERRO_NO_RETURN void (*fint_isr_noreturn_f)(farch_int_isr_frame_t* frame);
-typedef FERRO_INTERRUPT FERRO_NO_RETURN void (*fint_isr_with_code_noreturn_f)(farch_int_isr_frame_t* frame, uint64_t code);
+typedef void (*fint_isr_f)(farch_int_isr_frame_t* frame);
+typedef void (*fint_isr_with_code_f)(farch_int_isr_frame_t* frame);
+typedef FERRO_NO_RETURN void (*fint_isr_noreturn_f)(farch_int_isr_frame_t* frame);
+typedef FERRO_NO_RETURN void (*fint_isr_with_code_noreturn_f)(farch_int_isr_frame_t* frame);
 
 FERRO_OPTIONS(uint16_t, fint_idt_entry_options) {
 	fint_idt_entry_option_enable_interrupts = 1 << 8,
@@ -189,7 +186,7 @@ FERRO_PACKED_STRUCT(fint_gdt_pointer) {
 };
 
 FERRO_STRUCT(fint_handler_common_data) {
-	fint_state_t interrupt_state;
+	farch_int_isr_frame_t* previous_exception_frame;
 };
 
 FERRO_STRUCT(fint_handler_entry) {
@@ -221,48 +218,129 @@ fint_gdt_t gdt = {
 	},
 };
 
-static void fint_handler_common_begin(fint_handler_common_data_t* data) {
+static void fint_handler_common_begin(fint_handler_common_data_t* data, farch_int_isr_frame_t* frame, bool safe_mode) {
 	// for all our handlers, we set a bit in their configuration to tell the CPU to disable interrupts when handling them
 	// so we need to let our interrupt management code know this
-	data->interrupt_state = FARCH_PER_CPU(outstanding_interrupt_disable_count);
+	frame->saved_registers.interrupt_disable = FARCH_PER_CPU(outstanding_interrupt_disable_count);
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = 1;
+
+	// we also need to set the current interrupt frame
+	data->previous_exception_frame = FARCH_PER_CPU(current_exception_frame);
+	FARCH_PER_CPU(current_exception_frame) = frame;
+
+	if (!safe_mode && FARCH_PER_CPU(current_thread)) {
+		fthread_interrupt_start(FARCH_PER_CPU(current_thread));
+	}
 };
 
-static void fint_handler_common_end(fint_handler_common_data_t* data) {
-	FARCH_PER_CPU(outstanding_interrupt_disable_count) = data->interrupt_state;
+static void fint_handler_common_end(fint_handler_common_data_t* data, farch_int_isr_frame_t* frame, bool safe_mode) {
+	if (!safe_mode && FARCH_PER_CPU(current_thread)) {
+		fthread_interrupt_end(FARCH_PER_CPU(current_thread));
+	}
+
+	FARCH_PER_CPU(current_exception_frame) = data->previous_exception_frame;
+	FARCH_PER_CPU(outstanding_interrupt_disable_count) = frame->saved_registers.interrupt_disable;
 };
 
-static FERRO_INTERRUPT void breakpoint_handler(farch_int_isr_frame_t* frame) {
+static void print_frame(const farch_int_isr_frame_t* frame) {
+	fconsole_logf(
+		"rip=%p; rsp=%p\n"
+		"rax=%lu; rcx=%lu\n"
+		"rdx=%lu; rbx=%lu\n"
+		"rsi=%lu; rdi=%lu\n"
+		"rbp=%lu; r8=%lu\n"
+		"r9=%lu; r10=%lu\n"
+		"r11=%lu; r12=%lu\n"
+		"r13=%lu; r14=%lu\n"
+		"r15=%lu\n"
+		,
+		(void*)((uintptr_t)frame->rip - 1), frame->rsp,
+		frame->saved_registers.rax, frame->saved_registers.rcx,
+		frame->saved_registers.rdx, frame->saved_registers.rbx,
+		frame->saved_registers.rsi, frame->saved_registers.rdi,
+		frame->saved_registers.rbp, frame->saved_registers.r8,
+		frame->saved_registers.r9, frame->saved_registers.r10,
+		frame->saved_registers.r11, frame->saved_registers.r12,
+		frame->saved_registers.r13, frame->saved_registers.r14,
+		frame->saved_registers.r15
+	);
+};
+
+#define INTERRUPT_HANDLER(name) \
+	void farch_int_wrapper_ ## name(void); \
+	void farch_int_ ## name ## _handler(farch_int_isr_frame_t* frame)
+
+#define INTERRUPT_HANDLER_NORETURN(name) \
+	FERRO_NO_RETURN void farch_int_wrapper_ ## name(void); \
+	FERRO_NO_RETURN void farch_int_ ## name ## _handler(farch_int_isr_frame_t* frame)
+
+INTERRUPT_HANDLER(debug) {
 	fint_handler_common_data_t data;
 
-	fint_handler_common_begin(&data);
+	fint_handler_common_begin(&data, frame, true);
 
-	fconsole_logf("breakpoint at %p\n", (void*)((uintptr_t)frame->instruction_pointer - 1));
+	fconsole_logf("watchpoint hit; frame:\n");
+	print_frame(frame);
 
-	fint_handler_common_end(&data);
+	fint_handler_common_end(&data, frame, true);
 };
 
-static FERRO_INTERRUPT FERRO_NO_RETURN void double_fault_handler(farch_int_isr_frame_t* frame, uint64_t code) {
+INTERRUPT_HANDLER(breakpoint) {
 	fint_handler_common_data_t data;
 
-	fint_handler_common_begin(&data);
+	fint_handler_common_begin(&data, frame, true);
 
-	fconsole_log("double faulted; going down now...\n");
+	fconsole_logf("breakpoint hit; frame:\n");
+	print_frame(frame);
+
+	fint_handler_common_end(&data, frame, true);
+};
+
+INTERRUPT_HANDLER_NORETURN(double_fault) {
+	fint_handler_common_data_t data;
+
+	fint_handler_common_begin(&data, frame, true);
+
+	fconsole_logf("double faulted; going down now; code=%lu; frame:\n", frame->code);
+	print_frame(frame);
 	fpanic("double fault");
 
 	// unnecessary, but just for consistency
-	fint_handler_common_end(&data);
+	fint_handler_common_end(&data, frame, true);
 };
 
-static FERRO_INTERRUPT void general_protection_fault_handler(farch_int_isr_frame_t* frame, uint64_t code) {
-	fconsole_logf("received general protection fault with code %lu at %p\n", code, frame->instruction_pointer);
+INTERRUPT_HANDLER(general_protection) {
+	fint_handler_common_data_t data;
+
+	fint_handler_common_begin(&data, frame, true);
+
+	fconsole_logf("general protection fault; code=%lu; frame:\n", frame->code);
+	print_frame(frame);
+	fpanic("general protection fault");
+
+	fint_handler_common_end(&data, frame, true);
 };
 
-#define INTERRUPT_HANDLER(number) \
-	static FERRO_INTERRUPT void interrupt_ ## number ## _handler(farch_int_isr_frame_t* frame) { \
+INTERRUPT_HANDLER(page_fault) {
+	fint_handler_common_data_t data;
+	uintptr_t faulting_address = 0;
+
+	fint_handler_common_begin(&data, frame, true);
+
+	__asm__ volatile("mov %%cr2, %0" : "=r" (faulting_address));
+
+	fconsole_logf("page fault; code=%lu; faulting address=%p; frame:\n", frame->code, (void*)faulting_address);
+	print_frame(frame);
+	fpanic("page fault");
+
+	fint_handler_common_end(&data, frame, true);
+};
+
+#define MISC_INTERRUPT_HANDLER(number) \
+	INTERRUPT_HANDLER(interrupt_ ## number) { \
 		fint_handler_common_data_t data; \
 		farch_int_handler_f handler = NULL; \
-		fint_handler_common_begin(&data); \
+		fint_handler_common_begin(&data, frame, false); \
 		flock_spin_intsafe_lock(&handlers[number].lock); \
 		handler = handlers[number].handler; \
 		flock_spin_intsafe_unlock(&handlers[number].lock); \
@@ -271,233 +349,233 @@ static FERRO_INTERRUPT void general_protection_fault_handler(farch_int_isr_frame
 		} else { \
 			fpanic("Unhandled interrupt " #number); \
 		} \
-		fint_handler_common_end(&data); \
+		fint_handler_common_end(&data, frame, false); \
 	};
 
-INTERRUPT_HANDLER(  0);
-INTERRUPT_HANDLER(  1);
-INTERRUPT_HANDLER(  2);
-INTERRUPT_HANDLER(  3);
-INTERRUPT_HANDLER(  4);
-INTERRUPT_HANDLER(  5);
-INTERRUPT_HANDLER(  6);
-INTERRUPT_HANDLER(  7);
-INTERRUPT_HANDLER(  8);
-INTERRUPT_HANDLER(  9);
-INTERRUPT_HANDLER( 10);
-INTERRUPT_HANDLER( 11);
-INTERRUPT_HANDLER( 12);
-INTERRUPT_HANDLER( 13);
-INTERRUPT_HANDLER( 14);
-INTERRUPT_HANDLER( 15);
-INTERRUPT_HANDLER( 16);
-INTERRUPT_HANDLER( 17);
-INTERRUPT_HANDLER( 18);
-INTERRUPT_HANDLER( 19);
-INTERRUPT_HANDLER( 20);
-INTERRUPT_HANDLER( 21);
-INTERRUPT_HANDLER( 22);
-INTERRUPT_HANDLER( 23);
-INTERRUPT_HANDLER( 24);
-INTERRUPT_HANDLER( 25);
-INTERRUPT_HANDLER( 26);
-INTERRUPT_HANDLER( 27);
-INTERRUPT_HANDLER( 28);
-INTERRUPT_HANDLER( 29);
-INTERRUPT_HANDLER( 30);
-INTERRUPT_HANDLER( 31);
-INTERRUPT_HANDLER( 32);
-INTERRUPT_HANDLER( 33);
-INTERRUPT_HANDLER( 34);
-INTERRUPT_HANDLER( 35);
-INTERRUPT_HANDLER( 36);
-INTERRUPT_HANDLER( 37);
-INTERRUPT_HANDLER( 38);
-INTERRUPT_HANDLER( 39);
-INTERRUPT_HANDLER( 40);
-INTERRUPT_HANDLER( 41);
-INTERRUPT_HANDLER( 42);
-INTERRUPT_HANDLER( 43);
-INTERRUPT_HANDLER( 44);
-INTERRUPT_HANDLER( 45);
-INTERRUPT_HANDLER( 46);
-INTERRUPT_HANDLER( 47);
-INTERRUPT_HANDLER( 48);
-INTERRUPT_HANDLER( 49);
-INTERRUPT_HANDLER( 50);
-INTERRUPT_HANDLER( 51);
-INTERRUPT_HANDLER( 52);
-INTERRUPT_HANDLER( 53);
-INTERRUPT_HANDLER( 54);
-INTERRUPT_HANDLER( 55);
-INTERRUPT_HANDLER( 56);
-INTERRUPT_HANDLER( 57);
-INTERRUPT_HANDLER( 58);
-INTERRUPT_HANDLER( 59);
-INTERRUPT_HANDLER( 60);
-INTERRUPT_HANDLER( 61);
-INTERRUPT_HANDLER( 62);
-INTERRUPT_HANDLER( 63);
-INTERRUPT_HANDLER( 64);
-INTERRUPT_HANDLER( 65);
-INTERRUPT_HANDLER( 66);
-INTERRUPT_HANDLER( 67);
-INTERRUPT_HANDLER( 68);
-INTERRUPT_HANDLER( 69);
-INTERRUPT_HANDLER( 70);
-INTERRUPT_HANDLER( 71);
-INTERRUPT_HANDLER( 72);
-INTERRUPT_HANDLER( 73);
-INTERRUPT_HANDLER( 74);
-INTERRUPT_HANDLER( 75);
-INTERRUPT_HANDLER( 76);
-INTERRUPT_HANDLER( 77);
-INTERRUPT_HANDLER( 78);
-INTERRUPT_HANDLER( 79);
-INTERRUPT_HANDLER( 80);
-INTERRUPT_HANDLER( 81);
-INTERRUPT_HANDLER( 82);
-INTERRUPT_HANDLER( 83);
-INTERRUPT_HANDLER( 84);
-INTERRUPT_HANDLER( 85);
-INTERRUPT_HANDLER( 86);
-INTERRUPT_HANDLER( 87);
-INTERRUPT_HANDLER( 88);
-INTERRUPT_HANDLER( 89);
-INTERRUPT_HANDLER( 90);
-INTERRUPT_HANDLER( 91);
-INTERRUPT_HANDLER( 92);
-INTERRUPT_HANDLER( 93);
-INTERRUPT_HANDLER( 94);
-INTERRUPT_HANDLER( 95);
-INTERRUPT_HANDLER( 96);
-INTERRUPT_HANDLER( 97);
-INTERRUPT_HANDLER( 98);
-INTERRUPT_HANDLER( 99);
-INTERRUPT_HANDLER(100);
-INTERRUPT_HANDLER(101);
-INTERRUPT_HANDLER(102);
-INTERRUPT_HANDLER(103);
-INTERRUPT_HANDLER(104);
-INTERRUPT_HANDLER(105);
-INTERRUPT_HANDLER(106);
-INTERRUPT_HANDLER(107);
-INTERRUPT_HANDLER(108);
-INTERRUPT_HANDLER(109);
-INTERRUPT_HANDLER(110);
-INTERRUPT_HANDLER(111);
-INTERRUPT_HANDLER(112);
-INTERRUPT_HANDLER(113);
-INTERRUPT_HANDLER(114);
-INTERRUPT_HANDLER(115);
-INTERRUPT_HANDLER(116);
-INTERRUPT_HANDLER(117);
-INTERRUPT_HANDLER(118);
-INTERRUPT_HANDLER(119);
-INTERRUPT_HANDLER(120);
-INTERRUPT_HANDLER(121);
-INTERRUPT_HANDLER(122);
-INTERRUPT_HANDLER(123);
-INTERRUPT_HANDLER(124);
-INTERRUPT_HANDLER(125);
-INTERRUPT_HANDLER(126);
-INTERRUPT_HANDLER(127);
-INTERRUPT_HANDLER(128);
-INTERRUPT_HANDLER(129);
-INTERRUPT_HANDLER(130);
-INTERRUPT_HANDLER(131);
-INTERRUPT_HANDLER(132);
-INTERRUPT_HANDLER(133);
-INTERRUPT_HANDLER(134);
-INTERRUPT_HANDLER(135);
-INTERRUPT_HANDLER(136);
-INTERRUPT_HANDLER(137);
-INTERRUPT_HANDLER(138);
-INTERRUPT_HANDLER(139);
-INTERRUPT_HANDLER(140);
-INTERRUPT_HANDLER(141);
-INTERRUPT_HANDLER(142);
-INTERRUPT_HANDLER(143);
-INTERRUPT_HANDLER(144);
-INTERRUPT_HANDLER(145);
-INTERRUPT_HANDLER(146);
-INTERRUPT_HANDLER(147);
-INTERRUPT_HANDLER(148);
-INTERRUPT_HANDLER(149);
-INTERRUPT_HANDLER(150);
-INTERRUPT_HANDLER(151);
-INTERRUPT_HANDLER(152);
-INTERRUPT_HANDLER(153);
-INTERRUPT_HANDLER(154);
-INTERRUPT_HANDLER(155);
-INTERRUPT_HANDLER(156);
-INTERRUPT_HANDLER(157);
-INTERRUPT_HANDLER(158);
-INTERRUPT_HANDLER(159);
-INTERRUPT_HANDLER(160);
-INTERRUPT_HANDLER(161);
-INTERRUPT_HANDLER(162);
-INTERRUPT_HANDLER(163);
-INTERRUPT_HANDLER(164);
-INTERRUPT_HANDLER(165);
-INTERRUPT_HANDLER(166);
-INTERRUPT_HANDLER(167);
-INTERRUPT_HANDLER(168);
-INTERRUPT_HANDLER(169);
-INTERRUPT_HANDLER(170);
-INTERRUPT_HANDLER(171);
-INTERRUPT_HANDLER(172);
-INTERRUPT_HANDLER(173);
-INTERRUPT_HANDLER(174);
-INTERRUPT_HANDLER(175);
-INTERRUPT_HANDLER(176);
-INTERRUPT_HANDLER(177);
-INTERRUPT_HANDLER(178);
-INTERRUPT_HANDLER(179);
-INTERRUPT_HANDLER(180);
-INTERRUPT_HANDLER(181);
-INTERRUPT_HANDLER(182);
-INTERRUPT_HANDLER(183);
-INTERRUPT_HANDLER(184);
-INTERRUPT_HANDLER(185);
-INTERRUPT_HANDLER(186);
-INTERRUPT_HANDLER(187);
-INTERRUPT_HANDLER(188);
-INTERRUPT_HANDLER(189);
-INTERRUPT_HANDLER(190);
-INTERRUPT_HANDLER(191);
-INTERRUPT_HANDLER(192);
-INTERRUPT_HANDLER(193);
-INTERRUPT_HANDLER(194);
-INTERRUPT_HANDLER(195);
-INTERRUPT_HANDLER(196);
-INTERRUPT_HANDLER(197);
-INTERRUPT_HANDLER(198);
-INTERRUPT_HANDLER(199);
-INTERRUPT_HANDLER(200);
-INTERRUPT_HANDLER(201);
-INTERRUPT_HANDLER(202);
-INTERRUPT_HANDLER(203);
-INTERRUPT_HANDLER(204);
-INTERRUPT_HANDLER(205);
-INTERRUPT_HANDLER(206);
-INTERRUPT_HANDLER(207);
-INTERRUPT_HANDLER(208);
-INTERRUPT_HANDLER(209);
-INTERRUPT_HANDLER(210);
-INTERRUPT_HANDLER(211);
-INTERRUPT_HANDLER(212);
-INTERRUPT_HANDLER(213);
-INTERRUPT_HANDLER(214);
-INTERRUPT_HANDLER(215);
-INTERRUPT_HANDLER(216);
-INTERRUPT_HANDLER(217);
-INTERRUPT_HANDLER(218);
-INTERRUPT_HANDLER(219);
-INTERRUPT_HANDLER(220);
-INTERRUPT_HANDLER(221);
-INTERRUPT_HANDLER(222);
-INTERRUPT_HANDLER(223);
+MISC_INTERRUPT_HANDLER(  0);
+MISC_INTERRUPT_HANDLER(  1);
+MISC_INTERRUPT_HANDLER(  2);
+MISC_INTERRUPT_HANDLER(  3);
+MISC_INTERRUPT_HANDLER(  4);
+MISC_INTERRUPT_HANDLER(  5);
+MISC_INTERRUPT_HANDLER(  6);
+MISC_INTERRUPT_HANDLER(  7);
+MISC_INTERRUPT_HANDLER(  8);
+MISC_INTERRUPT_HANDLER(  9);
+MISC_INTERRUPT_HANDLER( 10);
+MISC_INTERRUPT_HANDLER( 11);
+MISC_INTERRUPT_HANDLER( 12);
+MISC_INTERRUPT_HANDLER( 13);
+MISC_INTERRUPT_HANDLER( 14);
+MISC_INTERRUPT_HANDLER( 15);
+MISC_INTERRUPT_HANDLER( 16);
+MISC_INTERRUPT_HANDLER( 17);
+MISC_INTERRUPT_HANDLER( 18);
+MISC_INTERRUPT_HANDLER( 19);
+MISC_INTERRUPT_HANDLER( 20);
+MISC_INTERRUPT_HANDLER( 21);
+MISC_INTERRUPT_HANDLER( 22);
+MISC_INTERRUPT_HANDLER( 23);
+MISC_INTERRUPT_HANDLER( 24);
+MISC_INTERRUPT_HANDLER( 25);
+MISC_INTERRUPT_HANDLER( 26);
+MISC_INTERRUPT_HANDLER( 27);
+MISC_INTERRUPT_HANDLER( 28);
+MISC_INTERRUPT_HANDLER( 29);
+MISC_INTERRUPT_HANDLER( 30);
+MISC_INTERRUPT_HANDLER( 31);
+MISC_INTERRUPT_HANDLER( 32);
+MISC_INTERRUPT_HANDLER( 33);
+MISC_INTERRUPT_HANDLER( 34);
+MISC_INTERRUPT_HANDLER( 35);
+MISC_INTERRUPT_HANDLER( 36);
+MISC_INTERRUPT_HANDLER( 37);
+MISC_INTERRUPT_HANDLER( 38);
+MISC_INTERRUPT_HANDLER( 39);
+MISC_INTERRUPT_HANDLER( 40);
+MISC_INTERRUPT_HANDLER( 41);
+MISC_INTERRUPT_HANDLER( 42);
+MISC_INTERRUPT_HANDLER( 43);
+MISC_INTERRUPT_HANDLER( 44);
+MISC_INTERRUPT_HANDLER( 45);
+MISC_INTERRUPT_HANDLER( 46);
+MISC_INTERRUPT_HANDLER( 47);
+MISC_INTERRUPT_HANDLER( 48);
+MISC_INTERRUPT_HANDLER( 49);
+MISC_INTERRUPT_HANDLER( 50);
+MISC_INTERRUPT_HANDLER( 51);
+MISC_INTERRUPT_HANDLER( 52);
+MISC_INTERRUPT_HANDLER( 53);
+MISC_INTERRUPT_HANDLER( 54);
+MISC_INTERRUPT_HANDLER( 55);
+MISC_INTERRUPT_HANDLER( 56);
+MISC_INTERRUPT_HANDLER( 57);
+MISC_INTERRUPT_HANDLER( 58);
+MISC_INTERRUPT_HANDLER( 59);
+MISC_INTERRUPT_HANDLER( 60);
+MISC_INTERRUPT_HANDLER( 61);
+MISC_INTERRUPT_HANDLER( 62);
+MISC_INTERRUPT_HANDLER( 63);
+MISC_INTERRUPT_HANDLER( 64);
+MISC_INTERRUPT_HANDLER( 65);
+MISC_INTERRUPT_HANDLER( 66);
+MISC_INTERRUPT_HANDLER( 67);
+MISC_INTERRUPT_HANDLER( 68);
+MISC_INTERRUPT_HANDLER( 69);
+MISC_INTERRUPT_HANDLER( 70);
+MISC_INTERRUPT_HANDLER( 71);
+MISC_INTERRUPT_HANDLER( 72);
+MISC_INTERRUPT_HANDLER( 73);
+MISC_INTERRUPT_HANDLER( 74);
+MISC_INTERRUPT_HANDLER( 75);
+MISC_INTERRUPT_HANDLER( 76);
+MISC_INTERRUPT_HANDLER( 77);
+MISC_INTERRUPT_HANDLER( 78);
+MISC_INTERRUPT_HANDLER( 79);
+MISC_INTERRUPT_HANDLER( 80);
+MISC_INTERRUPT_HANDLER( 81);
+MISC_INTERRUPT_HANDLER( 82);
+MISC_INTERRUPT_HANDLER( 83);
+MISC_INTERRUPT_HANDLER( 84);
+MISC_INTERRUPT_HANDLER( 85);
+MISC_INTERRUPT_HANDLER( 86);
+MISC_INTERRUPT_HANDLER( 87);
+MISC_INTERRUPT_HANDLER( 88);
+MISC_INTERRUPT_HANDLER( 89);
+MISC_INTERRUPT_HANDLER( 90);
+MISC_INTERRUPT_HANDLER( 91);
+MISC_INTERRUPT_HANDLER( 92);
+MISC_INTERRUPT_HANDLER( 93);
+MISC_INTERRUPT_HANDLER( 94);
+MISC_INTERRUPT_HANDLER( 95);
+MISC_INTERRUPT_HANDLER( 96);
+MISC_INTERRUPT_HANDLER( 97);
+MISC_INTERRUPT_HANDLER( 98);
+MISC_INTERRUPT_HANDLER( 99);
+MISC_INTERRUPT_HANDLER(100);
+MISC_INTERRUPT_HANDLER(101);
+MISC_INTERRUPT_HANDLER(102);
+MISC_INTERRUPT_HANDLER(103);
+MISC_INTERRUPT_HANDLER(104);
+MISC_INTERRUPT_HANDLER(105);
+MISC_INTERRUPT_HANDLER(106);
+MISC_INTERRUPT_HANDLER(107);
+MISC_INTERRUPT_HANDLER(108);
+MISC_INTERRUPT_HANDLER(109);
+MISC_INTERRUPT_HANDLER(110);
+MISC_INTERRUPT_HANDLER(111);
+MISC_INTERRUPT_HANDLER(112);
+MISC_INTERRUPT_HANDLER(113);
+MISC_INTERRUPT_HANDLER(114);
+MISC_INTERRUPT_HANDLER(115);
+MISC_INTERRUPT_HANDLER(116);
+MISC_INTERRUPT_HANDLER(117);
+MISC_INTERRUPT_HANDLER(118);
+MISC_INTERRUPT_HANDLER(119);
+MISC_INTERRUPT_HANDLER(120);
+MISC_INTERRUPT_HANDLER(121);
+MISC_INTERRUPT_HANDLER(122);
+MISC_INTERRUPT_HANDLER(123);
+MISC_INTERRUPT_HANDLER(124);
+MISC_INTERRUPT_HANDLER(125);
+MISC_INTERRUPT_HANDLER(126);
+MISC_INTERRUPT_HANDLER(127);
+MISC_INTERRUPT_HANDLER(128);
+MISC_INTERRUPT_HANDLER(129);
+MISC_INTERRUPT_HANDLER(130);
+MISC_INTERRUPT_HANDLER(131);
+MISC_INTERRUPT_HANDLER(132);
+MISC_INTERRUPT_HANDLER(133);
+MISC_INTERRUPT_HANDLER(134);
+MISC_INTERRUPT_HANDLER(135);
+MISC_INTERRUPT_HANDLER(136);
+MISC_INTERRUPT_HANDLER(137);
+MISC_INTERRUPT_HANDLER(138);
+MISC_INTERRUPT_HANDLER(139);
+MISC_INTERRUPT_HANDLER(140);
+MISC_INTERRUPT_HANDLER(141);
+MISC_INTERRUPT_HANDLER(142);
+MISC_INTERRUPT_HANDLER(143);
+MISC_INTERRUPT_HANDLER(144);
+MISC_INTERRUPT_HANDLER(145);
+MISC_INTERRUPT_HANDLER(146);
+MISC_INTERRUPT_HANDLER(147);
+MISC_INTERRUPT_HANDLER(148);
+MISC_INTERRUPT_HANDLER(149);
+MISC_INTERRUPT_HANDLER(150);
+MISC_INTERRUPT_HANDLER(151);
+MISC_INTERRUPT_HANDLER(152);
+MISC_INTERRUPT_HANDLER(153);
+MISC_INTERRUPT_HANDLER(154);
+MISC_INTERRUPT_HANDLER(155);
+MISC_INTERRUPT_HANDLER(156);
+MISC_INTERRUPT_HANDLER(157);
+MISC_INTERRUPT_HANDLER(158);
+MISC_INTERRUPT_HANDLER(159);
+MISC_INTERRUPT_HANDLER(160);
+MISC_INTERRUPT_HANDLER(161);
+MISC_INTERRUPT_HANDLER(162);
+MISC_INTERRUPT_HANDLER(163);
+MISC_INTERRUPT_HANDLER(164);
+MISC_INTERRUPT_HANDLER(165);
+MISC_INTERRUPT_HANDLER(166);
+MISC_INTERRUPT_HANDLER(167);
+MISC_INTERRUPT_HANDLER(168);
+MISC_INTERRUPT_HANDLER(169);
+MISC_INTERRUPT_HANDLER(170);
+MISC_INTERRUPT_HANDLER(171);
+MISC_INTERRUPT_HANDLER(172);
+MISC_INTERRUPT_HANDLER(173);
+MISC_INTERRUPT_HANDLER(174);
+MISC_INTERRUPT_HANDLER(175);
+MISC_INTERRUPT_HANDLER(176);
+MISC_INTERRUPT_HANDLER(177);
+MISC_INTERRUPT_HANDLER(178);
+MISC_INTERRUPT_HANDLER(179);
+MISC_INTERRUPT_HANDLER(180);
+MISC_INTERRUPT_HANDLER(181);
+MISC_INTERRUPT_HANDLER(182);
+MISC_INTERRUPT_HANDLER(183);
+MISC_INTERRUPT_HANDLER(184);
+MISC_INTERRUPT_HANDLER(185);
+MISC_INTERRUPT_HANDLER(186);
+MISC_INTERRUPT_HANDLER(187);
+MISC_INTERRUPT_HANDLER(188);
+MISC_INTERRUPT_HANDLER(189);
+MISC_INTERRUPT_HANDLER(190);
+MISC_INTERRUPT_HANDLER(191);
+MISC_INTERRUPT_HANDLER(192);
+MISC_INTERRUPT_HANDLER(193);
+MISC_INTERRUPT_HANDLER(194);
+MISC_INTERRUPT_HANDLER(195);
+MISC_INTERRUPT_HANDLER(196);
+MISC_INTERRUPT_HANDLER(197);
+MISC_INTERRUPT_HANDLER(198);
+MISC_INTERRUPT_HANDLER(199);
+MISC_INTERRUPT_HANDLER(200);
+MISC_INTERRUPT_HANDLER(201);
+MISC_INTERRUPT_HANDLER(202);
+MISC_INTERRUPT_HANDLER(203);
+MISC_INTERRUPT_HANDLER(204);
+MISC_INTERRUPT_HANDLER(205);
+MISC_INTERRUPT_HANDLER(206);
+MISC_INTERRUPT_HANDLER(207);
+MISC_INTERRUPT_HANDLER(208);
+MISC_INTERRUPT_HANDLER(209);
+MISC_INTERRUPT_HANDLER(210);
+MISC_INTERRUPT_HANDLER(211);
+MISC_INTERRUPT_HANDLER(212);
+MISC_INTERRUPT_HANDLER(213);
+MISC_INTERRUPT_HANDLER(214);
+MISC_INTERRUPT_HANDLER(215);
+MISC_INTERRUPT_HANDLER(216);
+MISC_INTERRUPT_HANDLER(217);
+MISC_INTERRUPT_HANDLER(218);
+MISC_INTERRUPT_HANDLER(219);
+MISC_INTERRUPT_HANDLER(220);
+MISC_INTERRUPT_HANDLER(221);
+MISC_INTERRUPT_HANDLER(222);
+MISC_INTERRUPT_HANDLER(223);
 
 static void fint_reload_segment_registers(uint8_t cs, uint8_t ds) {
 	__asm__ volatile(
@@ -576,17 +654,35 @@ out_unlocked:
 	return ferr_ok;
 };
 
+uint8_t farch_int_next_available(void) {
+	for (size_t i = 0; i < sizeof(handlers) / sizeof(*handlers); ++i) {
+		fint_handler_entry_t* entry = &handlers[i];
+		bool registered = false;
+
+		flock_spin_intsafe_lock(&entry->lock);
+		registered = !!entry->handler;
+		flock_spin_intsafe_unlock(&entry->lock);
+
+		if (!registered) {
+			return i + 32;
+		}
+	}
+
+	return 0;
+};
+
 void fint_init(void) {
 	uintptr_t tss_addr = (uintptr_t)&tss;
-	void* stack_bottom = NULL;
+	void* generic_interrupt_stack_bottom = NULL;
+	void* double_fault_stack_bottom = NULL;
 	fint_idt_pointer_t idt_pointer;
 	fint_gdt_pointer_t gdt_pointer;
 	fint_idt_entry_t missing_entry;
-	uint16_t tss_selector = fint_gdt_index_tss * 8;
+	uint16_t tss_selector = farch_int_gdt_index_tss * 8;
 
 	// initialize the TSS address in the GDT
-	gdt.entries[fint_gdt_index_tss] |= ((tss_addr & 0xffffffULL) << 16) | (((tss_addr & (0xffULL << 24)) >> 24) << 56);
-	gdt.entries[fint_gdt_index_tss_other] = (tss_addr & (0xffffffffULL << 32)) >> 32;
+	gdt.entries[farch_int_gdt_index_tss] |= ((tss_addr & 0xffffffULL) << 16) | (((tss_addr & (0xffULL << 24)) >> 24) << 56);
+	gdt.entries[farch_int_gdt_index_tss_other] = (tss_addr & (0xffffffffULL << 32)) >> 32;
 
 	// load the gdt
 	gdt_pointer.limit = sizeof(gdt) - 1;
@@ -600,7 +696,7 @@ void fint_init(void) {
 	);
 
 	// reload the segment registers
-	fint_reload_segment_registers(fint_gdt_index_code, fint_gdt_index_data);
+	fint_reload_segment_registers(farch_int_gdt_index_code, farch_int_gdt_index_data);
 
 	// load the TSS
 	__asm__ volatile(
@@ -611,13 +707,19 @@ void fint_init(void) {
 		"memory"
 	);
 
+	// allocate a stack for generic interrupt handlers
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &generic_interrupt_stack_bottom) != ferr_ok) {
+		fpanic("failed to allocate stack for generic interrupt handlers");
+	}
+
 	// allocate a stack for the double-fault handler
-	if (fpage_allocate_kernel(4, &stack_bottom) != ferr_ok) {
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &double_fault_stack_bottom) != ferr_ok) {
 		fpanic("failed to allocate stack for double fault handler");
 	}
 
-	// set the stack top address
-	tss.ist[fint_ist_index_double_fault] = (uintptr_t)stack_bottom + (FPAGE_PAGE_SIZE * 4);
+	// set the stack top addresses
+	tss.ist[fint_ist_index_generic_interrupt] = (uintptr_t)generic_interrupt_stack_bottom + (FPAGE_PAGE_SIZE * 4);
+	tss.ist[fint_ist_index_double_fault] = (uintptr_t)double_fault_stack_bottom + (FPAGE_PAGE_SIZE * 4);
 
 	// initialize the idt with missing entries (they still require certain bits to be 1)
 	fint_make_idt_entry(&missing_entry, NULL, 0, 0, false, 0);
@@ -625,14 +727,16 @@ void fint_init(void) {
 	memclone(&idt, &missing_entry, sizeof(missing_entry), sizeof(idt) / sizeof(missing_entry));
 
 	// initialize the desired idt entries with actual values
-	fint_make_idt_entry(&idt.breakpoint, breakpoint_handler, fint_gdt_index_code, 0, false, 0);
-	fint_make_idt_entry(&idt.double_fault, double_fault_handler, fint_gdt_index_code, 1, false, 0);
-	fint_make_idt_entry(&idt.general_protection_fault, general_protection_fault_handler, fint_gdt_index_code, 0, false, 0);
+	fint_make_idt_entry(&idt.debug, farch_int_wrapper_debug, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.breakpoint, farch_int_wrapper_breakpoint, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.double_fault, farch_int_wrapper_double_fault, farch_int_gdt_index_code, fint_ist_index_double_fault + 1, false, 0);
+	fint_make_idt_entry(&idt.general_protection_fault, farch_int_wrapper_general_protection, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.page_fault, farch_int_wrapper_page_fault, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
 
 	// initialize the array of miscellaneous interrupts
 	#define DEFINE_INTERRUPT(number) \
 		flock_spin_intsafe_init(&handlers[number].lock); \
-		fint_make_idt_entry(&idt.interrupts[number], interrupt_ ## number ## _handler, fint_gdt_index_code, 0, false, 0);
+		fint_make_idt_entry(&idt.interrupts[number], farch_int_wrapper_interrupt_ ## number, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
 
 	DEFINE_INTERRUPT(  0);
 	DEFINE_INTERRUPT(  1);
@@ -872,10 +976,4 @@ void fint_init(void) {
 
 	// enable interrupts
 	fint_enable();
-
-	// test: trigger a breakpoint
-	//__builtin_debugtrap();
-
-	// test: trigger a double fault
-	//*(volatile char*)0xdeadbeefULL = 42;
 };

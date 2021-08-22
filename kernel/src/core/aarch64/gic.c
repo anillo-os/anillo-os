@@ -33,13 +33,11 @@
 #define RESERVED_HELPER(x, y) RESERVED_HELPER2(x, y)
 #define RESERVED(x) RESERVED_HELPER(x, __COUNTER__)
 
-#define VERIFY_OFFSET(type, member, offset) _Static_assert(offsetof(type, member) == offset, "Offset verification failed for " #member " in " #type " (expected offset to equal " #offset ")")
-
-#define VERIFY_OFFSET_GICR_LPI(member, offset) VERIFY_OFFSET(     farch_gic_gicr_lpi_block_t, member, offset)
-#define VERIFY_OFFSET_GICR_SGI(member, offset) VERIFY_OFFSET(     farch_gic_gicr_sgi_block_t, member, offset)
-#define VERIFY_OFFSET_GICD(member, offset)     VERIFY_OFFSET(         farch_gic_gicd_block_t, member, offset)
-#define VERIFY_OFFSET_CPU(member, offset)      VERIFY_OFFSET(farch_gic_cpu_interface_block_t, member, offset)
-#define VERIFY_OFFSET_ITS(member, offset)      VERIFY_OFFSET(          farch_gic_its_block_t, member, offset)
+#define VERIFY_OFFSET_GICR_LPI(member, offset) FERRO_VERIFY_OFFSET(     farch_gic_gicr_lpi_block_t, member, offset)
+#define VERIFY_OFFSET_GICR_SGI(member, offset) FERRO_VERIFY_OFFSET(     farch_gic_gicr_sgi_block_t, member, offset)
+#define VERIFY_OFFSET_GICD(member, offset)     FERRO_VERIFY_OFFSET(         farch_gic_gicd_block_t, member, offset)
+#define VERIFY_OFFSET_CPU(member, offset)      FERRO_VERIFY_OFFSET(farch_gic_cpu_interface_block_t, member, offset)
+#define VERIFY_OFFSET_ITS(member, offset)      FERRO_VERIFY_OFFSET(          farch_gic_its_block_t, member, offset)
 
 FERRO_PACKED_STRUCT(farch_gic_gicr_lpi_block) {
 	volatile uint32_t control;
@@ -125,8 +123,8 @@ FERRO_PACKED_STRUCT(farch_gic_gicr_block) {
 	farch_gic_gicr_sgi_block_t sgi;
 };
 
-VERIFY_OFFSET(farch_gic_gicr_block_t, lpi, 0);
-VERIFY_OFFSET(farch_gic_gicr_block_t, sgi, 0x10000);
+FERRO_VERIFY_OFFSET(farch_gic_gicr_block_t, lpi, 0);
+FERRO_VERIFY_OFFSET(farch_gic_gicr_block_t, sgi, 0x10000);
 
 FERRO_PACKED_STRUCT(farch_gic_gicd_block) {
 	volatile uint32_t control;

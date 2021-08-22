@@ -39,11 +39,16 @@
 	typedef struct __attribute__((packed)) name name ## _t; \
 	struct __attribute__((packed)) name
 
-#define FERRO_ENUM(type, name) typedef type name ## _t; enum name
+#define FERRO_ENUM(type, name) \
+	typedef type name ## _t; \
+	enum name
 
 #define FERRO_STRUCT(name) \
 	typedef struct name name ## _t; \
 	struct name
+
+#define FERRO_STRUCT_FWD(name) \
+	typedef struct name name ## _t;
 
 #define FERRO_OPTIONS(type, name) \
 	typedef type name ## _t; \
@@ -52,6 +57,15 @@
 #define FERRO_WUR __attribute__((warn_unused_result))
 
 #define FERRO_PRINTF(a, b) __attribute__((format(printf, a, b)))
+
+#define FERRO_NAKED __attribute__((naked))
+
+#define FERRO_USED __attribute__((used))
+
+#define FERRO_VERIFY_OFFSET(type, member, offset) _Static_assert(offsetof(type, member) == offset, "Offset verification failed for " #member " in " #type " (expected offset to equal " #offset ")")
+
+#define FSTRINGIFY_HELPER(x) #x
+#define FSTRINGIFY(x) FSTRINGIFY_HELPER(x)
 
 FERRO_ALWAYS_INLINE void fassert_helper(int result, const char* expr) {
 	if (!result) {

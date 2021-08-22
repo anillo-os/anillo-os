@@ -49,9 +49,9 @@ FERRO_PACKED_STRUCT(ferro_console_font) {
 
 ferro_console_font_t* font = (ferro_console_font_t*)font_data;
 
-// protects a single character from being written
+// protects a string from being written
 // (this is so that we don't get jumbled character writes)
-flock_spin_intsafe_t character_log_lock = FLOCK_SPIN_INTSAFE_INIT;
+flock_spin_intsafe_t log_lock = FLOCK_SPIN_INTSAFE_INIT;
 
 /**
  * Translates a single character from UTF-8 encoding into UTF-32 encoding.
@@ -189,8 +189,6 @@ static void fconsole_log_code_point(uint32_t code_point) {
 		print_it = false;
 	}
 
-	flock_spin_intsafe_lock(&character_log_lock);
-
 	if (code_point == '\n' || next_location.x + font->glyph_width >= fb_info->width) {
 		next_location.x = 0;
 		next_location.y += font->glyph_height + line_padding;
@@ -204,8 +202,6 @@ static void fconsole_log_code_point(uint32_t code_point) {
 		fconsole_put_utf32_char(code_point, next_location.x, next_location.y, &white_pixel, &black_pixel);
 		next_location.x += font->glyph_width + character_padding;
 	}
-
-	flock_spin_intsafe_unlock(&character_log_lock);
 };
 
 static bool read_code_point(const char** string_pointer, size_t* size_pointer, uint32_t* out_code_point) {
@@ -235,7 +231,7 @@ out:
 	return ok;
 };
 
-ferr_t fconsole_logn(const char* string, size_t size) {
+static ferr_t fconsole_logn_locked(const char* string, size_t size) {
 	while (size > 0) {
 		uint32_t code_point;
 
@@ -249,6 +245,14 @@ ferr_t fconsole_logn(const char* string, size_t size) {
 	return ferr_ok;
 err_out:
 	return ferr_invalid_argument;
+};
+
+ferr_t fconsole_logn(const char* string, size_t size) {
+	ferr_t status;
+	flock_spin_intsafe_lock(&log_lock);
+	status = fconsole_logn_locked(string, size);
+	flock_spin_intsafe_unlock(&log_lock);
+	return status;
 };
 
 ferr_t fconsole_log(const char* string) {
@@ -323,6 +327,8 @@ static void print_decimal(uintmax_t value) {
 };
 
 ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
+	flock_spin_intsafe_lock(&log_lock);
+
 	while (format_size > 0) {
 		uint32_t code_point;
 
@@ -469,7 +475,7 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 
 				case 's': {
 					const char* value = va_arg(args, const char*);
-					fconsole_log(value);
+					fconsole_logn_locked(value, strlen(value));
 				} break;
 
 				case 'p': {
@@ -493,8 +499,11 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 		#undef READ_NEXT
 	}
 
+
+	flock_spin_intsafe_unlock(&log_lock);
 	return ferr_ok;
 err_out:
+	flock_spin_intsafe_unlock(&log_lock);
 	return ferr_invalid_argument;
 };
 

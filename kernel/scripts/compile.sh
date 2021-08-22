@@ -28,13 +28,11 @@ CFLAGS=(
 	-ggdb3
 	-fno-plt
 	-fno-pic
-	-target ${ARCH}-unknown-none-elf
 )
 ASFLAGS=(
 	"-I${KERNEL_SOURCE_ROOT}/include"
 	-ggdb3
 	-fno-pic
-	-target ${ARCH}-unknown-none-elf
 )
 LDFLAGS=(
 	"-fuse-ld=lld"
@@ -43,7 +41,6 @@ LDFLAGS=(
 	-ffreestanding
 	-nostdlib
 	-static
-	-target ${ARCH}-unknown-none-elf
 	"-T${KERNEL_SOURCE_ROOT}/scripts/kernel.lds"
 )
 LDFLAGS_x86_64=(
@@ -62,6 +59,9 @@ SOURCES=(
 	src/core/mempool.c
 	src/core/acpi.c
 	src/core/timers.c
+	src/core/scheduler.c
+	src/core/threads.c
+
 	src/libk/libk.c
 )
 
@@ -72,6 +72,12 @@ SOURCES_x86_64=(
 	src/core/x86_64/per-cpu.c
 	src/core/x86_64/apic.c
 	src/core/x86_64/tsc.c
+	src/core/x86_64/scheduler.c
+	src/core/x86_64/threads.c
+
+	src/core/x86_64/interrupt-wrappers.S
+	src/core/x86_64/scheduler-helpers.S
+	src/core/x86_64/thread-runner.S
 )
 
 SOURCES_aarch64=(
@@ -120,7 +126,9 @@ generate-ldflags-all() {
 	)
 
 	# these are architecture-dependent, automatically generated flags
-	LDFLAGS_ALL+=()
+	LDFLAGS_ALL+=(
+		-target "${ARCH}-unknown-none-elf"
+	)
 }
 
 # generates ASFLAGS_ALL, containing the full list of ASFLAGS for the current architecture
@@ -137,7 +145,10 @@ generate-asflags-all() {
 	)
 
 	# these are architecture-dependent, automatically generated flags
-	ASFLAGS_ALL+=()
+	ASFLAGS_ALL+=(
+		"-I${BUILD_ROOT}/${ARCH}/kernel/include"
+		-target "${ARCH}-unknown-none-elf"
+	)
 }
 
 compile() {
@@ -145,7 +156,7 @@ compile() {
 
 	if [ "x${ANILLO_GENERATING_COMPILE_COMMANDS}" == "x1" ]; then
 		case "${EXTENSION}" in
-			s)
+			s|S)
 				add-compile-command "${KERNEL_SOURCE_ROOT}/${1}" "$(echo "${CC}" "${ASFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o")"
 				;;
 
@@ -160,7 +171,7 @@ compile() {
 		mkdir -p "${CURRENT_BUILD_DIR}/$(dirname "${1}")" || command-failed
 
 		case "${EXTENSION}" in
-			s)
+			s|S)
 				echo "$(color-blue CC-AS) ${1}.o"
 				run-command "${CC}" "${ASFLAGS_ALL[@]}" -c "${KERNEL_SOURCE_ROOT}/${1}" -o "${CURRENT_BUILD_DIR}/${1}.o" || command-failed
 				;;

@@ -1,6 +1,6 @@
 /**
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,39 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _FERRO_ERROR_H_
-#define _FERRO_ERROR_H_
+#ifndef _FERRO_CORE_X86_64_SCHEDULER_PRIVATE_H_
+#define _FERRO_CORE_X86_64_SCHEDULER_PRIVATE_H_
 
 #include <ferro/base.h>
+#include <ferro/core/scheduler.private.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
-FERRO_ENUM(int, ferr) {
-	// No error; success.
-	ferr_ok                  = 0,
-
-	// An unknown error occurred.
-	ferr_unknown             = -1,
-
-	// One or more arguments provided are invalid.
-	ferr_invalid_argument    = -2,
-
-	// The requested resource is temporarily unavailable.
-	ferr_temporary_outage    = -3,
-
-	// The requested resource is permanently unavailable.
-	ferr_permanent_outage    = -4,
-
-	// The requested action/service is unsupported.
-	ferr_unsupported         = -5,
-
-	// The requested resource cannot be found.
-	ferr_no_such_resource    = -6,
-
-	// The requested action/service is already in progress.
-	ferr_already_in_progress = -7,
-};
-
 FERRO_DECLARATIONS_END;
 
-#endif // _FERRO_ERROR_H_
+#endif // _FERRO_CORE_X86_64_SCHEDULER_PRIVATE_H_

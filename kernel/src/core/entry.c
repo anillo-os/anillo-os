@@ -37,6 +37,7 @@
 #include <ferro/core/interrupts.h>
 #include <ferro/core/acpi.h>
 #include <ferro/core/timers.h>
+#include <ferro/core/scheduler.h>
 #include <libk/libk.h>
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
@@ -46,6 +47,8 @@
 	#include <ferro/core/aarch64/gic.h>
 	#include <ferro/core/aarch64/generic-timer.h>
 #endif
+
+#include <ferro/core/mempool.h>
 
 static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2          FERRO_PAGE_ALIGNED = {0};
@@ -194,40 +197,98 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 			}
 		}
 	}
-
-	// map the framebuffer (if we have one)
-	/*
-	for (size_t i = 0; i < boot_data_count; ++i) {
-		ferro_boot_data_info_t* data = &(*boot_data_ptr)[i];
-		if (data->type == ferro_boot_data_type_framebuffer_info) {
-			ferro_fb_info_t* fb_info = data->virtual_address;
-			size_t fb_page_count = round_up_div(fb_info->scan_line_size * fb_info->height, FPAGE_PAGE_SIZE);
-			void* fb_phys = fb_info->base;
-			// we can only allocate 2MiB pages if the address is on a 2MiB page boundary
-			if (fpage_is_large_page_aligned((uintptr_t)fb_phys)&& fb_page_count > (512 - next_l1_idx)) {
-				// allocate it in 2MiB pages
-				for (size_t j = 0; j < (fb_page_count + 511) / 512; ++j) {
-					if (j == 0) {
-						fb_info->base = (void*)fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), *next_l2, 0, 0);
-					}
-					page_table_level_2.entries[(*next_l2)++] = fpage_large_page_entry((uintptr_t)fb_phys + (j * FPAGE_LARGE_PAGE_SIZE), true);
-				}
-			} else {
-				// allocate it in 4KiB
-				for (size_t j = 0; j < fb_page_count; ++j) {
-					if (j == 0) {
-						fb_info->base = (void*)fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
-					}
-					page_table_level_1.entries[next_l1_idx++] = fpage_page_entry((uintptr_t)fb_phys + (j * FPAGE_PAGE_SIZE), true);
-				}
-			}
-		}
-	}
-	*/
 };
 
-static void timer_callback(void* data) {
-	fconsole_logf("test timer fired with data: %p\n", data);
+static fthread_t* thread1 = NULL;
+static fthread_t* thread2 = NULL;
+
+static void timed_resumed_thread(void* data) {
+	fthread_t* thread = data;
+	ferr_t status;
+
+	status = fthread_resume(thread);
+	if (status != ferr_ok && status != ferr_already_in_progress) {
+		fconsole_log("Failed to resume thread\n");
+	}
+};
+
+static void thread1_run(void* data) {
+	fthread_t* this_thread = fthread_current();
+
+	fconsole_log("Hello from test thread 1!\n");
+
+	if (ftimers_oneshot_blocking(1ULL * 1000000000, timed_resumed_thread, this_thread, NULL) != ferr_ok) {
+		fpanic("Failed to setup timer to resume this thread");
+	}
+
+	fthread_suspend_self();
+
+	fthread_exit("Foobar", sizeof("Foobar"), true);
+
+	fconsole_log("Should not have gotten here!\n");
+};
+
+static void thread2_run(void* data) {
+	fconsole_log("Hello from test thread 2!\n");
+};
+
+static void do_stuff(void* data) {
+	fconsole_log("Hello from the main kernel thread!\n");
+
+	// let's start some test threads
+
+	if (fthread_new(thread1_run, NULL, NULL, FPAGE_LARGE_PAGE_SIZE, 0, &thread1) != ferr_ok) {
+		fpanic("Failed to create test thread 1");
+	}
+
+	if (fthread_new(thread2_run, NULL, NULL, FPAGE_LARGE_PAGE_SIZE, 0, &thread2) != ferr_ok) {
+		fpanic("Failed to create test thread 2");
+	}
+
+	fconsole_log("got here 1\n");
+
+	if (fsched_manage(thread1) != ferr_ok) {
+		fpanic("Failed to schedule test thread 1");
+	}
+
+	if (fsched_manage(thread2) != ferr_ok) {
+		fpanic("Failed to schedule test thread 2");
+	}
+
+	fconsole_log("got here 2\n");
+
+	if (fthread_resume(thread1) != ferr_ok) {
+		fpanic("Failed to resume test thread 1");
+	}
+
+	if (fthread_resume(thread2) != ferr_ok) {
+		fpanic("Failed to resume test thread 2");
+	}
+
+	fconsole_log("got here 3\n");
+
+	while (true) {
+		if (thread1) {
+			if (fthread_execution_state(thread1) == fthread_state_execution_dead) {
+				fconsole_logf("Test thread 1 died with exit data: %s\n", (const char*)thread1->exit_data);
+				if (fmempool_free(thread1->exit_data) != ferr_ok) {
+					fpanic("Failed to release thread 1's exit data");
+				}
+				fthread_release(thread1);
+				thread1 = NULL;
+			}
+		}
+
+		if (thread2) {
+			if (fthread_execution_state(thread2) == fthread_state_execution_dead) {
+				fconsole_log("Test thread 2 died\n");
+				fthread_release(thread2);
+				thread2 = NULL;
+			}
+		}
+
+		fentry_idle();
+	}
 };
 
 __attribute__((section(".text.ferro_entry")))
@@ -240,6 +301,8 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 	void* image_base = NULL;
 	size_t image_size = 0;
 	facpi_rsdp_t* rsdp = NULL;
+	fthread_t* main_thread = NULL;
+	void* stack_base = NULL;
 
 	for (size_t i = 0; i < boot_data_count; ++i) {
 		ferro_boot_data_info_t* curr = &boot_data[i];
@@ -300,16 +363,16 @@ jump_here_for_virtual:;
 	farch_generic_timer_init();
 #endif
 
-#if 0
-	fconsole_log("setting up test timer for 5 seconds\n");
+	stack_base = __builtin_frame_address(0);
+	stack_base = (void*)round_down_power_of_2((uintptr_t)stack_base, FPAGE_LARGE_PAGE_SIZE);
 
-	if (ftimers_oneshot_blocking(5 * 1000000000ULL, timer_callback, NULL, NULL) != ferr_ok) {
-		fpanic("failed to setup test timer");
+	if (fthread_new(do_stuff, NULL, stack_base, FPAGE_LARGE_PAGE_SIZE, 0, &main_thread) != ferr_ok) {
+		fpanic("Failed to create main kernel thread");
 	}
-#endif
 
-	while (true) {
-		fentry_idle();
-	}
+	// once we enter the scheduler, this function is gone
+	fsched_init(main_thread);
+
+	__builtin_unreachable();
 };
 
