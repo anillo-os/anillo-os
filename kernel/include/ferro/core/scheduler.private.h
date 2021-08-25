@@ -44,6 +44,21 @@ FERRO_STRUCT(fsched_info) {
 	ftimers_id_t last_timer_id;
 };
 
+/**
+ * Arms the preemption timer.
+ */
+void fsched_arm_timer(void);
+
+/**
+ * Disarms the preemption timer.
+ */
+void fsched_disarm_timer(void);
+
+/**
+ * Returns a pointer to the scheduler information structure for the current CPU.
+ */
+fsched_info_t* fsched_per_cpu_info(void);
+
 // these are arch-dependent functions we expect all architectures to implement
 
 /**
@@ -80,21 +95,6 @@ FERRO_NO_RETURN void fsched_bootstrap(fthread_t* thread);
  * Performs architecture-specific scheduler initialization. Called at the start of the main scheduler initialization code.
  */
 void farch_sched_init(void);
-
-/**
- * Arms the preemption timer.
- */
-void fsched_arm_timer(void);
-
-/**
- * Disarms the preemption timer.
- */
-void fsched_disarm_timer(void);
-
-/**
- * Returns a pointer to the scheduler information structure for the current CPU.
- */
-fsched_info_t* fsched_per_cpu_info(void);
 
 /**
  * Tells the scheduler that the given thread needs to be preempted as soon as possible.

@@ -193,3 +193,51 @@ fthread_state_execution_t fthread_execution_state(fthread_t* thread) {
 	flock_spin_intsafe_unlock(&thread->lock);
 	return result;
 };
+
+ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_base, size_t stack_size, fthread_flags_t flags, fthread_t** out_thread) {
+	fthread_private_t* new_thread = NULL;
+	bool release_stack_on_fail = false;
+
+	if (!initializer || !out_thread) {
+		return ferr_invalid_argument;
+	}
+
+	if (!stack_base) {
+		if (fpage_allocate_kernel(fpage_round_up_to_page_count(stack_size), &stack_base) != ferr_ok) {
+			return ferr_temporary_outage;
+		}
+
+		release_stack_on_fail = true;
+		flags |= fthread_flag_deallocate_stack_on_exit;
+	}
+
+	if (fmempool_allocate(sizeof(fthread_private_t), NULL, (void**)&new_thread) != ferr_ok) {
+		if (release_stack_on_fail) {
+			if (fpage_free_kernel(stack_base, fpage_round_up_to_page_count(stack_size)) != ferr_ok) {
+				fpanic("Failed to free thread stack");
+			}
+		}
+		return ferr_temporary_outage;
+	}
+
+	*out_thread = (void*)new_thread;
+
+	// clear the thread
+	memset(new_thread, 0, sizeof(*new_thread));
+
+	flock_spin_intsafe_init(&new_thread->thread.lock);
+
+	new_thread->thread.reference_count = 1;
+
+	new_thread->thread.stack_base = stack_base;
+	new_thread->thread.stack_size = stack_size;
+
+	new_thread->thread.flags = flags;
+
+	// the thread must start as suspended
+	fthread_state_execution_write_locked(&new_thread->thread, fthread_state_execution_suspended);
+
+	farch_thread_init_info(&new_thread->thread, initializer, data);
+
+	return ferr_ok;
+};

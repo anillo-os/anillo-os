@@ -15,29 +15,18 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/aarch64/per-cpu.c
-//
-// AARCH64 implementation of per-CPU data
-//
 
-#include <ferro/core/aarch64/per-cpu.h>
+#ifndef _FERRO_CORE_AARCH64_THREADS_BEFORE_H_
+#define _FERRO_CORE_AARCH64_THREADS_BEFORE_H_
 
-// for now, we only ever operate on a single CPU
-// however, once we enable SMP, we can extend this
+#include <stdint.h>
 
-static farch_per_cpu_data_t data = {
-	.base = &data,
-};
+#include <ferro/base.h>
 
-farch_per_cpu_data_t* farch_per_cpu_base_address(void) {
-	return &data;
-};
+#include <ferro/core/threads.h>
 
-uint64_t fcpu_id(void) {
-	return 0;
-};
+FERRO_DECLARATIONS_BEGIN;
 
-uint64_t fcpu_count(void) {
-	return 1;
-};
+FERRO_DECLARATIONS_END;
+
+#endif // _FERRO_CORE_AARCH64_THREADS_BEFORE_H_

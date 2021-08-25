@@ -16,11 +16,6 @@ void farch_sched_immediate_switch(fthread_saved_context_t* out_context, farch_in
 void farch_sched_delayed_switch(farch_int_isr_frame_t* new_frame);
 FERRO_NO_RETURN void farch_sched_bootstrap_switch(farch_int_isr_frame_t* new_frame);
 
-static void farch_sched_delayed_load_and_switch(void) {
-	// why duplicate all the code of `fsched_bootstrap` when we can just call it?
-	fsched_bootstrap(fthread_current());
-};
-
 // used by our helpers
 void farch_sched_set_interrupt_disable_count(uint64_t idc) {
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = idc;

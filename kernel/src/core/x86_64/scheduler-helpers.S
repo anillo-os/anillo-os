@@ -4,7 +4,7 @@
 #define MAKE_IMMEDIATE(x) MAKE_IMMEDIATE_HELPER(x)
 
 // arg 1 (rdi) is a `fthread_saved_context_t*` (which may be `NULL`)
-// arg 1 (rsi) is a `farch_int_isr_frame_t*`
+// arg 2 (rsi) is a `farch_int_isr_frame_t*`
 .text
 .global farch_sched_immediate_switch
 farch_sched_immediate_switch:
@@ -16,36 +16,36 @@ farch_sched_immediate_switch:
 	je 0f
 
 	// start with general-purpose registers
-	mov %rax, FOFFSET_fthread_rax(%rdi)
-	mov %rcx, FOFFSET_fthread_rcx(%rdi)
-	mov %rdx, FOFFSET_fthread_rdx(%rdi)
-	mov %rbx, FOFFSET_fthread_rbx(%rdi)
-	mov %rsi, FOFFSET_fthread_rsi(%rdi)
-	mov %rdi, FOFFSET_fthread_rdi(%rdi)
-	mov %rsp, FOFFSET_fthread_rsp(%rdi)
-	mov %rbp, FOFFSET_fthread_rbp(%rdi)
-	mov  %r8,  FOFFSET_fthread_r8(%rdi)
-	mov  %r9,  FOFFSET_fthread_r9(%rdi)
-	mov %r10, FOFFSET_fthread_r10(%rdi)
-	mov %r11, FOFFSET_fthread_r11(%rdi)
-	mov %r12, FOFFSET_fthread_r12(%rdi)
-	mov %r13, FOFFSET_fthread_r13(%rdi)
-	mov %r14, FOFFSET_fthread_r14(%rdi)
-	mov %r15, FOFFSET_fthread_r15(%rdi)
+	mov %rax, FOFFSET_fthread_saved_context_rax(%rdi)
+	mov %rcx, FOFFSET_fthread_saved_context_rcx(%rdi)
+	mov %rdx, FOFFSET_fthread_saved_context_rdx(%rdi)
+	mov %rbx, FOFFSET_fthread_saved_context_rbx(%rdi)
+	mov %rsi, FOFFSET_fthread_saved_context_rsi(%rdi)
+	mov %rdi, FOFFSET_fthread_saved_context_rdi(%rdi)
+	mov %rsp, FOFFSET_fthread_saved_context_rsp(%rdi)
+	mov %rbp, FOFFSET_fthread_saved_context_rbp(%rdi)
+	mov  %r8,  FOFFSET_fthread_saved_context_r8(%rdi)
+	mov  %r9,  FOFFSET_fthread_saved_context_r9(%rdi)
+	mov %r10, FOFFSET_fthread_saved_context_r10(%rdi)
+	mov %r11, FOFFSET_fthread_saved_context_r11(%rdi)
+	mov %r12, FOFFSET_fthread_saved_context_r12(%rdi)
+	mov %r13, FOFFSET_fthread_saved_context_r13(%rdi)
+	mov %r14, FOFFSET_fthread_saved_context_r14(%rdi)
+	mov %r15, FOFFSET_fthread_saved_context_r15(%rdi)
 
 	// load the target instruction pointer for re-entry
 	lea 1f(%rip), %r10
-	mov %r10, FOFFSET_fthread_rip(%rdi)
+	mov %r10, FOFFSET_fthread_saved_context_rip(%rdi)
 
 	// save the current rflags
 	pushfq
-	popq FOFFSET_fthread_rflags(%rdi)
+	popq FOFFSET_fthread_saved_context_rflags(%rdi)
 
 	// save the segments
-	mov %cs, FOFFSET_fthread_cs(%rdi)
-	mov %ss, FOFFSET_fthread_ss(%rdi)
+	mov %cs, FOFFSET_fthread_saved_context_cs(%rdi)
+	mov %ss, FOFFSET_fthread_saved_context_ss(%rdi)
 
-	// this is where we go if rdi (the current thread) is `NULL`
+	// this is where we go if rdi (the current thread context) is `NULL`
 	0:
 
 	//

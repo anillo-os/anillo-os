@@ -62,7 +62,13 @@
 
 #define FERRO_USED __attribute__((used))
 
-#define FERRO_VERIFY_OFFSET(type, member, offset) _Static_assert(offsetof(type, member) == offset, "Offset verification failed for " #member " in " #type " (expected offset to equal " #offset ")")
+// just a prettier name for `_Static_assert`
+#define FERRO_VERIFY(expr, message) _Static_assert(expr, message)
+
+#define FERRO_VERIFY_OFFSET(type, member, offset) FERRO_VERIFY(offsetof(type, member) == offset, "Offset verification failed for " #member " in " #type " (expected offset to equal " #offset ")")
+
+// note: this is the actual alignment of the type, not the required alignment (like what `alignof` returns)
+#define FERRO_VERIFY_ALIGNMENT(type, alignment) FERRO_VERIFY((sizeof(type) & ((alignment) - 1)) == 0, "Alignment verification failed for " #type " (expected type to be aligned to " #alignment " bytes)");
 
 #define FSTRINGIFY_HELPER(x) #x
 #define FSTRINGIFY(x) FSTRINGIFY_HELPER(x)

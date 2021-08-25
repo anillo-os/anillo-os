@@ -30,6 +30,14 @@
 // magic value used to identify pages that need to mapped on-demand
 #define ON_DEMAND_MAGIC (0xdeadfeedf00dULL << FPAGE_VIRT_L1_SHIFT)
 
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#define USE_TEMPORARY_MAPPING 0
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#define USE_TEMPORARY_MAPPING 1
+#else
+	#error Unrecognized/unsupported CPU architecture! (see src/core/paging.c)
+#endif
+
 #define TABLE_ENTRY_COUNT (sizeof(root_table->entries) / sizeof(*root_table->entries))
 // coefficient that is multiplied by the amount of physical memory available to determine the maximum amount of virtual memory
 // the buddy allocator can use. more virtual memory than this can be used, it's just that it'll use a less efficient method of allocation.
@@ -85,23 +93,23 @@ static fpage_region_header_t* regions_head = NULL;
 // we're never going to get more physical memory, so the regions head is never going to be modified; thus, we don't need a lock
 //static flock_spin_intsafe_t regions_head_lock = FLOCK_SPIN_INTSAFE_INIT;
 
-#if 0
+#if USE_TEMPORARY_MAPPING
 // the L2 index pointing to the temporary table
 static uint16_t temporary_table_index = 0;
 static fpage_table_t temporary_table FERRO_PAGE_ALIGNED = {0};
+#else
+/**
+ * Used to map 512GiB of memory at a fixed offset.
+ */
+FERRO_PAGE_ALIGNED
+static fpage_table_t offset_table = {0};
+static uint16_t root_offset_index = TABLE_ENTRY_COUNT - 2;
 #endif
 
 static fpage_region_header_t* kernel_virtual_regions_head = NULL;
 
 // at the moment, we never modify the virtual regions head. however, in the future, we may want to, so this is necessary.
 static flock_spin_intsafe_t kernel_virtual_regions_head_lock = FLOCK_SPIN_INTSAFE_INIT;
-
-/**
- * Used to identity map 512GiB of memory.
- */
-FERRO_PAGE_ALIGNED
-static fpage_table_t offset_table = {0};
-static uint16_t root_offset_index = TABLE_ENTRY_COUNT - 2;
 
 uintptr_t fpage_virtual_address_for_table(size_t levels, uint16_t l4_index, uint16_t l3_index, uint16_t l2_index) {
 	if (levels == 0) {
@@ -158,7 +166,7 @@ FERRO_ALWAYS_INLINE bool table_is_in_use(const fpage_table_t* table) {
 // physical frame allocator
 //
 
-#if 0
+#if USE_TEMPORARY_MAPPING
 // `slot` must be from 0-511 (inclusive)
 FERRO_ALWAYS_INLINE void* map_temporarily(void* physical_address, uint16_t slot) {
 	void* temporary_address = NULL;
@@ -172,7 +180,7 @@ FERRO_ALWAYS_INLINE void* map_temporarily(void* physical_address, uint16_t slot)
 };
 #endif
 
-#if 0
+#if USE_TEMPORARY_MAPPING
 // like `map_temporarily`, but automatically chooses the next available slot.
 // this *will* automatically wrap around once it reaches the maximum,
 // but that should be no issue, as it is unlikely that you'll need to use 512 temporary pages simultaneously
@@ -636,7 +644,11 @@ static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_coun
 		}
 
 		if (fpage_is_large_page_aligned(physical_frame) && fpage_is_large_page_aligned(virtual_frame) && page_count >= FPAGE_LARGE_PAGE_COUNT) {
-			if (!fpage_entry_is_large_page_entry(l2->entries[l2_index]) && (l4_index != kernel_l4_index || l3_index != kernel_l3_index)) {
+			if (!fpage_entry_is_large_page_entry(l2->entries[l2_index]) && (l4_index != kernel_l4_index || l3_index != kernel_l3_index
+#if USE_TEMPORARY_MAPPING
+				|| l2_index > temporary_table_index
+#endif
+			)) {
 				free_table(l1);
 			}
 
@@ -947,7 +959,7 @@ static void free_virtual(void* virtual, size_t page_count, bool user) {
 	// the parent region's lock is held here
 
 	// mark it as free
-	set_block_is_in_use(parent_region, block, false);
+	set_virtual_block_is_in_use(parent_region, block, false);
 
 	// find buddies to merge with
 	for (; order < MAX_ORDER; ++order) {
@@ -1015,13 +1027,12 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	// we can use the recursive virtual address for the table now
 	root_table = (fpage_table_t*)fpage_virtual_address_for_table(0, 0, 0, 0);
 
-#if 0
+#if USE_TEMPORARY_MAPPING
 	// set up the temporary table
 	l2_table = (fpage_table_t*)fpage_virtual_address_for_table(2, FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), 0);
 	l2_table->entries[temporary_table_index = next_l2] = fpage_table_entry(fpage_virtual_to_physical((uintptr_t)&temporary_table), true);
 	fpage_synchronize_after_table_modification();
-#endif
-
+#else
 	// map all the physical memory at a fixed offset.
 	// we assume it's 512GiB or less; no consumer device supports more than 128GiB currently.
 	// we can always add more later.
@@ -1042,6 +1053,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 
 	root_table->entries[root_offset_index] = fpage_table_entry(fpage_virtual_to_physical((uintptr_t)&offset_table), true);
 	fpage_synchronize_after_table_modification();
+#endif
 
 	// okay, now we need to initialize each physical region
 
@@ -1162,7 +1174,11 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 			fpage_table_t* l3 = (fpage_table_t*)fpage_virtual_address_for_table(1, l4_index, 0, 0);
 
 			// don't touch the recursive entry or the offset index
-			if (l4_index == root_recursive_index || l4_index == root_offset_index) {
+			if (l4_index == root_recursive_index
+#if !USE_TEMPORARY_MAPPING
+				|| l4_index == root_offset_index
+#endif
+			) {
 				continue;
 			}
 
@@ -1202,7 +1218,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 						continue;
 					}
 
-#if 0
+#if USE_TEMPORARY_MAPPING
 					// skip the temporary table
 					if (l4_index == kernel_l4_index && l3_index == kernel_l3_index && l2_index == temporary_table_index) {
 						l1_index = 0;
@@ -1273,7 +1289,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 						goto done_determining_size;
 					}
 
-#if 0
+#if USE_TEMPORARY_MAPPING
 					// the temporary table counts as non-free
 					if (l4_index == kernel_l4_index && l3_index == kernel_l3_index && l2_index == temporary_table_index) {
 						goto done_determining_size;

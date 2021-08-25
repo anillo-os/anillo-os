@@ -25,6 +25,10 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/console.h>
 #include <ferro/core/locks.h>
+#include <ferro/core/paging.h>
+#include <ferro/core/threads.private.h>
+
+#define EXCEPTION_STACK_SIZE (2ULL * 1024 * 1024)
 
 FERRO_PACKED_STRUCT(fint_vector_table_block) {
 	uint8_t synchronous[0x80];
@@ -59,7 +63,7 @@ FERRO_ENUM(uint8_t, fint_esr_code) {
 };
 
 FERRO_STRUCT(fint_handler_common_data) {
-	fint_state_t interrupt_state;
+	farch_int_exception_frame_t* previous_exception_frame;
 };
 
 extern fint_vector_table_t fint_ivt;
@@ -68,31 +72,57 @@ static farch_int_irq_handler_f irq_handler = NULL;
 static flock_spin_intsafe_t irq_handler_lock = FLOCK_SPIN_INTSAFE_INIT;
 
 FERRO_ALWAYS_INLINE fint_esr_code_t code_from_esr(uint64_t esr) {
-	return (esr & (0x3fULL << 26)) >> 26;
+	return (esr >> 26) & 0x3fULL;
 };
 
-static void fint_handler_common_begin(fint_handler_common_data_t* data) {
+FERRO_ALWAYS_INLINE uint32_t iss_from_esr(uint64_t esr) {
+	return esr & 0x1ffffffULL;
+};
+
+static void fint_handler_common_begin(fint_handler_common_data_t* data, farch_int_exception_frame_t* frame) {
+	data->previous_exception_frame = FARCH_PER_CPU(current_exception_frame);
+	FARCH_PER_CPU(current_exception_frame) = frame;
+
 	// ARM automatically disables interrupts when handling an interrupt
 	// so we need to let our interrupt management code know this
-	data->interrupt_state = FARCH_PER_CPU(outstanding_interrupt_disable_count);
+	frame->interrupt_disable = FARCH_PER_CPU(outstanding_interrupt_disable_count);
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = 1;
+
+	if (FARCH_PER_CPU(current_thread)) {
+		fthread_interrupt_start(FARCH_PER_CPU(current_thread));
+	}
 };
 
-static void fint_handler_common_end(fint_handler_common_data_t* data) {
-	FARCH_PER_CPU(outstanding_interrupt_disable_count) = data->interrupt_state;
+static void fint_handler_common_end(fint_handler_common_data_t* data, farch_int_exception_frame_t* frame) {
+	if (FARCH_PER_CPU(current_thread)) {
+		fthread_interrupt_end(FARCH_PER_CPU(current_thread));
+	}
+
+	FARCH_PER_CPU(outstanding_interrupt_disable_count) = frame->interrupt_disable;
+
+	FARCH_PER_CPU(current_exception_frame) = data->previous_exception_frame;
 };
 
-void fint_handler_current_with_spx_sync(fint_exception_frame_t* frame) {
+void fint_handler_current_with_spx_sync(farch_int_exception_frame_t* frame) {
 	fint_handler_common_data_t data;
 	fint_esr_code_t code;
+	uint32_t iss;
 
-	fint_handler_common_begin(&data);
+	fint_handler_common_begin(&data, frame);
 
 	code = code_from_esr(frame->esr);
+	iss = iss_from_esr(frame->esr);
 
 	switch (code) {
 		case fint_esr_code_svc64: {
-			fconsole_logf("received an SVC from the kernel at %p\n", (void*)(frame->elr - 4));
+			if (iss == 0xfffe) {
+				// this is the interrupt used for a thread to preempt itself immediately.
+				// we can just do nothing here; the threading subsystem's interrupt hooks will take care of switching threads around.
+
+				//fconsole_log("received SVC for thread preemption\n");
+			} else {
+				fconsole_logf("received an SVC from the kernel at %p\n", (void*)(frame->elr - 4));
+			}
 		} break;
 
 		case fint_esr_code_instruction_abort_same_el: {
@@ -101,7 +131,7 @@ void fint_handler_current_with_spx_sync(fint_exception_frame_t* frame) {
 		} break;
 
 		case fint_esr_code_data_abort_same_el: {
-			fconsole_logf("instruction abort at %p on address %p\n", (void*)frame->elr, (void*)frame->far);
+			fconsole_logf("data abort at %p on address %p\n", (void*)frame->elr, (void*)frame->far);
 			fpanic("data abort in kernel");
 		} break;
 
@@ -134,14 +164,14 @@ void fint_handler_current_with_spx_sync(fint_exception_frame_t* frame) {
 		} break;
 	}
 
-	fint_handler_common_end(&data);
+	fint_handler_common_end(&data, frame);
 };
 
-void fint_handler_current_with_spx_irq(fint_exception_frame_t* frame) {
+void fint_handler_current_with_spx_irq(farch_int_exception_frame_t* frame) {
 	fint_handler_common_data_t data;
 	farch_int_irq_handler_f handler = NULL;
 
-	fint_handler_common_begin(&data);
+	fint_handler_common_begin(&data, frame);
 
 	flock_spin_intsafe_lock(&irq_handler_lock);
 	handler = irq_handler;
@@ -153,14 +183,14 @@ void fint_handler_current_with_spx_irq(fint_exception_frame_t* frame) {
 		fpanic("No FIQ/IRQ handler set");
 	}
 
-	fint_handler_common_end(&data);
+	fint_handler_common_end(&data, frame);
 };
 
-void fint_handler_current_with_spx_fiq(fint_exception_frame_t* frame) {
+void fint_handler_current_with_spx_fiq(farch_int_exception_frame_t* frame) {
 	fint_handler_common_data_t data;
 	farch_int_irq_handler_f handler = NULL;
 
-	fint_handler_common_begin(&data);
+	fint_handler_common_begin(&data, frame);
 
 	flock_spin_intsafe_lock(&irq_handler_lock);
 	handler = irq_handler;
@@ -172,38 +202,59 @@ void fint_handler_current_with_spx_fiq(fint_exception_frame_t* frame) {
 		fpanic("No FIQ/IRQ handler set");
 	}
 
-	fint_handler_common_end(&data);
+	fint_handler_common_end(&data, frame);
 };
 
-void fint_handler_current_with_spx_serror(fint_exception_frame_t* frame) {
+void fint_handler_current_with_spx_serror(farch_int_exception_frame_t* frame) {
 	fint_handler_common_data_t data;
-	fint_handler_common_begin(&data);
+	fint_handler_common_begin(&data, frame);
 
 	// SErrors are generally unrecoverable, so just die
 	fpanic("serror");
 
 	// unnecessary, but just for consistency
-	fint_handler_common_end(&data);
+	fint_handler_common_end(&data, frame);
 };
 
-void fint_handler_current_with_sp0_sync(fint_exception_frame_t* frame) {
+void fint_handler_current_with_sp0_sync(farch_int_exception_frame_t* frame) {
 	return fint_handler_current_with_spx_sync(frame);
 };
 
-void fint_handler_current_with_sp0_irq(fint_exception_frame_t* frame) {
+void fint_handler_current_with_sp0_irq(farch_int_exception_frame_t* frame) {
 	return fint_handler_current_with_spx_irq(frame);
 };
 
-void fint_handler_current_with_sp0_fiq(fint_exception_frame_t* frame) {
+void fint_handler_current_with_sp0_fiq(farch_int_exception_frame_t* frame) {
 	return fint_handler_current_with_spx_fiq(frame);
 };
 
-void fint_handler_current_with_sp0_serror(fint_exception_frame_t* frame) {
+void fint_handler_current_with_sp0_serror(farch_int_exception_frame_t* frame) {
 	return fint_handler_current_with_spx_serror(frame);
 };
 
 void fint_init(void) {
-	__asm__ volatile("msr VBAR_EL1, %0" :: "r" (&fint_ivt) : "memory");
+	void* exception_stack = NULL;
+
+	__asm__ volatile("msr vbar_el1, %0" :: "r" (&fint_ivt));
+
+	// allocate a stack for exceptions
+	if (fpage_allocate_kernel(fpage_round_up_to_page_count(EXCEPTION_STACK_SIZE), &exception_stack) != ferr_ok) {
+		fpanic("Failed to allocate exception stack");
+	}
+
+	exception_stack = (void*)((uintptr_t)exception_stack + EXCEPTION_STACK_SIZE);
+
+	// why make this unnecessarily complicated, ARM?
+	// we have to first temporarily switch to the spx stack, set the new value using sp, and then switch back.
+	// because for reason, we shouldn't be allowed to write to OUR OWN EL STACK!!!
+	__asm__ volatile(
+		// '\043' == '#'
+		"msr spsel, \0431\n"
+		"mov sp, %0\n"
+		"msr spsel, \0430\n"
+		::
+		"r" (exception_stack)
+	);
 
 	fint_enable();
 

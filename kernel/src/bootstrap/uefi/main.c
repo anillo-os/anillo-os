@@ -35,6 +35,8 @@
 
 #define EXTRA_MM_DESCRIPTOR_COUNT 4
 
+#define PRINT_BASE 1
+
 #define round_up_div(value, multiple) ({ \
 		__typeof__(value) _value = (value); \
 		__typeof__(multiple) _multiple = (multiple); \
@@ -170,7 +172,9 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 	printf("Info: Initializing Ferro bootstrap...\n");
 
-	//printf("Info: UEFI image base: %p\n", (void*)(uintptr_t)sysconf(_SC_IMAGE_BASE));
+#if PRINT_BASE
+	printf("Info: UEFI image base: %p\n", (void*)(uintptr_t)sysconf(_SC_IMAGE_BASE));
+#endif
 
 	graphics_available = sysconf(_SC_FB_AVAILABLE);
 	if (graphics_available) {
@@ -726,6 +730,31 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		printf("Error: Failed to terminate boot services (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
 		return status;
 	}
+
+#if FERRO_ARCH == FERRO_ARCH_aarch64
+	// the kernel needs to be running on SP_EL0, so...
+	uint64_t spsel;
+	uint64_t sp;
+
+	__asm__ volatile("mrs %0, spsel" : "=r" (spsel));
+
+	// if we're not currently using SP_EL0, then...
+	if ((spsel & (1ULL << 0)) != 0) {
+		spsel &= ~(1ULL << 0);
+
+		// set the current stack pointer as the one for SP_EL0
+		// and then set SPSel to use SP_EL0
+		__asm__ volatile(
+			"mov %0, sp\n"
+			"msr sp_el0, %0\n"
+			"msr spsel, %1\n"
+			:
+			"=r" (sp)
+			:
+			"r" (spsel)
+		);
+	}
+#endif
 
 	// finally, jump into our kernel
 	kernel_entry(ferro_pool.base_address, ferro_pool.page_count, ferro_boot_data, ferro_boot_data_count);

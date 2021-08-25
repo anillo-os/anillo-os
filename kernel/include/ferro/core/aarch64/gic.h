@@ -32,7 +32,7 @@ FERRO_DECLARATIONS_BEGIN;
  *
  * The handler is called with interrupts disabled.
  */
-typedef void (*farch_gic_interrupt_handler_f)(fint_exception_frame_t* frame);
+typedef void (*farch_gic_interrupt_handler_f)(farch_int_exception_frame_t* frame);
 
 /**
  * Initializes the AARCH64 Generic Interrupt Controller subsystem.

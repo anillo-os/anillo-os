@@ -14,14 +14,16 @@ OUTPUT_PATH = os.path.join(BUILD_DIR, 'include', 'gen', 'ferro', 'offsets.h')
 HEADER_GUARD_NAME = '_GEN_FERRO_OFFSETS_H'
 
 STRUCTS_COMMON = [
-	'fthread',
+	'fthread_saved_context',
 ]
 
 STRUCTS_PER_ARCH = {
 	'x86_64': [
 		'farch_int_isr_frame',
 	],
-	'aarch64': [],
+	'aarch64': [
+		'farch_int_exception_frame',
+	],
 }
 
 # from https://stackoverflow.com/a/600612/6620880
@@ -36,6 +38,8 @@ data = {}
 defs = ''
 
 result = subprocess.run(['clang', '-Xclang', '-fdump-record-layouts', '-target', ARCH + '-unknown-none-elf', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), '-c', '-o', os.path.join(BUILD_DIR, 'offsets.c.tmp'), os.path.join(SCRIPT_DIR, 'resources', 'offsets.c'), '-emit-llvm'], stdout=subprocess.PIPE)
+
+result.check_returncode()
 
 entries = [x.group() for x in re.finditer(r'\*\*\* Dumping AST Record Layout\n([^\n]|\n(?!\n))*', result.stdout.decode())]
 

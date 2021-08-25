@@ -27,7 +27,7 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
-FERRO_PACKED_STRUCT(fint_exception_frame) {
+FERRO_PACKED_STRUCT(farch_int_exception_frame) {
 	uint64_t x0;
 	uint64_t x1;
 	uint64_t x2;
@@ -47,12 +47,32 @@ FERRO_PACKED_STRUCT(fint_exception_frame) {
 	uint64_t x16;
 	uint64_t x17;
 	uint64_t x18;
-	uint64_t fp;
-	uint64_t lr;
+	uint64_t x19;
+	uint64_t x20;
+	uint64_t x21;
+	uint64_t x22;
+	uint64_t x23;
+	uint64_t x24;
+	uint64_t x25;
+	uint64_t x26;
+	uint64_t x27;
+	uint64_t x28;
+	uint64_t x29; // fp
+	uint64_t x30; // lr
 	uint64_t elr;
 	uint64_t esr;
 	uint64_t far;
+	uint64_t sp;
+
+	// actually spsr
+	uint64_t pstate;
+
+	uint64_t interrupt_disable;
+	uint64_t reserved;
 };
+
+// needs to be 16-byte aligned so we can push it onto the stack
+FERRO_VERIFY_ALIGNMENT(farch_int_exception_frame_t, 16);
 
 /**
  * The type used to represent the interrupt state returned by `fint_save` and accepted by `fint_restore`.
@@ -96,12 +116,16 @@ FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state) {
 	}
 };
 
-typedef void (*farch_int_irq_handler_f)(bool is_fiq, fint_exception_frame_t* frame);
+typedef void (*farch_int_irq_handler_f)(bool is_fiq, farch_int_exception_frame_t* frame);
 
 /**
  * Sets the FIQ/IRQ handler for the system.
  */
 void farch_int_set_irq_handler(farch_int_irq_handler_f handler);
+
+FERRO_ALWAYS_INLINE bool fint_is_interrupt_context(void) {
+	return FARCH_PER_CPU(current_exception_frame) != NULL;
+};
 
 FERRO_DECLARATIONS_END;
 

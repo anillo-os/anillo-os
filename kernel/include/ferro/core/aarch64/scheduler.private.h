@@ -15,29 +15,15 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/aarch64/per-cpu.c
-//
-// AARCH64 implementation of per-CPU data
-//
 
-#include <ferro/core/aarch64/per-cpu.h>
+#ifndef _FERRO_CORE_AARCH64_SCHEDULER_PRIVATE_H_
+#define _FERRO_CORE_AARCH64_SCHEDULER_PRIVATE_H_
 
-// for now, we only ever operate on a single CPU
-// however, once we enable SMP, we can extend this
+#include <ferro/base.h>
+#include <ferro/core/scheduler.private.h>
 
-static farch_per_cpu_data_t data = {
-	.base = &data,
-};
+FERRO_DECLARATIONS_BEGIN;
 
-farch_per_cpu_data_t* farch_per_cpu_base_address(void) {
-	return &data;
-};
+FERRO_DECLARATIONS_END;
 
-uint64_t fcpu_id(void) {
-	return 0;
-};
-
-uint64_t fcpu_count(void) {
-	return 1;
-};
+#endif // _FERRO_CORE_AARCH64_SCHEDULER_PRIVATE_H_

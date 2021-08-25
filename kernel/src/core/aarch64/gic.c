@@ -547,7 +547,7 @@ ferr_t farch_gic_interrupt_group_write(uint64_t interrupt, bool is_group_0) {
 	return ferr_ok;
 };
 
-static void irq_handler(bool is_fiq, fint_exception_frame_t* frame) {
+static void irq_handler(bool is_fiq, farch_int_exception_frame_t* frame) {
 	uint64_t interrupt_number;
 		// if it's an FIQ, it's a group 0 interrupt
 	bool is_group_0 = is_fiq;

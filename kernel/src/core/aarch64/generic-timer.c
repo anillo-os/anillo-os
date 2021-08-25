@@ -62,7 +62,7 @@ static ftimers_backend_t generic_timer_backend = {
 	.cancel = generic_timer_cancel,
 };
 
-static void generic_timer_interrupt_handler(fint_exception_frame_t* frame) {
+static void generic_timer_interrupt_handler(farch_int_exception_frame_t* frame) {
 	ftimers_backend_fire();
 };
 
