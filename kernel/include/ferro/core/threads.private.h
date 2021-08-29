@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2021 Anillo OS Developers
  *
@@ -74,6 +74,10 @@ FERRO_STRUCT(fthread_private) {
 	fthread_t thread;
 	fthread_manager_t* manager;
 	void* manager_private;
+
+	uint64_t pending_timeout_value;
+	fthread_timeout_type_t pending_timeout_type;
+	ftimers_id_t timer_id;
 };
 
 FERRO_ALWAYS_INLINE fthread_state_execution_t fthread_state_execution_read_locked(const fthread_t* thread) {
@@ -107,6 +111,17 @@ void fthread_died(fthread_t* thread);
  * Initializes the given thread with architecture-specific information.
  */
 void farch_thread_init_info(fthread_t* thread, fthread_initializer_f initializer, void* data);
+
+/**
+ * Similar to `fthread_wait`, but the waitq is already locked.
+ *
+ * If the function fails, it returns with the waitq still locked.
+ * However, if it succeeds, the lock will be held until the thread is fully suspended (which may already be the case). It will not drop it at all until this occurs.
+ *
+ * @note If the thread is already waiting for a waitq, this function may produce a deadlock if someone else is holding the lock for that old waitq and wants to lock this new waitq.
+ *       This deadlock is not possible with `fthread_wait`.
+ */
+FERRO_WUR ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq);
 
 FERRO_DECLARATIONS_END;
 

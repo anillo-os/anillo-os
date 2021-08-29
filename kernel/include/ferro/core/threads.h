@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2021 Anillo OS Developers
  *
@@ -27,6 +27,8 @@
 #include <ferro/platform.h>
 #include <ferro/error.h>
 #include <ferro/core/locks.h>
+#include <ferro/core/waitq.h>
+#include <ferro/core/timers.h>
 
 // include the arch-dependent before-header
 #if FERRO_ARCH == FERRO_ARCH_x86_64
@@ -79,15 +81,32 @@ FERRO_ENUM(uint8_t, fthread_state_execution) {
 };
 
 FERRO_OPTIONS(uint64_t, fthread_state) {
-	fthread_state_execution_mask  = 7 << 0,
-	fthread_state_pending_suspend = 1 << 3,
-	fthread_state_pending_death   = 1 << 4,
+	fthread_state_execution_mask     = 7 << 0,
+	fthread_state_pending_suspend    = 1 << 3,
+	fthread_state_pending_death      = 1 << 4,
+	fthread_state_holding_waitq_lock = 1 << 5,
 
 	// these are just to shut Clang up
 
 	fthread_state_execution_mask_bit_1 = 1 << 0,
 	fthread_state_execution_mask_bit_2 = 1 << 1,
 	fthread_state_execution_mask_bit_3 = 1 << 2,
+};
+
+FERRO_ENUM(uint8_t, fthread_timeout_type) {
+	/**
+	 * The timeout value is a relative duration in nanoseconds. Once the given number of nanoseconds have elapsed, the timeout fires.
+	 */
+	fthread_timeout_type_ns_relative,
+
+	/**
+	 * The timeout value is an absolute number of nanoseconds, with 0 being the start of the monotonic clock. Once the monotonic clock reaches the given value, the timeout fires.
+	 *
+	 * @note Because timeouts are only scheduled once the thread fully suspends, absolute timeouts might fire immediately.
+	 *
+	 * @todo This timeout type is not currently supported.
+	 */
+	fthread_timeout_type_ns_absolute_monotonic,
 };
 
 FERRO_STRUCT(fthread) {
@@ -114,7 +133,7 @@ FERRO_STRUCT(fthread) {
 	uint64_t reference_count;
 
 	/**
-	 * Protects `flags`, `state`, `exit_data` (and `exit_data_size`), and `saved_context` from being read or written.
+	 * Protects `flags`, `state`, `exit_data` (and `exit_data_size`), `saved_context`, `wait_link`, and `pending_waitq` from being read or written.
 	 */
 	flock_spin_intsafe_t lock;
 
@@ -132,6 +151,21 @@ FERRO_STRUCT(fthread) {
 	 * Architecture-dependent structure containing context information from the last suspension of the thread.
 	 */
 	fthread_saved_context_t saved_context;
+
+	/**
+	 * Used to link this thread to onto a list of waiters waiting for a waitq to wake up.
+	 * Only used when the thread is suspended while waiting for a waitq.
+	 */
+	fwaitq_waiter_t wait_link;
+
+	/**
+	 * Used when suspending a thread due to waiting for a waitq.
+	 *
+	 * If a suspension is currently pending and this is not `NULL`, this is a waitq to add the thread onto once it is fully suspended. This is meant to be done by the thread's manager.
+	 *
+	 * If the thread is currently suspended and this is not `NULL`, this is the waitq that the thread is currently waiting for.
+	 */
+	fwaitq_t* waitq;
 };
 
 /**
@@ -206,6 +240,23 @@ FERRO_NO_RETURN void fthread_exit(void* exit_data, size_t exit_data_size, bool c
  * @retval ferr_invalid_argument    The thread had no registered manager.
  */
 FERRO_WUR ferr_t fthread_suspend(fthread_t* thread);
+
+/**
+ * Like `fthread_suspend`, but once suspended, starts a timer to resume the thread.
+ *
+ * @param thread        The thread to suspend. If this is `NULL`, the current thread is used.
+ * @param timeout_value The value for the timer. How this value is interpretted depends on `timeout_origin`. A value of 0 for this disables the timeout, no matter what timeout type is specified.
+ * @param timeout_type  This determines how the timeout value is interpretted. See `fthread_timeout_origin` for details on what each value does.
+ *
+ * @note The timer is started once the thread is suspended, not before.
+ *
+ * Return values:
+ * @retval ferr_ok                  The thread was previously resumed and has now been successfully suspended.
+ * @retval ferr_already_in_progress The thread was already suspended (or marked for suspension) and was not affected by this call.
+ * @retval ferr_permanent_outage    The thread was dead (or had an imminent death).
+ * @retval ferr_invalid_argument    The thread had no registered manager.
+ */
+FERRO_WUR ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_value, fthread_timeout_type_t timeout_type);
 
 /**
  * Suspends the current thread.
@@ -283,6 +334,29 @@ void fthread_release(fthread_t* thread);
  *       The only state in which the thread will not change to any other state is `fthread_state_execution_dead`.
  */
 fthread_state_execution_t fthread_execution_state(fthread_t* thread);
+
+/**
+ * Suspends the given thread and adds it as a waiter on the given waitq. When the waitq wakes the thread, the thread will resume.
+ *
+ * @param thread The thread to suspend. If this is `NULL`, the current thread is used.
+ * @param waitq  The waitq to wait for.
+ *
+ * @note This function locks the waitq and holds it locked until the thread is either fully suspended or the suspension is cancelled/interrupted (e.g. by a call to `fthread_resume`).
+ *
+ * @note If you suspend your own thread (i.e. the one that is currently running), execution is immediately stopped. It will always succeed in this case.
+ *
+ * @note A thread can only wait for a single waitq at a time. If the thread was already suspended and waiting for a different waitq,
+ *       it will be removed from the previous waitq's waiting list and added onto the new waitq's waiting list.
+ *
+ * @note The thread may be resumed externally (e.g. with `thread_resume`) before the waitq wakes it up. In this case, the thread will stop waiting for the waitq and simply resume.
+ *       Thus, waiting for a waitq may result in seemingly-spurious wakeups from the thread's point-of-view.
+ *
+ * Return values:
+ * @retval ferr_ok                  The thread was either 1) previously resumed and marked for suspension, or 2) already suspended. In either case, once suspended, the thread will be placed onto the waitq's waiting list.
+ * @retval ferr_permanent_outage    The thread was dead (or had an imminent death).
+ * @retval ferr_invalid_argument    The thread had no registered manager.
+ */
+FERRO_WUR ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq);
 
 FERRO_DECLARATIONS_END;
 

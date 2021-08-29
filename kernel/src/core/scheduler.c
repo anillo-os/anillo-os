@@ -6,6 +6,8 @@
 #include <ferro/core/cpu.h>
 #include <ferro/core/mempool.h>
 #include <ferro/core/threads.private.h>
+#include <ferro/core/waitq.private.h>
+#include <ferro/core/interrupts.h>
 
 #include <stdatomic.h>
 
@@ -17,6 +19,8 @@
  * The current value is `500us` in nanoseconds.
  */
 #define SLICE_NS 500000ULL
+
+#define IDLE_THREAD_STACK_SIZE (4ULL * 1024)
 
 static void manager_kill(fthread_t* thread);
 static void manager_suspend(fthread_t* thread);
@@ -150,7 +154,7 @@ static void timed_context_switch(void* data) {
 
 	flock_spin_intsafe_lock(&queue->lock);
 
-	fsched_per_cpu_info()->last_timer_id = UINTPTR_MAX;
+	fsched_per_cpu_info()->last_timer_id = FTIMERS_ID_INVALID;
 
 	// this should be impossible, but just in case
 	if (queue->count == 0 && old_thread != idle_thread) {
@@ -178,9 +182,19 @@ static void timed_context_switch(void* data) {
 		if (old_thread != new_thread) {
 			fsched_switch(old_thread, new_thread);
 		}
+	} else if (queue->count == 1 && old_thread == idle_thread) {
+		fthread_t* new_thread = queue->head;
+
+		flock_spin_intsafe_lock(&old_thread->lock);
+		fthread_state_execution_write_locked(old_thread, fthread_state_execution_not_running);
+		flock_spin_intsafe_unlock(&old_thread->lock);
+
+		flock_spin_intsafe_lock(&new_thread->lock);
+		fthread_state_execution_write_locked(new_thread, fthread_state_execution_interrupted);
+		flock_spin_intsafe_unlock(&new_thread->lock);
+
+		fsched_switch(old_thread, new_thread);
 	} else {
-		// whether this is the idle thread or the only thread in queue, we want to re-arm the timer.
-		//
 		// switching to the same thread arms the timer on return.
 		fsched_switch(old_thread, old_thread);
 	}
@@ -198,7 +212,7 @@ void fsched_arm_timer(void) {
 
 void fsched_disarm_timer(void) {
 	fint_disable();
-	if (fsched_per_cpu_info()->last_timer_id != UINTPTR_MAX) {
+	if (fsched_per_cpu_info()->last_timer_id != FTIMERS_ID_INVALID) {
 		ferr_t status = ftimers_cancel(fsched_per_cpu_info()->last_timer_id);
 		// ignore the status
 	}
@@ -228,19 +242,25 @@ FERRO_NO_RETURN void fsched_init(fthread_t* thread) {
 	}
 
 	for (size_t i = 0; i < info_count; ++i) {
+		fthread_private_t* private_idle_thread;
+
 		if (fmempool_allocate(sizeof(fsched_info_t), NULL, (void*)&infos[i]) != ferr_ok) {
 			fpanic("Failed to allocate scheduler information structure for CPU %lu", i);
 		}
 
-		if (fthread_new(scheduler_idle, NULL, NULL, 1024, 0, &idle_threads[i]) != ferr_ok) {
+		if (fthread_new(scheduler_idle, NULL, NULL, IDLE_THREAD_STACK_SIZE, 0, &idle_threads[i]) != ferr_ok) {
 			fpanic("Failed to create idle thread for CPU %lu", i);
 		}
+
+		private_idle_thread = (void*)idle_threads[i];
+		private_idle_thread->manager = &scheduler_thread_manager;
+		private_idle_thread->manager_private = NULL;
 
 		flock_spin_intsafe_init(&infos[i]->lock);
 		infos[i]->head = NULL;
 		infos[i]->tail = NULL;
 		infos[i]->count = 0;
-		infos[i]->last_timer_id = UINTPTR_MAX;
+		infos[i]->last_timer_id = FTIMERS_ID_INVALID;
 	}
 
 	this_info = fsched_per_cpu_info();
@@ -296,8 +316,29 @@ static void manager_kill(fthread_t* thread) {
 	if (prev_exec_state != fthread_state_execution_running && prev_exec_state != fthread_state_execution_interrupted) {
 		// if it's not running, that's wonderful! our job is much easier.
 		// note that the thread currently being interrupted is an issue because we don't know if it's the one being switched out or the one being switched in.
+
+		// if the thread was on a waitq's waiting list, remove it now
+		if ((prev_exec_state == fthread_state_execution_suspended || (thread->state & fthread_state_pending_suspend) != 0) && thread->waitq) {
+			if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
+				fwaitq_lock(thread->waitq);
+			} else {
+				// HACK: compensate for the `fint_enable` performed by unlocking the waitq lock
+				fint_disable();
+			}
+			fwaitq_remove_locked(thread->waitq, &thread->wait_link);
+			thread->state &= ~fthread_state_holding_waitq_lock;
+			fwaitq_unlock(thread->waitq);
+		}
+		thread->waitq = NULL;
+
+		if (private_thread->timer_id != FTIMERS_ID_INVALID) {
+			FERRO_WUR_IGNORE(ftimers_cancel(private_thread->timer_id));
+		}
+		private_thread->timer_id = FTIMERS_ID_INVALID;
+		private_thread->pending_timeout_value = 0;
+
 		fthread_state_execution_write_locked(thread, fthread_state_execution_dead);
-		thread->state &= ~fthread_state_pending_death;
+		thread->state &= ~(fthread_state_pending_death | fthread_state_pending_suspend);
 		remove_from_queue(thread, false);
 		return;
 	}
@@ -329,6 +370,17 @@ static void manager_kill(fthread_t* thread) {
 	// that's it; once the thread returns to the context switcher, it should see that it's dying and finish the job
 };
 
+static void timeout_callback(void* data) {
+	fthread_t* thread = data;
+	fthread_private_t* private_thread = data;
+
+	flock_spin_intsafe_lock(&thread->lock);
+	private_thread->timer_id = FTIMERS_ID_INVALID;
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	FERRO_WUR_IGNORE(fthread_resume(thread));
+};
+
 static void manager_suspend(fthread_t* thread) {
 	fthread_private_t* private_thread = (void*)thread;
 	fthread_state_execution_t prev_exec_state = fthread_state_execution_read_locked(thread);
@@ -348,6 +400,32 @@ static void manager_suspend(fthread_t* thread) {
 		thread->state &= ~fthread_state_pending_suspend;
 
 		add_to_queue(thread, &suspended, false);
+
+		// if we want to wait for a waitq, add ourselves to its waiting list now
+		if (thread->waitq) {
+			if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
+				fwaitq_lock(thread->waitq);
+			} else {
+				// HACK: compensate for the `fint_enable` performed by unlocking the waitq lock
+				fint_disable();
+			}
+			fwaitq_add_locked(thread->waitq, &thread->wait_link);
+			thread->state &= ~fthread_state_holding_waitq_lock;
+			fwaitq_unlock(thread->waitq);
+		}
+
+		// if we want a timeout, set it up now
+		if (private_thread->pending_timeout_value > 0) {
+			if (private_thread->pending_timeout_type == fthread_timeout_type_ns_relative) {
+				if (ftimers_oneshot_blocking(private_thread->pending_timeout_value, timeout_callback, thread, &private_thread->timer_id) != ferr_ok) {
+					fpanic("Failed to set up thread wakeup timeout");
+				}
+			} else {
+				fpanic("Unsupported timeout type: %d", private_thread->pending_timeout_type);
+			}
+		}
+
+		return;
 	}
 
 	// we don't want to be interrupted by the timer if it's for our current thread
@@ -381,8 +459,33 @@ static void manager_resume(fthread_t* thread) {
 		// if it's not currently suspended, it's already scheduled on a CPU.
 		// in that case, clearing the pending suspension is enough to keep it running,
 		// which the threads subsystem already does for us.
+
+		// we haven't been suspended yet, so the thread isn't on the waitq's waiting list yet
+		thread->waitq = NULL;
+
 		return;
 	}
+
+	// if the thread was on a waitq's waiting list, remove it now
+	if (thread->waitq) {
+		if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
+			fwaitq_lock(thread->waitq);
+		} else {
+			// HACK: compensate for the `fint_enable` performed by unlocking the waitq lock
+			fint_disable();
+		}
+		fwaitq_remove_locked(thread->waitq, &thread->wait_link);
+		thread->state &= ~fthread_state_holding_waitq_lock;
+		fwaitq_unlock(thread->waitq);
+	}
+	thread->waitq = NULL;
+
+	// if it's got a timeout, cancel it now
+	if (private_thread->timer_id != FTIMERS_ID_INVALID) {
+		FERRO_WUR_IGNORE(ftimers_cancel(private_thread->timer_id));
+	}
+	private_thread->timer_id = FTIMERS_ID_INVALID;
+	private_thread->pending_timeout_value = 0;
 
 	remove_from_queue(thread, false);
 
@@ -414,6 +517,7 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 	if ((thread->state & (fthread_state_pending_death | fthread_state_pending_suspend)) != 0) {
 		bool needs_to_suspend = false;
 		fthread_t* new_thread = thread->next;
+		fthread_state_execution_t prev_exec_state = fthread_state_execution_read_locked(thread);
 
 		if (private_thread->manager_private != queue) {
 			fpanic("Thread information inconsistency (dying thread's queue is not current CPU's queue)");
@@ -442,8 +546,53 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 		// if it needs to be suspended, it needs to be added to the suspension queue
 		if (needs_to_suspend) {
 			add_to_queue(thread, &suspended, false);
+
+			// if we want to wait for a waitq, add ourselves to its waiting list now
+			if (thread->waitq) {
+				if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
+					fwaitq_lock(thread->waitq);
+				} else {
+					// HACK: compensate for the `fint_enable` performed by unlocking the waitq lock
+					fint_disable();
+				}
+				fwaitq_add_locked(thread->waitq, &thread->wait_link);
+				thread->state &= ~fthread_state_holding_waitq_lock;
+				fwaitq_unlock(thread->waitq);
+			}
+
+			// if we want a timeout, set it up now
+			if (private_thread->pending_timeout_value > 0) {
+				if (private_thread->pending_timeout_type == fthread_timeout_type_ns_relative) {
+					if (ftimers_oneshot_blocking(private_thread->pending_timeout_value, timeout_callback, thread, &private_thread->timer_id) != ferr_ok) {
+						fpanic("Failed to set up thread wakeup timeout");
+					}
+				} else {
+					fpanic("Unsupported timeout type: %d", private_thread->pending_timeout_type);
+				}
+			}
+
 			flock_spin_intsafe_unlock(&thread->lock);
 		} else {
+			// if the thread was on a waitq's waiting list, remove it now
+			if (prev_exec_state == fthread_state_execution_suspended && thread->waitq) {
+				if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
+					fwaitq_lock(thread->waitq);
+				} else {
+					// HACK: compensate for the `fint_enable` performed by unlocking the waitq lock
+					fint_disable();
+				}
+				fwaitq_remove_locked(thread->waitq, &thread->wait_link);
+				thread->state &= ~fthread_state_holding_waitq_lock;
+				fwaitq_unlock(thread->waitq);
+			}
+			thread->waitq = NULL;
+
+			if (private_thread->timer_id != FTIMERS_ID_INVALID) {
+				FERRO_WUR_IGNORE(ftimers_cancel(private_thread->timer_id));
+			}
+			private_thread->timer_id = FTIMERS_ID_INVALID;
+			private_thread->pending_timeout_value = 0;
+
 			// drop the lock now; everyone else will see the thread is dead and not use it for further execution
 			flock_spin_intsafe_unlock(&thread->lock);
 			fthread_died(thread);

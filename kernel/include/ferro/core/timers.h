@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2020 Anillo OS Developers
  *
@@ -37,6 +37,8 @@ typedef void (*ftimers_callback_f)(void* data);
  * Type used to identify timers.
  */
 typedef uintptr_t ftimers_id_t;
+
+#define FTIMERS_ID_INVALID UINTPTR_MAX
 
 /**
  * Sets up a timer that will only fire once.

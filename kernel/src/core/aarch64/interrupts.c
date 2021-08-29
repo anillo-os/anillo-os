@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2021 Anillo OS Developers
  *

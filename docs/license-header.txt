@@ -21,7 +21,7 @@ along with this program.  If not, see <https://www.gnu.org/licenses/>.
 For convenience, here's that same block of text as a block-style comment for C sources (or C-like language sources):
 ---
 
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2021 Anillo OS Developers
  *

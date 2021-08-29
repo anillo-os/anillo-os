@@ -2,10 +2,17 @@
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/paging.h>
+#include <ferro/core/waitq.private.h>
 
 #include <libk/libk.h>
 
 #include <stdatomic.h>
+
+static void fthread_destroy(fthread_t* thread) {
+	if (fmempool_free(thread) != ferr_ok) {
+		fpanic("Failed to free thread information structure");
+	}
+};
 
 ferr_t fthread_retain(fthread_t* thread) {
 	if (__atomic_fetch_add(&thread->reference_count, 1, __ATOMIC_RELAXED) == 0) {
@@ -20,9 +27,7 @@ void fthread_release(fthread_t* thread) {
 		return;
 	}
 
-	if (fmempool_free(thread) != ferr_ok) {
-		fpanic("Failed to free thread information structure");
-	}
+	fthread_destroy(thread);
 };
 
 FERRO_NO_RETURN void fthread_exit(void* exit_data, size_t exit_data_size, bool copy_exit_data) {
@@ -53,7 +58,7 @@ FERRO_NO_RETURN void fthread_exit(void* exit_data, size_t exit_data_size, bool c
 	__builtin_unreachable();
 };
 
-ferr_t fthread_suspend(fthread_t* thread) {
+ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_value, fthread_timeout_type_t timeout_type) {
 	fthread_private_t* private_thread;
 	fthread_state_execution_t prev_exec_state;
 	ferr_t status = ferr_ok;
@@ -78,12 +83,18 @@ ferr_t fthread_suspend(fthread_t* thread) {
 		status = ferr_already_in_progress;
 	} else {
 		thread->state |= fthread_state_pending_suspend;
+		private_thread->pending_timeout_value = timeout_value;
+		private_thread->pending_timeout_type = timeout_type;
 		private_thread->manager->suspend(thread);
 	}
 
 	flock_spin_intsafe_unlock(&thread->lock);
 
 	return status;
+};
+
+ferr_t fthread_suspend(fthread_t* thread) {
+	return fthread_suspend_timeout(thread, 0, 0);
 };
 
 void fthread_suspend_self(void) {
@@ -194,6 +205,16 @@ fthread_state_execution_t fthread_execution_state(fthread_t* thread) {
 	return result;
 };
 
+static void wakeup_thread(void* data) {
+	fthread_t* thread = data;
+	// ignore the result. we don't care because:
+	//   * if it was suspended, awesome; that's the optimal (and most common) case.
+	//   * if it's already running, great; just do nothing.
+	//   * if it's dead, great (although this case shouldn't happen).
+	// any of the cases are fine with us.
+	FERRO_WUR_IGNORE(fthread_resume(thread));
+};
+
 ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_base, size_t stack_size, fthread_flags_t flags, fthread_t** out_thread) {
 	fthread_private_t* new_thread = NULL;
 	bool release_stack_on_fail = false;
@@ -234,10 +255,132 @@ ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_ba
 
 	new_thread->thread.flags = flags;
 
+	new_thread->timer_id = FTIMERS_ID_INVALID;
+
 	// the thread must start as suspended
 	fthread_state_execution_write_locked(&new_thread->thread, fthread_state_execution_suspended);
+
+	fwaitq_waiter_init(&new_thread->thread.wait_link, wakeup_thread, new_thread);
 
 	farch_thread_init_info(&new_thread->thread, initializer, data);
 
 	return ferr_ok;
+};
+
+ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq) {
+	fthread_private_t* private_thread;
+	fthread_state_execution_t prev_exec_state;
+	ferr_t status = ferr_ok;
+
+	if (!thread) {
+		thread = fthread_current();
+	}
+
+	private_thread = (void*)thread;
+
+	if (!private_thread->manager) {
+		return ferr_invalid_argument;
+	}
+
+	flock_spin_intsafe_lock(&thread->lock);
+
+	prev_exec_state = fthread_state_execution_read_locked(thread);
+
+	if (prev_exec_state == fthread_state_execution_dead || (thread->state & fthread_state_pending_death) != 0) {
+		status = ferr_permanent_outage;
+	} else if (prev_exec_state == fthread_state_execution_suspended) {
+		// we were already suspended; we can add ourselves onto the waitq's waiting list right now
+
+		// if we already had a waitq, we need to remove ourselves from its waiting list
+		if (thread->waitq) {
+			// once we're suspended, we can't be holding the waitq lock anymore, so there's no need to check
+			fwaitq_lock(thread->waitq);
+			fwaitq_remove_locked(thread->waitq, &thread->wait_link);
+			fwaitq_unlock(thread->waitq);
+			thread->waitq = NULL;
+		}
+
+		// now lets add ourselves to the new waitq's waiting list
+		fwaitq_lock(waitq);
+		fwaitq_add_locked(waitq, &thread->wait_link);
+		fwaitq_unlock(waitq);
+		thread->waitq = waitq;
+	} else if ((thread->state & fthread_state_pending_suspend) != 0) {
+		// we're not suspended yet; we can just overwrite the old pending waitq with a new one
+		if (thread->waitq && (thread->state & fthread_state_holding_waitq_lock) != 0) {
+			fwaitq_unlock(thread->waitq);
+		}
+		thread->state &= ~fthread_state_holding_waitq_lock;
+		thread->waitq = waitq;
+	} else {
+		// otherwise, we need to perform the same operation as `fthread_suspend`, but with a pending waitq to wait on
+		thread->state |= fthread_state_pending_suspend;
+		thread->waitq = waitq;
+		private_thread->manager->suspend(thread);
+	}
+
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	return status;
+};
+
+ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq) {
+	// unfortunately, we have to duplicate much of `fthread_wait` because it's not as simple as having `fthread_wait` lock the waitq and then call us because the behavior is slightly different.
+	// for example, in the already-suspended case, we want to avoid deadlock if possible.
+	// this is possible for `fthread_wait`, because it doesn't lock the new waitq until after it's done with the old waitq,
+	// but not for us, because we don't want to drop the new waitq's lock until we're completely done with it.
+
+	fthread_private_t* private_thread;
+	fthread_state_execution_t prev_exec_state;
+	ferr_t status = ferr_ok;
+
+	if (!thread) {
+		thread = fthread_current();
+	}
+
+	private_thread = (void*)thread;
+
+	if (!private_thread->manager) {
+		return ferr_invalid_argument;
+	}
+
+	flock_spin_intsafe_lock(&thread->lock);
+
+	prev_exec_state = fthread_state_execution_read_locked(thread);
+
+	if (prev_exec_state == fthread_state_execution_dead || (thread->state & fthread_state_pending_death) != 0) {
+		status = ferr_permanent_outage;
+	} else if (prev_exec_state == fthread_state_execution_suspended) {
+		// we were already suspended; we can add ourselves onto the waitq's waiting list right now
+
+		// if we already had a waitq, we need to remove ourselves from its waiting list
+		if (thread->waitq) {
+			// once we're suspended, we can't be holding the waitq lock anymore, so there's no need to check
+			fwaitq_lock(thread->waitq);
+			fwaitq_remove_locked(thread->waitq, &thread->wait_link);
+			fwaitq_unlock(thread->waitq);
+			thread->waitq = NULL;
+		}
+
+		// now lets add ourselves to the new waitq's waiting list
+		fwaitq_add_locked(waitq, &thread->wait_link);
+		fwaitq_unlock(waitq);
+		thread->waitq = waitq;
+	} else if ((thread->state & fthread_state_pending_suspend) != 0) {
+		// we're not suspended yet; we can just overwrite the old pending waitq with a new one
+		if (thread->waitq && (thread->state & fthread_state_holding_waitq_lock) != 0) {
+			fwaitq_unlock(thread->waitq);
+		}
+		thread->state |= fthread_state_holding_waitq_lock;
+		thread->waitq = waitq;
+	} else {
+		// otherwise, we need to perform the same operation as `fthread_suspend`, but with a pending waitq to wait on
+		thread->state |= fthread_state_pending_suspend | fthread_state_holding_waitq_lock;
+		thread->waitq = waitq;
+		private_thread->manager->suspend(thread);
+	}
+
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	return status;
 };

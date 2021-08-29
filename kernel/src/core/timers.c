@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2021 Anillo OS Developers
  *
@@ -233,7 +233,7 @@ static ftimers_id_t ftimers_priority_queue_add_locked(uint64_t delay, ftimers_ca
 	new_timer = &queue.timers[index];
 
 	new_timer->id = id = next_id++;
-	if (next_id == UINTPTR_MAX) {
+	if (next_id == FTIMERS_ID_INVALID) {
 		next_id = 0;
 	}
 	new_timer->remaining_delay = delay;

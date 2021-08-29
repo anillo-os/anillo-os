@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2020 Anillo OS Developers
  *
@@ -16,13 +16,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _FERRO_CORE_AARCH64_LOCKS_H_
-#define _FERRO_CORE_AARCH64_LOCKS_H_
+#ifndef _FERRO_CORE_LOCKS_SPIN_H_
+#define _FERRO_CORE_LOCKS_SPIN_H_
 
-#include <stdint.h>
+#include <stdbool.h>
 
 #include <ferro/base.h>
-#include <ferro/core/locks.h>
+#include <ferro/platform.h>
+
+// include the arch-dependent before-header
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <ferro/core/x86_64/locks.spin.before.h>
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#include <ferro/core/aarch64/locks.spin.before.h>
+#else
+	#error Unrecognized/unsupported CPU architecture! (see <ferro/core/locks.h>)
+#endif
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -30,17 +39,15 @@ FERRO_DECLARATIONS_BEGIN;
 // flock_spin_t
 //
 
-/**
+/*
  * A general-purpose spinlock.
  */
-FERRO_STRUCT(flock_spin) {
-	uint8_t flag;
-};
+//typedef <something> flock_spin_t;
 
-/**
+/*
  * A value that can be used to statically initialize an `flock_spin_t` at compile-time.
  */
-#define FLOCK_SPIN_INIT {0}
+//#define FLOCK_SPIN_INIT <something>
 
 /**
  * Initializes an `flock_spin_t` at runtime.
@@ -71,17 +78,15 @@ void flock_spin_unlock(flock_spin_t* lock);
 // flock_spin_intsafe_t
 //
 
-/**
+/*
  * A general-purpose spinlock that can also be locked in an interrupt-safe way.
  */
-FERRO_STRUCT(flock_spin_intsafe) {
-	flock_spin_t base;
-};
+//typedef <something> flock_spin_intsafe_t;
 
-/**
+/*
  * A value that can be used to statically initialize an `flock_spin_intsafe_t`.
  */
-#define FLOCK_SPIN_INTSAFE_INIT {0}
+//#define FLOCK_SPIN_INTSAFE_INIT <something>
 
 /**
  * Initializes an `flock_spin_intsafe_t` at runtime.
@@ -131,4 +136,13 @@ void flock_spin_intsafe_unlock_unsafe(flock_spin_intsafe_t* lock);
 
 FERRO_DECLARATIONS_END;
 
-#endif // _FERRO_CORE_AARCH64_LOCKS_H_
+// include the arch-dependent after-header
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <ferro/core/x86_64/locks.spin.after.h>
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#include <ferro/core/aarch64/locks.spin.after.h>
+#else
+	#error Unrecognized/unsupported CPU architecture! (see <ferro/core/locks.spin.h>)
+#endif
+
+#endif // _FERRO_CORE_LOCKS_SPIN_H_

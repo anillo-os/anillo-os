@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2020 Anillo OS Developers
  *
@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// bits.h
-//
-// a collection of useful bit-manipulation functions, macros, and structures
-//
+
+/**
+ * @file ferro/bits.h
+ *
+ * A collection of useful bit-manipulation functions, macros, and structures
+ */
 
 #ifndef _FERRO_BITS_H_
 #define _FERRO_BITS_H_

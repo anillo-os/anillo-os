@@ -61,6 +61,8 @@ SOURCES=(
 	src/core/timers.c
 	src/core/scheduler.c
 	src/core/threads.c
+	src/core/waitq.c
+	src/core/workers.c
 
 	src/libk/libk.c
 )
@@ -68,12 +70,13 @@ SOURCES=(
 SOURCES_x86_64=(
 	src/core/x86_64/paging.c
 	src/core/x86_64/interrupts.c
-	src/core/x86_64/locks.c
 	src/core/x86_64/per-cpu.c
 	src/core/x86_64/apic.c
 	src/core/x86_64/tsc.c
 	src/core/x86_64/scheduler.c
 	src/core/x86_64/threads.c
+
+	src/core/generic/locks.c
 
 	src/core/x86_64/interrupt-wrappers.S
 	src/core/x86_64/scheduler-helpers.S
@@ -83,12 +86,13 @@ SOURCES_x86_64=(
 SOURCES_aarch64=(
 	src/core/aarch64/paging.c
 	src/core/aarch64/interrupts.c
-	src/core/aarch64/locks.c
 	src/core/aarch64/per-cpu.c
 	src/core/aarch64/generic-timer.c
 	src/core/aarch64/gic.c
 	src/core/aarch64/scheduler.c
 	src/core/aarch64/threads.c
+
+	src/core/generic/locks.c
 
 	src/core/aarch64/ivt.S
 	src/core/aarch64/thread-runner.S

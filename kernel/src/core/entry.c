@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2021 Anillo OS Developers
  *
@@ -39,6 +39,7 @@
 #include <ferro/core/timers.h>
 #include <ferro/core/scheduler.h>
 #include <libk/libk.h>
+#include <ferro/core/workers.h>
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	#include <ferro/core/x86_64/apic.h>
@@ -199,96 +200,85 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 	}
 };
 
-static fthread_t* thread1 = NULL;
-static fthread_t* thread2 = NULL;
+static flock_semaphore_t sema;
 
-static void timed_resumed_thread(void* data) {
-	fthread_t* thread = data;
-	ferr_t status;
+static void sema_up_thread(void* data) {
+	fconsole_log("Semaphore up-count incrementer thread starting\n");
 
-	status = fthread_resume(thread);
-	if (status != ferr_ok && status != ferr_already_in_progress) {
-		fconsole_log("Failed to resume thread\n");
+	while (true) {
+		fconsole_log("After one second, the semaphore's up-count will be incremented\n");
+		if (fthread_suspend_timeout(NULL, 1000000000ULL, fthread_timeout_type_ns_relative) != ferr_ok) {
+			fpanic("Failed to suspend thread with timeout");
+		}
+		flock_semaphore_up(&sema);
 	}
 };
 
-static void thread1_run(void* data) {
-	fthread_t* this_thread = fthread_current();
-
-	fconsole_log("Hello from test thread 1!\n");
-
-	if (ftimers_oneshot_blocking(1ULL * 1000000000, timed_resumed_thread, this_thread, NULL) != ferr_ok) {
-		fpanic("Failed to setup timer to resume this thread");
+static void do_work1(void* data) {
+	for (size_t i = 0; i < 5; ++i) {
+		fconsole_logf("Doing some work in worker 1: %zu\n", i);
+		FERRO_WUR_IGNORE(fthread_suspend_timeout(NULL, 1000000000ULL, fthread_timeout_type_ns_relative));
 	}
-
-	fthread_suspend_self();
-
-	fthread_exit("Foobar", sizeof("Foobar"), true);
-
-	fconsole_log("Should not have gotten here!\n");
 };
 
-static void thread2_run(void* data) {
-	fconsole_log("Hello from test thread 2!\n");
+static void do_work2(void* data) {
+	for (size_t i = 0; i < 10; ++i) {
+		fconsole_logf("Doing some work in worker 2: %zu\n", i);
+		FERRO_WUR_IGNORE(fthread_suspend_timeout(NULL, 1000000000ULL / 2, fthread_timeout_type_ns_relative));
+	}
 };
 
-static void do_stuff(void* data) {
-	fconsole_log("Hello from the main kernel thread!\n");
+static void ferro_entry_threaded(void* data) {
+	fconsole_log("Entering threaded kernel startup\n");
 
-	// let's start some test threads
+	fworkers_init();
 
-	if (fthread_new(thread1_run, NULL, NULL, FPAGE_LARGE_PAGE_SIZE, 0, &thread1) != ferr_ok) {
-		fpanic("Failed to create test thread 1");
-	}
+#if 0
+	fthread_t* thread2;
 
-	if (fthread_new(thread2_run, NULL, NULL, FPAGE_LARGE_PAGE_SIZE, 0, &thread2) != ferr_ok) {
-		fpanic("Failed to create test thread 2");
-	}
+	fconsole_log("Entering threaded kernel startup\n");
 
-	fconsole_log("got here 1\n");
+	flock_semaphore_init(&sema, 0);
 
-	if (fsched_manage(thread1) != ferr_ok) {
-		fpanic("Failed to schedule test thread 1");
+	if (fthread_new(sema_up_thread, NULL, NULL, 2ULL * 1024 * 1024, 0, &thread2) != ferr_ok) {
+		fpanic("Failed to create semaphore up-count incrementer thread");
 	}
 
 	if (fsched_manage(thread2) != ferr_ok) {
-		fpanic("Failed to schedule test thread 2");
-	}
-
-	fconsole_log("got here 2\n");
-
-	if (fthread_resume(thread1) != ferr_ok) {
-		fpanic("Failed to resume test thread 1");
+		fpanic("Failed to schedule semaphore up-count incrementer thread");
 	}
 
 	if (fthread_resume(thread2) != ferr_ok) {
-		fpanic("Failed to resume test thread 2");
+		fpanic("Failed to resume semaphore up-count incrementer thread");
 	}
-
-	fconsole_log("got here 3\n");
 
 	while (true) {
-		if (thread1) {
-			if (fthread_execution_state(thread1) == fthread_state_execution_dead) {
-				fconsole_logf("Test thread 1 died with exit data: %s\n", (const char*)thread1->exit_data);
-				if (fmempool_free(thread1->exit_data) != ferr_ok) {
-					fpanic("Failed to release thread 1's exit data");
-				}
-				fthread_release(thread1);
-				thread1 = NULL;
-			}
-		}
-
-		if (thread2) {
-			if (fthread_execution_state(thread2) == fthread_state_execution_dead) {
-				fconsole_log("Test thread 2 died\n");
-				fthread_release(thread2);
-				thread2 = NULL;
-			}
-		}
-
-		fentry_idle();
+		flock_semaphore_down(&sema);
+		fconsole_log("Successfully decremented the semaphore's up-count from main thread!\n");
 	}
+#else
+	fworker_t* worker1;
+	fworker_t* worker2;
+
+	if (fworker_new(do_work1, NULL, &worker1) != ferr_ok) {
+		fpanic("Failed to create first worker");
+	}
+
+	if (fworker_new(do_work2, NULL, &worker2) != ferr_ok) {
+		fpanic("Failed to create second worker");
+	}
+
+	if (fworker_schedule(worker1) != ferr_ok) {
+		fpanic("Failed to schedule first worker");
+	}
+
+	if (fworker_schedule(worker2) != ferr_ok) {
+		fpanic("Failed to schedule second worker");
+	}
+
+	fworker_release(worker1);
+	fworker_release(worker2);
+#endif
 };
 
 __attribute__((section(".text.ferro_entry")))
@@ -366,7 +356,7 @@ jump_here_for_virtual:;
 	stack_base = __builtin_frame_address(0);
 	stack_base = (void*)round_down_power_of_2((uintptr_t)stack_base, FPAGE_LARGE_PAGE_SIZE);
 
-	if (fthread_new(do_stuff, NULL, stack_base, FPAGE_LARGE_PAGE_SIZE, 0, &main_thread) != ferr_ok) {
+	if (fthread_new(ferro_entry_threaded, NULL, stack_base, FPAGE_LARGE_PAGE_SIZE, 0, &main_thread) != ferr_ok) {
 		fpanic("Failed to create main kernel thread");
 	}
 

@@ -55,7 +55,10 @@ for entry in entries:
 	total_line = lines.pop(-1)
 
 	# find the name
-	struct = re.findall(r'struct ([A-Za-z0-9_]+)', name_line)[0]
+	try:
+		struct = re.findall(r'struct ([A-Za-z0-9_]+)', name_line)[0]
+	except IndexError:
+		continue
 
 	info['size'] = re.findall(r'sizeof=([0-9]+)', total_line)[0]
 	info['alignment'] = re.findall(r'align=([0-9]+)', total_line)[0]
@@ -63,8 +66,16 @@ for entry in entries:
 
 	# parse the layout
 	for line in lines:
-		offset = re.findall(r'^\s*([0-9]+)', line)[0]
-		member = re.findall(r'([A-Za-z0-9_]+)$', line)[0]
+		try:
+			offset = re.findall(r'^\s*([0-9]+)', line)[0]
+		except IndexError:
+			continue
+
+		try:
+			member = re.findall(r'([A-Za-z0-9_]+)$', line)[0]
+		except IndexError:
+			continue
+
 		info['layout'][member] = offset
 
 	data[struct] = info

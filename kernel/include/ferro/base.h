@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2020 Anillo OS Developers
  *
@@ -14,6 +14,12 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file ferro/base.h
+ *
+ * Basic types, functions, and definitions for the rest of Ferro's headers.
  */
 
 #ifndef _FERRO_BASE_H_
@@ -80,5 +86,8 @@ FERRO_ALWAYS_INLINE void fassert_helper(int result, const char* expr) {
 };
 
 #define fassert(x) fassert_helper(!!(x), #x)
+
+// purposefully ignores the result of a call to a function marked with warn-unused-result
+#define FERRO_WUR_IGNORE(x) ((void)(x))
 
 #endif // _FERRO_BASE_H_

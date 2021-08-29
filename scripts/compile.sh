@@ -5,7 +5,7 @@ SOURCE_ROOT="${SCRIPT_PATH}/.."
 
 source "${SOURCE_ROOT}/scripts/util.sh"
 
-"${SCRIPT_PATH}/generate.sh"
+"${SCRIPT_PATH}/generate.sh" || command-failed
 
 "${SCRIPT_PATH}/compile-rtlib.sh" || command-failed
 

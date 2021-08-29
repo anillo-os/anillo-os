@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2020 Anillo OS Developers
  *
@@ -23,115 +23,76 @@
 
 #include <ferro/base.h>
 #include <ferro/platform.h>
+#include <ferro/error.h>
+
+#include <ferro/core/locks.spin.h>
+
+// include the arch-dependent before-header
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <ferro/core/x86_64/locks.before.h>
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#include <ferro/core/aarch64/locks.before.h>
+#else
+	#error Unrecognized/unsupported CPU architecture! (see <ferro/core/locks.h>)
+#endif
 
 FERRO_DECLARATIONS_BEGIN;
 
 //
-// flock_spin_t
+// flock_semaphore_t
 //
 
-/**
- * A general-purpose spinlock.
- */
-//typedef <something> flock_spin_t;
-
-/**
- * A value that can be used to statically initialize an `flock_spin_t` at compile-time.
- */
-//#define FLOCK_SPIN_INIT <something>
-
-/**
- * Initializes an `flock_spin_t` at runtime.
- */
-//void flock_spin_init(flock_spin_t* lock);
-
-/**
- * Lock an `flock_spin_t`.
+/*
+ * A general-purpose semaphore.
  *
- * This function will not return until it is acquired.
+ * @note Semaphores *can* be used in both thread and interrupt contexts, but it is recommended NOT to use them in interrupt contexts because interrupt contexts run with interrupts disabled by default (unless explicitly re-enabled by the interrupt handler).
+ *       The same warning applies to running in *any* context with interrupts disabled: if the code is running on a uniprocessor system and the semaphore needs to block while interrupts are disabled, the system will completely freeze.
  */
-//void flock_spin_lock(flock_spin_t* lock);
+//typedef <something> flock_semaphore_t;
 
 /**
- * Try to lock an `flock_spin_t`.
+ * Initializes an `flock_semaphore_t` at runtime.
  *
- * If the lock cannot be acquired immediately, this function will return immediately with `false`.
- * Otherwise, the lock will be acquired and this function will return `true`.
+ * @param initial_count The initial up-count to assign to the semaphore.
  */
-//bool flock_spin_try_lock(flock_spin_t* lock);
+void flock_semaphore_init(flock_semaphore_t* semaphore, uint64_t initial_count);
 
 /**
- * Unlock an `flock_spin_t`.
- */
-//void flock_spin_unlock(flock_spin_t* lock);
-
-//
-// flock_spin_intsafe_t
-//
-
-/**
- * A general-purpose spinlock that can also be locked in an interrupt-safe way.
- */
-//typedef <something> flock_spin_intsafe_t;
-
-/**
- * A value that can be used to statically initialize an `flock_spin_intsafe_t`.
- */
-//#define FLOCK_SPIN_INTSAFE_INIT <something>
-
-/**
- * Initializes an `flock_spin_intsafe_t` at runtime.
- */
-//void flock_spin_intsafe_init(flock_spin_intsafe_t* lock);
-
-/**
- * Lock an `flock_spin_intsafe_t`.
+ * Increases the up-count of the given semaphore.
  *
- * This function will not return until it is acquired.
+ * @param semaphore The semaphore to operate on.
+ */
+void flock_semaphore_up(flock_semaphore_t* semaphore);
+
+/**
+ * Decreases the up-count of the given semaphore.
  *
- * This function locks the lock in an interrupt-safe way.
- */
-//void flock_spin_intsafe_lock(flock_spin_intsafe_t* lock);
-
-/**
- * Like `flock_spin_intsafe_lock`, but locks the lock in a non-interrupt-safe way.
- */
-//void flock_spin_intsafe_lock_unsafe(flock_spin_intsafe_t* lock);
-
-/**
- * Try to lock an `flock_spin_intsafe_t`.
+ * @param semaphore The semaphore to operate on.
  *
- * If the lock cannot be acquired immediately, this function will return immediately with `false`.
- * Otherwise, the lock will be acquired and this function will return `true`.
+ * @note If the semaphore's up-count before this operation was 0, this function will wait until it is increased by someone else.
+ *       If running in a thread context, it will suspend the current thread until resumed by someone else increasing the up-count of the semaphore.
+ *       If running in an interrupt context, it will spin-wait until someone else increases the up-count of the semaphore.
+ */
+void flock_semaphore_down(flock_semaphore_t* semaphore);
+
+/**
+ * Like `flock_semaphore_down`, but never blocks.
  *
- * This function locks the lock in an interrupt-safe way.
- */
-//bool flock_spin_intsafe_try_lock(flock_spin_intsafe_t* lock);
-
-/**
- * Like `flock_spin_intsafe_try_lock`, but locks the lock in a non-interrupt-safe way.
- */
-//bool flock_spin_intsafe_try_lock_unsafe(flock_spin_intsafe_t* lock);
-
-/**
- * Unlock an `flock_spin_intsafe_t`.
+ * @param semaphore The semaphore to operate on.
  *
- * This function unlocks the lock in an interrupt-safe way.
+ * Return values:
+ * @retval ferr_ok               The up-count was successfully decremented.
+ * @retval ferr_temporary_outage The up-count was 0; decrementing it would require blocking.
  */
-//void flock_spin_intsafe_unlock(flock_spin_intsafe_t* lock);
-
-/**
- * Like `flock_spin_intsafe_unlock`, but unlocks the lock in a non-interrupt-safe way.
- */
-//void flock_spin_intsafe_unlock_unsafe(flock_spin_intsafe_t* lock);
+FERRO_WUR ferr_t flock_semaphore_try_down(flock_semaphore_t* semaphore);
 
 FERRO_DECLARATIONS_END;
 
-// now include the arch-dependent header
+// include the arch-dependent after-header
 #if FERRO_ARCH == FERRO_ARCH_x86_64
-	#include <ferro/core/x86_64/locks.h>
+	#include <ferro/core/x86_64/locks.after.h>
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
-	#include <ferro/core/aarch64/locks.h>
+	#include <ferro/core/aarch64/locks.after.h>
 #else
 	#error Unrecognized/unsupported CPU architecture! (see <ferro/core/locks.h>)
 #endif

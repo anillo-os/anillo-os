@@ -1,4 +1,4 @@
-/**
+/*
  * This file is part of Anillo OS
  * Copyright (C) 2020 Anillo OS Developers
  *
@@ -14,6 +14,12 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file ferro/platform.h
+ *
+ * Platform detection (e.g. architecture, endianness, etc.).
  */
 
 #ifndef _FERRO_PLATFORM_H_
