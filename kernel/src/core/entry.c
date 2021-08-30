@@ -200,20 +200,6 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 	}
 };
 
-static flock_semaphore_t sema;
-
-static void sema_up_thread(void* data) {
-	fconsole_log("Semaphore up-count incrementer thread starting\n");
-
-	while (true) {
-		fconsole_log("After one second, the semaphore's up-count will be incremented\n");
-		if (fthread_suspend_timeout(NULL, 1000000000ULL, fthread_timeout_type_ns_relative) != ferr_ok) {
-			fpanic("Failed to suspend thread with timeout");
-		}
-		flock_semaphore_up(&sema);
-	}
-};
-
 static void do_work1(void* data) {
 	for (size_t i = 0; i < 5; ++i) {
 		fconsole_logf("Doing some work in worker 1: %zu\n", i);
@@ -233,30 +219,6 @@ static void ferro_entry_threaded(void* data) {
 
 	fworkers_init();
 
-#if 0
-	fthread_t* thread2;
-
-	fconsole_log("Entering threaded kernel startup\n");
-
-	flock_semaphore_init(&sema, 0);
-
-	if (fthread_new(sema_up_thread, NULL, NULL, 2ULL * 1024 * 1024, 0, &thread2) != ferr_ok) {
-		fpanic("Failed to create semaphore up-count incrementer thread");
-	}
-
-	if (fsched_manage(thread2) != ferr_ok) {
-		fpanic("Failed to schedule semaphore up-count incrementer thread");
-	}
-
-	if (fthread_resume(thread2) != ferr_ok) {
-		fpanic("Failed to resume semaphore up-count incrementer thread");
-	}
-
-	while (true) {
-		flock_semaphore_down(&sema);
-		fconsole_log("Successfully decremented the semaphore's up-count from main thread!\n");
-	}
-#else
 	fworker_t* worker1;
 	fworker_t* worker2;
 
@@ -278,7 +240,6 @@ static void ferro_entry_threaded(void* data) {
 
 	fworker_release(worker1);
 	fworker_release(worker2);
-#endif
 };
 
 __attribute__((section(".text.ferro_entry")))
