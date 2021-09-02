@@ -15,13 +15,14 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/x86_64/apic.c
-//
-// x86_64 APIC management, including timer backends
-//
-// This file also handles a couple of the `fcpu` functions.
-//
+
+/**
+ * @file
+ *
+ * x86_64 APIC management, including timer backends.
+ *
+ * This file also handles a couple of the `fcpu` functions.
+ */
 
 #include <ferro/core/x86_64/apic.h>
 #include <ferro/core/acpi.h>
@@ -321,7 +322,7 @@ static uint64_t determine_lapic_frequency(void) {
 		return UINT64_MAX;
 	}
 
-	// likewise, if the maximum delta is greater than the minimum delta multiplied by `TSC_MIN_DELTA_COEFFICIENT`,
+	// likewise, if the maximum delta is greater than the minimum delta multiplied by ::TSC_MIN_DELTA_COEFFICIENT,
 	// then someone interrupted us and our results may be way off (e.g. maybe we were interrupted on the very last iteration).
 	// discard the results.
 	if (delta_max > (TSC_MIN_DELTA_COEFFICIENT * delta_min)) {

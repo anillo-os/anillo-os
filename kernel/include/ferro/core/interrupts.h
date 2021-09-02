@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Interrupts subsystem.
+ */
+
 #ifndef _FERRO_CORE_INTERRUPTS_H_
 #define _FERRO_CORE_INTERRUPTS_H_
 
@@ -25,7 +31,24 @@
 #include <ferro/base.h>
 #include <ferro/platform.h>
 
+// include the arch-dependent before-header
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <ferro/core/x86_64/interrupts.before.h>
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#include <ferro/core/aarch64/interrupts.before.h>
+#else
+	#error Unrecognized/unsupported CPU architecture! (see <ferro/core/interrupts.h>)
+#endif
+
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Interrupts
+ *
+ * The interrupts subsystem.
+ *
+ * @{
+ */
 
 /**
  * Initializes the interrupts subsystem. Called on kernel startup.
@@ -35,9 +58,6 @@ FERRO_DECLARATIONS_BEGIN;
 void fint_init(void);
 
 // these are arch-dependent functions we expect all architectures to implement
-//
-// the declarations that are commented-out are still expected to be defined by the arch-dependent headers,
-// it's just that they must declare them themselves because the `fint_state_t` type is arch-dependent
 
 /**
  * Disables all interrupts.
@@ -56,34 +76,33 @@ FERRO_ALWAYS_INLINE void fint_disable(void);
 FERRO_ALWAYS_INLINE void fint_enable(void);
 
 /**
- * The type used to represent the interrupt state returned by `fint_save` and accepted by `fint_restore`.
- */
-//typedef <something> fint_state_t;
-
-/**
  * Returns the current interrupt state. Useful to save the current state and restore it later.
  */
-//FERRO_ALWAYS_INLINE fint_state_t fint_save(void);
+FERRO_ALWAYS_INLINE fint_state_t fint_save(void);
 
 /**
  * Applies the given interrupt state. Useful to restore a previously saved interrupt state.
  *
- * Note that it is unsafe to use `fint_enable`/`fint_disable` and this function in the same context (as it will lead to the outstanding-interrupt-disable count becoming unbalanced).
+ * Note that it is unsafe to use fint_enable()/fint_disable() and this function in the same context (as it will lead to the outstanding-interrupt-disable count becoming unbalanced).
  */
-//FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state);
+FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state);
 
 /**
  * Checks whether we're currently running in an interrupt context.
  */
 FERRO_ALWAYS_INLINE bool fint_is_interrupt_context(void);
 
+/**
+ * @}sw
+ */
+
 FERRO_DECLARATIONS_END;
 
-// now include the arch-dependent header
+// now include the arch-dependent after-header
 #if FERRO_ARCH == FERRO_ARCH_x86_64
-	#include <ferro/core/x86_64/interrupts.h>
+	#include <ferro/core/x86_64/interrupts.after.h>
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
-	#include <ferro/core/aarch64/interrupts.h>
+	#include <ferro/core/aarch64/interrupts.after.h>
 #else
 	#error Unrecognized/unsupported CPU architecture! (see <ferro/core/interrupts.h>)
 #endif

@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/aarch64/interrupts.c
-//
-// AARCH64 interrupt handling
-//
+
+/**
+ * @file
+ *
+ * AARCH64 interrupt handling.
+ */
 
 #include <ferro/core/interrupts.h>
 #include <ferro/core/panic.h>

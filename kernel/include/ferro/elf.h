@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -17,7 +17,7 @@
  */
 
 /**
- * @file ferro/elf.h
+ * @file
  *
  * ELF definitions for Ferro.
  */
@@ -33,6 +33,14 @@
 // Anillo only supports ELF64, so we only include structure definitions for ELF64 structures
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup ELF
+ *
+ * Definitions for ELF files.
+ *
+ * @{
+ */
 
 FERRO_PACKED_STRUCT(ferro_elf_header) {
 	// 0x7f followed by "ELF", always in that order
@@ -213,6 +221,10 @@ FERRO_ENUM(uint64_t, ferro_elf_section_flag) {
 	ferro_elf_section_flag_os_specific         = 0x0ff00000,
 	ferro_elf_section_flag_processor_specific  = 0xf0000000,
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

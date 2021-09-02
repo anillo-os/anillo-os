@@ -1,3 +1,27 @@
+/*
+ * This file is part of Anillo OS
+ * Copyright (C) 2021 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file
+ *
+ * A basic scheduler.
+ */
+
 #include <ferro/core/scheduler.private.h>
 #include <ferro/core/timers.h>
 #include <ferro/core/console.h>
@@ -322,7 +346,7 @@ static void manager_kill(fthread_t* thread) {
 			if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
 				fwaitq_lock(thread->waitq);
 			} else {
-				// HACK: compensate for the `fint_enable` performed by unlocking the waitq lock
+				// HACK: compensate for the fint_enable() performed by unlocking the waitq lock
 				fint_disable();
 			}
 			fwaitq_remove_locked(thread->waitq, &thread->wait_link);
@@ -352,7 +376,7 @@ static void manager_kill(fthread_t* thread) {
 	flock_spin_intsafe_unlock(&thread->lock);
 
 	if (thread == fthread_current()) {
-		// if it's the current thread, we're not returning, so we need to release the extra reference that `fthread_kill` acquired
+		// if it's the current thread, we're not returning, so we need to release the extra reference that fthread_kill() acquired
 		fthread_release(thread);
 	}
 
@@ -360,7 +384,7 @@ static void manager_kill(fthread_t* thread) {
 	fsched_preempt_thread(thread);
 
 	// it might seem like the thread might be fully released here, but actually no.
-	// `fthread_kill` retains the thread before calling us and then releases it afterwards.
+	// fthread_kill() retains the thread before calling us and then releases it afterwards.
 
 	// and relock it for the threads subsystem
 	flock_spin_intsafe_lock(&thread->lock);
@@ -406,7 +430,7 @@ static void manager_suspend(fthread_t* thread) {
 			if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
 				fwaitq_lock(thread->waitq);
 			} else {
-				// HACK: compensate for the `fint_enable` performed by unlocking the waitq lock
+				// HACK: compensate for the fint_enable() performed by unlocking the waitq lock
 				fint_disable();
 			}
 			fwaitq_add_locked(thread->waitq, &thread->wait_link);
@@ -471,7 +495,7 @@ static void manager_resume(fthread_t* thread) {
 		if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
 			fwaitq_lock(thread->waitq);
 		} else {
-			// HACK: compensate for the `fint_enable` performed by unlocking the waitq lock
+			// HACK: compensate for the fint_enable() performed by unlocking the waitq lock
 			fint_disable();
 		}
 		fwaitq_remove_locked(thread->waitq, &thread->wait_link);
@@ -502,7 +526,7 @@ static void manager_resume(fthread_t* thread) {
 
 	add_to_queue(thread, new_queue, true);
 
-	// unlock the queue that was locked by `find_lightest_load`
+	// unlock the queue that was locked by find_lightest_load()
 	flock_spin_intsafe_unlock(&new_queue->lock);
 };
 
@@ -552,7 +576,7 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 				if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
 					fwaitq_lock(thread->waitq);
 				} else {
-					// HACK: compensate for the `fint_enable` performed by unlocking the waitq lock
+					// HACK: compensate for the fint_enable() performed by unlocking the waitq lock
 					fint_disable();
 				}
 				fwaitq_add_locked(thread->waitq, &thread->wait_link);
@@ -578,7 +602,7 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 				if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
 					fwaitq_lock(thread->waitq);
 				} else {
-					// HACK: compensate for the `fint_enable` performed by unlocking the waitq lock
+					// HACK: compensate for the fint_enable() performed by unlocking the waitq lock
 					fint_disable();
 				}
 				fwaitq_remove_locked(thread->waitq, &thread->wait_link);
@@ -620,7 +644,7 @@ static void manager_interrupted(fthread_t* thread) {
 
 static void manager_ending_interrupt(fthread_t* thread) {
 	// we actually can't have any more threads to clear due to death or suspension right here
-	// because `kill` and `suspend` immediately remove the threads if they're not running
+	// because kill and suspend immediately remove the threads if they're not running
 	// (and being interrupted counts as not running)
 	//thread = clear_pending_death_or_suspension(thread);
 

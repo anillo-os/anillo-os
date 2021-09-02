@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Threads subsystem.
+ */
+
 #ifndef _FERRO_CORE_THREADS_H_
 #define _FERRO_CORE_THREADS_H_
 
@@ -40,6 +46,14 @@
 #endif
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Threads
+ *
+ * The threading subsystem.
+ *
+ * @{
+ */
 
 FERRO_OPTIONS(uint64_t, fthread_flags) {
 	/**
@@ -111,12 +125,12 @@ FERRO_ENUM(uint8_t, fthread_timeout_type) {
 
 FERRO_STRUCT(fthread) {
 	/**
-	 * `prev` and `next` are owned by the thread manager responsible for this thread.
+	 * #prev and #next are owned by the thread manager responsible for this thread.
 	 * They cannot be safely read or written by anyone else.
 	 */
 	fthread_t* prev;
 	/**
-	 * See `prev`.
+	 * @see #prev.
 	 */
 	fthread_t* next;
 
@@ -128,12 +142,12 @@ FERRO_STRUCT(fthread) {
 	/**
 	 * Number of references held on this thread. If this drops to `0`, the thread is released.
 	 *
-	 * This MUST be accessed and modified ONLY with `fthread_retain` and `fthread_release`.
+	 * This MUST be accessed and modified ONLY with fthread_retain() and fthread_release().
 	 */
 	uint64_t reference_count;
 
 	/**
-	 * Protects `flags`, `state`, `exit_data` (and `exit_data_size`), `saved_context`, `wait_link`, and `pending_waitq` from being read or written.
+	 * Protects #flags, #state, #exit_data (and #exit_data_size), #saved_context, #wait_link, and #pending_waitq from being read or written.
 	 */
 	flock_spin_intsafe_t lock;
 
@@ -143,7 +157,7 @@ FERRO_STRUCT(fthread) {
 	void* exit_data;
 
 	/**
-	 * Size of `exit_data`.
+	 * Size of #exit_data.
 	 */
 	size_t exit_data_size;
 
@@ -171,7 +185,7 @@ FERRO_STRUCT(fthread) {
 /**
  * The first function to be executed when a thread is started.
  *
- * @param data User-defined data given to `fthread_init` upon thread creation.
+ * @param data User-defined data given to fthread_new() upon thread creation.
  */
 typedef void (*fthread_initializer_f)(void* data);
 
@@ -182,12 +196,12 @@ typedef void (*fthread_initializer_f)(void* data);
  *
  * @param initializer The first function to call when the thread is initialized.
  * @param data        User-defined data to pass to the thread initializer.
- * @param stack_base  The base (i.e. lowest address) of the stack for the thread. If this is `NULL`, a stack is immediately allocated and `fthread_flag_deallocate_stack_on_exit` will automatically be set in the thread flags.
+ * @param stack_base  The base (i.e. lowest address) of the stack for the thread. If this is `NULL`, a stack is immediately allocated and ::fthread_flag_deallocate_stack_on_exit will automatically be set in the thread flags.
  * @param stack_size  The size of the stack for the thread.
  * @param flags       Flags to assign to the thread.
- * @param out_thread  A pointer in which a pointer to the newly allocated thread is written.
+ * @param[out] out_thread  A pointer in which a pointer to the newly allocated thread is written.
  *
- * @note The newly created thread is suspended on creation. However, in order to start it, it must first be assigned to a thread manager (like the scheduler subsystem). Then, it can be resumed with `fthread_resume`.
+ * @note The newly created thread is suspended on creation. However, in order to start it, it must first be assigned to a thread manager (like the scheduler subsystem). Then, it can be resumed with fthread_resume().
  *
  * @note All threads must start in kernel-space. They can switch to user-space later if necessary.
  *
@@ -197,8 +211,8 @@ typedef void (*fthread_initializer_f)(void* data);
  *
  * Return values:
  * @retval ferr_ok               The thread was successfully allocated and initialized.
- * @retval ferr_invalid_argument One or more of: 1) `initializer` was `NULL`, 2) `flags` contained an invalid value, 3) `out_thread` was `NULL`.
- * @retval ferr_temporary_outage One or more of: 1) there were insufficient resources to allocate a new thread structure, 2) if `stack_base` was `NULL`, indicates there was not enough memory to allocate a stack.
+ * @retval ferr_invalid_argument One or more of: 1) @p initializer was `NULL`, 2) @p flags contained an invalid value, 3) @p out_thread was `NULL`.
+ * @retval ferr_temporary_outage One or more of: 1) there were insufficient resources to allocate a new thread structure, 2) if @p stack_base was `NULL`, indicates there was not enough memory to allocate a stack.
  */
 FERRO_WUR ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_base, size_t stack_size, fthread_flags_t flags, fthread_t** out_thread);
 
@@ -217,10 +231,10 @@ fthread_t* fthread_current(void);
  * Exits the current thread. MUST be called within a thread context, NOT an interrupt context.
  *
  * @param exit_data      Optional pointer to some data to save to thread information structure upon exit.
- * @param exit_data_size Size of the data pointed to by `exit_data`.
- * @param copy_exit_data Whether to copy the exit data using the mempool subsystem before storing it. If this is `true`, `fthread_flag_exit_data_copied` is automatically set on the thread.
+ * @param exit_data_size Size of the data pointed to by @p exit_data.
+ * @param copy_exit_data Whether to copy the exit data using the mempool subsystem before storing it. If this is `true`, ::fthread_flag_exit_data_copied is automatically set on the thread.
  *
- * @note If `copy_exit_data` is `true` but there are insufficient resources to copy the data, the exit data is not stored and `fthread_flag_exit_data_copied` is not set.
+ * @note If @p copy_exit_data is `true` but there are insufficient resources to copy the data, the exit data is not stored and ::fthread_flag_exit_data_copied is not set.
  */
 FERRO_NO_RETURN void fthread_exit(void* exit_data, size_t exit_data_size, bool copy_exit_data);
 
@@ -242,11 +256,11 @@ FERRO_NO_RETURN void fthread_exit(void* exit_data, size_t exit_data_size, bool c
 FERRO_WUR ferr_t fthread_suspend(fthread_t* thread);
 
 /**
- * Like `fthread_suspend`, but once suspended, starts a timer to resume the thread.
+ * Like fthread_suspend(), but once suspended, starts a timer to resume the thread.
  *
  * @param thread        The thread to suspend. If this is `NULL`, the current thread is used.
- * @param timeout_value The value for the timer. How this value is interpretted depends on `timeout_origin`. A value of 0 for this disables the timeout, no matter what timeout type is specified.
- * @param timeout_type  This determines how the timeout value is interpretted. See `fthread_timeout_origin` for details on what each value does.
+ * @param timeout_value The value for the timer. How this value is interpretted depends on @p timeout_origin. A value of 0 for this disables the timeout, no matter what timeout type is specified.
+ * @param timeout_type  This determines how the timeout value is interpretted. See ::fthread_timeout_origin for details on what each value does.
  *
  * @note The timer is started once the thread is suspended, not before.
  *
@@ -261,7 +275,7 @@ FERRO_WUR ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_val
 /**
  * Suspends the current thread.
  *
- * @note This is a convenience wrapper around `fthread_suspend`.
+ * @note This is a convenience wrapper around fthread_suspend().
  */
 void fthread_suspend_self(void);
 
@@ -303,7 +317,7 @@ FERRO_WUR ferr_t fthread_kill(fthread_t* thread);
 /**
  * Kills the current thread.
  *
- * @note This is a convenience wrapper around `fthread_kill`. It also tells the compiler that this function should never return and thus allow it to make further optimizations/sanity checks.
+ * @note This is a convenience wrapper around fthread_kill(). It also tells the compiler that this function should never return and thus allow it to make further optimizations/sanity checks.
  */
 FERRO_NO_RETURN void fthread_kill_self(void);
 
@@ -331,7 +345,7 @@ void fthread_release(fthread_t* thread);
  * @param thread The thread whose current execution state will be retrieved.
  *
  * @note The thread's execution state may have already changed when this call returns.
- *       The only state in which the thread will not change to any other state is `fthread_state_execution_dead`.
+ *       The only state in which the thread will not change to any other state is fthread_state_execution_dead().
  */
 fthread_state_execution_t fthread_execution_state(fthread_t* thread);
 
@@ -341,14 +355,14 @@ fthread_state_execution_t fthread_execution_state(fthread_t* thread);
  * @param thread The thread to suspend. If this is `NULL`, the current thread is used.
  * @param waitq  The waitq to wait for.
  *
- * @note This function locks the waitq and holds it locked until the thread is either fully suspended or the suspension is cancelled/interrupted (e.g. by a call to `fthread_resume`).
+ * @note This function locks the waitq and holds it locked until the thread is either fully suspended or the suspension is cancelled/interrupted (e.g. by a call to fthread_resume()).
  *
  * @note If you suspend your own thread (i.e. the one that is currently running), execution is immediately stopped. It will always succeed in this case.
  *
  * @note A thread can only wait for a single waitq at a time. If the thread was already suspended and waiting for a different waitq,
  *       it will be removed from the previous waitq's waiting list and added onto the new waitq's waiting list.
  *
- * @note The thread may be resumed externally (e.g. with `thread_resume`) before the waitq wakes it up. In this case, the thread will stop waiting for the waitq and simply resume.
+ * @note The thread may be resumed externally (e.g. with fthread_resume()) before the waitq wakes it up. In this case, the thread will stop waiting for the waitq and simply resume.
  *       Thus, waiting for a waitq may result in seemingly-spurious wakeups from the thread's point-of-view.
  *
  * Return values:
@@ -357,6 +371,10 @@ fthread_state_execution_t fthread_execution_state(fthread_t* thread);
  * @retval ferr_invalid_argument    The thread had no registered manager.
  */
 FERRO_WUR ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

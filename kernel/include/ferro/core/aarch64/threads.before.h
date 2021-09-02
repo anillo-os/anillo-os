@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * AARCH64 implementations of architecture-specific components for threads subsystem; before-header.
+ */
+
 #ifndef _FERRO_CORE_AARCH64_THREADS_BEFORE_H_
 #define _FERRO_CORE_AARCH64_THREADS_BEFORE_H_
 
@@ -24,6 +30,12 @@
 #include <ferro/base.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Threads
+ *
+ * @{
+ */
 
 FERRO_STRUCT(fthread_saved_context) {
 	uint64_t x0;
@@ -92,6 +104,10 @@ FERRO_OPTIONS(uint64_t, farch_thread_pstate) {
 	farch_thread_pstate_spx               = 1ULL << 0,
 	farch_thread_pstate_sp0               = 0ULL << 0,
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * x86_64 implementations of architecture-specific components for kernel entry.
+ */
+
 #ifndef _FERRO_CORE_X86_64_ENTRY_H_
 #define _FERRO_CORE_X86_64_ENTRY_H_
 
@@ -24,6 +30,12 @@
 #include <ferro/core/entry.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Kernel-Entry
+ *
+ * @{
+ */
 
 FERRO_ALWAYS_INLINE FERRO_NO_RETURN void fentry_hang_forever(void) {
 	while (1) {
@@ -43,6 +55,10 @@ FERRO_ALWAYS_INLINE void fentry_idle(void) {
 FERRO_ALWAYS_INLINE void fentry_jump_to_virtual(void* address) {
 	__asm__ volatile("jmp *%0" :: "r" (address));
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

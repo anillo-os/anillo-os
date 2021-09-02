@@ -1,0 +1,4 @@
+Workers subsystem
+=================
+
+.. doxygengroup:: Workers

@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,12 +16,28 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Panic subsystem.
+ */
+
 #ifndef _FERRO_CORE_PANIC_H_
 #define _FERRO_CORE_PANIC_H_
 
 #include <stdarg.h>
 
 #include <ferro/base.h>
+
+FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Panic
+ *
+ * The panic subsystem.
+ *
+ * @{
+ */
 
 /**
  * Sentences the kernel (and the entire system) to death, basically.
@@ -34,9 +50,13 @@ FERRO_PRINTF(1, 2)
 FERRO_NO_RETURN void fpanic(const char* reason_format, ...);
 
 /**
- * See `fpanic`.
+ * @see fpanic
  */
 FERRO_PRINTF(1, 0)
 FERRO_NO_RETURN void fpanicv(const char* reason_format, va_list args);
+
+/**
+ * @}
+ */
 
 #endif // _FERRO_CORE_PANIC_H_

@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Generic implementations of architecture-specific components for locks subsystem; before-header.
+ */
+
 #ifndef _FERRO_CORE_GENERIC_LOCKS_BEFORE_H_
 #define _FERRO_CORE_GENERIC_LOCKS_BEFORE_H_
 
@@ -28,6 +34,12 @@
 FERRO_DECLARATIONS_BEGIN;
 
 /**
+ * @addtogroup Locks
+ *
+ * @{
+ */
+
+/**
  * A general-purpose semaphore.
  *
  * @note Semaphores *can* be used in both thread and interrupt contexts, but it is recommended NOT to use them in interrupt contexts because interrupt contexts run with interrupts disabled by default (unless explicitly re-enabled by the interrupt handler).
@@ -37,6 +49,10 @@ FERRO_STRUCT(flock_semaphore) {
 	uint64_t up_count;
 	fwaitq_t waitq;
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

@@ -1,0 +1,4 @@
+Platform identification
+=======================
+
+.. doxygengroup:: Platform

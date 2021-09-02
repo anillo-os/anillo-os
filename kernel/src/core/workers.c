@@ -1,3 +1,32 @@
+/*
+ * This file is part of Anillo OS
+ * Copyright (C) 2021 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file
+ *
+ * Implementation of threaded workers.
+ *
+ * Workers are useful to schedule some work to run later on a thread
+ * without having to worry about managing the thread.
+ *
+ * These are very useful for interrupts to quickly store some information and then schedule a worker to process it later.
+ */
+
 #include <ferro/core/workers.h>
 #include <ferro/core/locks.h>
 #include <ferro/core/mempool.h>
@@ -203,7 +232,7 @@ void fworkers_init(void) {
 	}
 };
 
-// very similar to the scheduler's `find_lightest_load`
+// very similar to the scheduler's find_lightest_load()
 // returns with the queue lock held
 static fworker_queue_t* find_lightest_load(void) {
 	fworker_queue_t* result = NULL;

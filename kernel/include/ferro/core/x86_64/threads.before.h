@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * x86_64 implementations of architecture-specific components for threads subsystem; before-header.
+ */
+
 #ifndef _FERRO_CORE_X86_64_THREADS_BEFORE_H_
 #define _FERRO_CORE_X86_64_THREADS_BEFORE_H_
 
@@ -24,6 +30,12 @@
 #include <ferro/base.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Threads
+ *
+ * @{
+ */
 
 FERRO_STRUCT(fthread_saved_context) {
 	//
@@ -57,6 +69,10 @@ FERRO_STRUCT(fthread_saved_context) {
 	// the per-CPU interrupt-disable count
 	uint64_t interrupt_disable;
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

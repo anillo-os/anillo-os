@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -17,7 +17,7 @@
  */
 
 /**
- * @file ferro/bits.h
+ * @file
  *
  * A collection of useful bit-manipulation functions, macros, and structures
  */
@@ -31,6 +31,14 @@
 #include <ferro/platform.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Bits
+ *
+ * General bit-manipulation utilities.
+ *
+ * @{
+ */
 
 // TODO: possibly take advantage of the compiler's builtin_clz
 // the problem with that is that it would have to assume the bit size of types like `unsigned int` and `unsigned long`, which we shouldn't do
@@ -117,6 +125,10 @@ FERRO_BITS_CTZ_DEFINITION(u64, uint64_t, 64);
 	#define U32_BYTE_TWO_MASK   0x00ff0000U
 	#define U32_BYTE_THREE_MASK 0xff000000U
 #endif
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

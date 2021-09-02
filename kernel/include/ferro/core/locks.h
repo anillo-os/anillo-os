@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -14,6 +14,12 @@
  *
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file
+ *
+ * Locks subsystem.
  */
 
 #ifndef _FERRO_CORE_LOCKS_H_
@@ -38,6 +44,14 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
+/**
+ * @addtogroup Locks
+ *
+ * The locks subsystem.
+ *
+ * @{
+ */
+
 //
 // flock_semaphore_t
 //
@@ -51,7 +65,7 @@ FERRO_DECLARATIONS_BEGIN;
 //typedef <something> flock_semaphore_t;
 
 /**
- * Initializes an `flock_semaphore_t` at runtime.
+ * Initializes an ::flock_semaphore at runtime.
  *
  * @param initial_count The initial up-count to assign to the semaphore.
  */
@@ -76,7 +90,7 @@ void flock_semaphore_up(flock_semaphore_t* semaphore);
 void flock_semaphore_down(flock_semaphore_t* semaphore);
 
 /**
- * Like `flock_semaphore_down`, but never blocks.
+ * Like flock_semaphore_down(), but never blocks.
  *
  * @param semaphore The semaphore to operate on.
  *
@@ -85,6 +99,10 @@ void flock_semaphore_down(flock_semaphore_t* semaphore);
  * @retval ferr_temporary_outage The up-count was 0; decrementing it would require blocking.
  */
 FERRO_WUR ferr_t flock_semaphore_try_down(flock_semaphore_t* semaphore);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

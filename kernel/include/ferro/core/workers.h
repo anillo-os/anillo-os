@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Workers subsystem.
+ */
+
 #ifndef _FERRO_CORE_WORKERS_H_
 #define _FERRO_CORE_WORKERS_H_
 
@@ -27,6 +33,14 @@
 #include <ferro/error.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Workers
+ *
+ * The workers subsystem.
+ *
+ * @{
+ */
 
 typedef void (*fworker_f)(void* data);
 
@@ -42,16 +56,16 @@ void fworkers_init(void);
  *
  * @param worker_function The worker function to run.
  * @param data            Optional user-defined data to pass to the worker function.
- * @param out_worker      Pointer in which a pointer to the newly created worker instance will be placed.
+ * @param[out] out_worker      Pointer in which a pointer to the newly created worker instance will be placed.
  *
- * @note The worker instance structure is an opaque pointer. It is managed through reference counting using `fworker_retain` and `fworker_release`.
+ * @note The worker instance structure is an opaque pointer. It is managed through reference counting using fworker_retain() and fworker_release().
  *       The caller of this function receives a new worker instance with a single reference.
  *
- * @note This does NOT schedule the worker instance to run. For that, use `fworker_schedule`.
+ * @note This does NOT schedule the worker instance to run. For that, use fworker_schedule().
  *
  * Return values:
  * @retval ferr_ok               The worker instance was successfully created.
- * @retval ferr_invalid_argument One or more of: 1) the worker function was `NULL`, 2) `out_worker` was `NULL`.
+ * @retval ferr_invalid_argument One or more of: 1) the worker function was `NULL`, 2) @p out_worker was `NULL`.
  * @retval ferr_temporary_outage There were insufficient resources to create a new worker instance.
  */
 FERRO_WUR ferr_t fworker_new(fworker_f worker_function, void* data, fworker_t** out_worker);
@@ -112,6 +126,10 @@ FERRO_WUR ferr_t fworker_cancel(fworker_t* worker);
  * @retval ferr_ok The worker instance has successfully completed.
  */
 void fworker_wait(fworker_t* worker);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

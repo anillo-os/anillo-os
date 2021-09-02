@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Memory region description definitions. Part of kernel entry information.
+ */
+
 #ifndef _FERRO_CORE_MEMORY_REGIONS_H_
 #define _FERRO_CORE_MEMORY_REGIONS_H_
 
@@ -26,6 +32,12 @@
 #include <ferro/base.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Kernel-Entry
+ *
+ * @{
+ */
 
 FERRO_ENUM(int, ferro_memory_region_type) {
 	// default value; not a valid value
@@ -67,6 +79,10 @@ struct ferro_memory_region {
 	// number of 4KiB pages this memory region occupies
 	size_t page_count;
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

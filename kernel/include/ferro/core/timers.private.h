@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Timers subsystem; private components.
+ */
+
 #ifndef _FERRO_CORE_TIMERS_PRIVATE_H_
 #define _FERRO_CORE_TIMERS_PRIVATE_H_
 
@@ -24,28 +30,35 @@
 FERRO_DECLARATIONS_BEGIN;
 
 /**
+ * @addtogroup Timers
+ *
+ * @{
+ */
+
+/**
  * Type used to represent a backend-specific timestamp.
  *
  * Whatever value is used for the timestamp must be differentiable (i.e. `timestamp_end - timestamp_start` yields a valid value) and convertible to/from nanoseconds.
  *
- * However, the delta calculation will not be performed directly; two timestamps will be given to the `ftimers_backend_delta_to_ns_f` callback to yield a nanosecond value.
+ * However, the delta calculation will not be performed directly; two timestamps will be given to the ::ftimers_backend_delta_to_ns_f callback to yield a nanosecond value.
  * Therefore, the backend is free to do whatever it likes with these values; they need not be mathematically/computationally valid.
  * The backend simply needs to be able to produce an accurate value for the elapsed time in nanoseconds between the two timestamps.
  */
 typedef uint64_t ftimers_backend_timestamp_t;
 
 /**
- * Backend callback to schedule a call to `ftimers_backend_fire` after the given delay.
+ * Backend callback to schedule a call to ftimers_backend_fire() after the given delay.
  *
  * @param delay Time to wait before making the call, in nanoseconds.
  *
- * @note The `delay` will never be `0`. Therefore, calls to this function must not immediately call `ftimers_backend_fire`.
+ * @note The @p delay will never be `0`. Therefore, calls to this function must not immediately call ftimers_backend_fire().
  *
- * @note A call to this callback MUST replace any previously scheduled/pending call to `ftimers_backend_fire`.
+ * @note A call to this callback MUST replace any previously scheduled/pending call to ftimers_backend_fire().
  *
- * @note It IS acceptable for `ftimers_backend_fire` to be called before the given period of time has elapsed.
+ * @note It IS acceptable for ftimers_backend_fire() to be called before the given period of time has elapsed.
  *       In this case, the timers subsystem will calculate the new remaining time and re-schedule accordingly.
  *       This is necessary, for example, in cases where the timer backend can only handle a 32-bit counter value.
+ *       However, it is preferrable to minimize these occurrences to avoid unnecessary CPU usage.
  */
 typedef void (*ftimers_backend_schedule_f)(uint64_t delay);
 
@@ -60,7 +73,7 @@ typedef ftimers_backend_timestamp_t (*ftimers_backend_current_timestamp_f)(void)
 typedef uint64_t (*ftimers_backend_delta_to_ns_f)(ftimers_backend_timestamp_t initial, ftimers_backend_timestamp_t final);
 
 /**
- * Cancels any previously scheduled/pending call to `ftimers_backend_fire`.
+ * Cancels any previously scheduled/pending call to ftimers_backend_fire().
  */
 typedef void (*ftimers_backend_cancel_f)(void);
 
@@ -81,7 +94,7 @@ FERRO_STRUCT(ftimers_backend) {
 /**
  * Registers a new timer backend.
  *
- * @param backend Pointer to an `ftimers_backend_t` structure describing the backend.
+ * @param backend Pointer to an ::ftimers_backend structure describing the backend.
  *
  * Return values:
  * @retval ferr_ok               The timer backend was successfully registered
@@ -96,6 +109,10 @@ ferr_t ftimers_register_backend(const ftimers_backend_t* backend);
  *       Callers must be aware of this and should not perform any time-sensitive work after a call to this function.
  */
 void ftimers_backend_fire(void);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/entry.c
-//
-// common kernel entry point
-//
+
+/**
+ * @file
+ *
+ * Common kernel entry point.
+ */
 
 //
 // interestingly, for the two architectures that we currently support (x86_64 and AARCH64),

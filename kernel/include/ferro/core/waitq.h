@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * waitq subsystem.
+ */
+
 #ifndef _FERRO_CORE_WAITQ_H_
 #define _FERRO_CORE_WAITQ_H_
 
@@ -25,6 +31,14 @@
 #include <ferro/core/locks.spin.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Waitq
+ *
+ * The waitq subsystem.
+ *
+ * @{
+ */
 
 FERRO_STRUCT_FWD(fthread);
 
@@ -62,7 +76,7 @@ void fwaitq_init(fwaitq_t* waitq);
  * Adds the given waiter onto the waitq's waiting list.
  *
  * @note This is the WRONG function to use for putting a thread to sleep to wait for a waitq.
- *       For that, use `fthread_wait`.
+ *       For that, use fthread_wait().
  *
  * @note Expanding on the previous note, in general, is a race condition if you need to perform some operation where you could miss the wakeup call after adding yourself to the waitq's waiting list.
  *       e.g. If your add yourself, someone else wakes you up via the waitq, but then you perform some operation that doesn't check whether your wakeup callback has already been called.
@@ -78,6 +92,10 @@ void fwaitq_wake_many(fwaitq_t* waitq, size_t count);
  * Wakes the given waiter.
  */
 void fwaitq_wake_specific(fwaitq_t* waitq, fwaitq_waiter_t* waiter);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

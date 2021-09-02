@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * AARCH64 Generic Interrupt Controller subsystem.
+ */
+
 #ifndef _FERRO_CORE_AARCH64_GIC_H_
 #define _FERRO_CORE_AARCH64_GIC_H_
 
@@ -24,6 +30,14 @@
 #include <ferro/core/aarch64/interrupts.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup GIC
+ *
+ * The AARCH64 GIC (Generic Interrupt Controller) subsystem.
+ *
+ * @{
+ */
 
 /**
  * A handler that is to be called when an interrupt is received.
@@ -44,12 +58,12 @@ void farch_gic_init(void);
  *
  * @param interrupt   The interrupt number to register the handler for.
  * @param for_group_0 Whether the interrupt is on group 0 or not.
- * @param handler     The handler to call when the interrupt is received. See `farch_gic_interrupt_handler_f` for more details.
+ * @param handler     The handler to call when the interrupt is received. See ::farch_gic_interrupt_handler_f for more details.
  *
  * Return values:
  * @retval ferr_ok               The handler was registered successfully.
  * @retval ferr_invalid_argument One or more of: 1) the given interrupt number is outside the permitted range (0-1019, inclusive), 2) the handler is `NULL`.
- * @retval ferr_temporary_outage A handler for the given interrupt is already registered and must be explicitly unregistered with `farch_gic_unregister_handler`.
+ * @retval ferr_temporary_outage A handler for the given interrupt is already registered and must be explicitly unregistered with farch_gic_unregister_handler().
  */
 FERRO_WUR ferr_t farch_gic_register_handler(uint64_t interrupt, bool for_group_0, farch_gic_interrupt_handler_f handler);
 
@@ -185,6 +199,10 @@ FERRO_ALWAYS_INLINE uint8_t farch_gic_current_core_id(void) {
 	__asm__ volatile("mrs %0, mpidr_el1" : "=r" (value));
 	return (value >> 8) & 0xff;
 };
+
+/**
+  * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

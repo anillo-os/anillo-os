@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/aarch64/generic-timer.c
-//
-// AARCH64 Generic Timer management and timers subsystem backend
-//
+
+/**
+ * @file
+ *
+ * AARCH64 Generic Timer management and timers subsystem backend.
+ */
 
 #include <ferro/core/aarch64/generic-timer.h>
 #include <ferro/core/timers.private.h>

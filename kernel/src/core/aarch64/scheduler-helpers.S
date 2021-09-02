@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/aarch64/scheduler-helpers.S
-//
-// AARCH64 scheduler context-switching helper functions
-//
+
+/**
+ * @file
+ *
+ * AARCH64 scheduler context-switching helper functions.
+ */
 
 #include <gen/ferro/offsets.h>
 

@@ -16,17 +16,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _FERRO_CORE_AARCH64_THREADS_BEFORE_H_
-#define _FERRO_CORE_AARCH64_THREADS_BEFORE_H_
+/**
+ * @file
+ *
+ * AARCH64 implementations of architecture-specific components for threads subsystem; after-header.
+ */
+
+#ifndef _FERRO_CORE_AARCH64_THREADS_AFTER_H_
+#define _FERRO_CORE_AARCH64_THREADS_AFTER_H_
 
 #include <stdint.h>
 
 #include <ferro/base.h>
-
 #include <ferro/core/threads.h>
 
-FERRO_DECLARATIONS_BEGIN;
-
-FERRO_DECLARATIONS_END;
-
-#endif // _FERRO_CORE_AARCH64_THREADS_BEFORE_H_
+#endif // _FERRO_CORE_AARCH64_THREADS_AFTER_H_

@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/x86_64/tsc.c
-//
-// TSC (timestamp counter) calibration
-//
+
+/**
+ * @file
+ *
+ * TSC (timestamp counter) calibration.
+ */
 
 #include <ferro/core/x86_64/tsc.h>
 #include <ferro/core/x86_64/legacy-io.h>
@@ -152,7 +153,7 @@ static uint64_t determine_tsc_frequency(void) {
 		return UINT64_MAX;
 	}
 
-	// likewise, if the maximum delta is greater than the minimum delta multiplied by `PIT_MIN_DELTA_COEFFICIENT`,
+	// likewise, if the maximum delta is greater than the minimum delta multiplied by ::PIT_MIN_DELTA_COEFFICIENT,
 	// then someone interrupted us and our results may be way off (e.g. maybe we were interrupted on the very last iteration).
 	// discard the results.
 	if (delta_max > (PIT_MIN_DELTA_COEFFICIENT * delta_min)) {
@@ -163,7 +164,7 @@ static uint64_t determine_tsc_frequency(void) {
 	delta = final_tsc - initial_tsc;
 
 	// the TSC frequency can be found by dividing the change in TSC by the time it took to measure it.
-	// dividing by milliseconds gives KHz, so multiply this value by `HZ_PER_KHZ` to get Hz
+	// dividing by milliseconds gives KHz, so multiply this value by ::HZ_PER_KHZ to get Hz
 	return (delta / PIT_CALIBRATION_MS) * HZ_PER_KHZ;
 };
 

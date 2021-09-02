@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/mempool.c
-//
-// kernel memory pool management (e.g. de/allocation)
-//
+
+/**
+ * @file
+ *
+ * Kernel memory pool management (e.g. de/allocation).
+ */
 
 #include <stdint.h>
 #include <stdbool.h>
@@ -46,7 +47,7 @@
 // alright, so, each block here needs a byte for bookkeeping.
 // the overhead of this bookkeeping is 6.25% of the total memory for a region.
 // e.g. with a leaf size of 16 bytes, a region of 64KiB would require an additional 4KiB for bookkeeping.
-// yikes. but that's the cost of allowing `free` without needing the memory size!
+// yikes. but that's the cost of allowing free() without needing the memory size!
 
 FERRO_STRUCT(fmempool_free_leaf) {
 	fmempool_free_leaf_t** prev;
@@ -75,7 +76,9 @@ FERRO_STRUCT(fmempool_region_header) {
 
 static fmempool_region_header_t* regions_head = NULL;
 
-// protects `regions_head` from both reads and writes
+/**
+ * Protects ::regions_head from both reads and writes.
+ */
 static flock_spin_intsafe_t regions_head_lock = FLOCK_SPIN_INTSAFE_INIT;
 
 FERRO_ALWAYS_INLINE uint64_t fmempool_round_up_leaf(uint64_t number) {
@@ -240,9 +243,9 @@ static size_t region_size_for_leaf_count(size_t leaf_count, size_t* out_extra_bo
 };
 
 /**
- * Reads and acquires the lock for the first region at `regions_head`.
+ * Reads and acquires the lock for the first region at ::regions_head.
  *
- * The `region_head` lock and the first region's lock MUST NOT be held.
+ * The ::region_head lock and the first region's lock MUST NOT be held.
  */
 static fmempool_region_header_t* acquire_first_region(void) {
 	fmempool_region_header_t* region;
@@ -271,7 +274,7 @@ static fmempool_region_header_t* acquire_next_region(fmempool_region_header_t* p
 };
 
 /**
- * Like `acquire_next_region`, but if the given region matches the given exception region, its lock is NOT released.
+ * Like acquire_next_region(), but if the given region matches the given exception region, its lock is NOT released.
  */
 static fmempool_region_header_t* acquire_next_region_with_exception(fmempool_region_header_t* prev, fmempool_region_header_t* exception) {
 	fmempool_region_header_t* next = prev->next;
@@ -355,9 +358,9 @@ static void insert_region(fmempool_region_header_t* region, fmempool_region_head
 /**
  * Iterates through the list of regions and frees unnecessary regions.
  *
- * This function tries to keep the `n` largest regions, where `n` is `KEPT_REGION_COUNT`.
+ * This function tries to keep the `n` largest regions, where `n` is ::KEPT_REGION_COUNT.
  *
- * Must be called with the `regions_head` lock and all region locks unheld.
+ * Must be called with the ::regions_head lock and all region locks unheld.
  */
 static void do_region_free(void) {
 	fmempool_region_header_t* kept[KEPT_REGION_COUNT] = {0};
@@ -435,7 +438,7 @@ static void do_region_free(void) {
 /**
  * Attempts to fulfill the given allocation using an existing region already present in the region list.
  *
- * The `regions_head` lock and all of the region locks MUST NOT be held.
+ * The ::regions_head lock and all of the region locks MUST NOT be held.
  */
 static void* allocate_existing(size_t byte_count) {
 	size_t min_order = min_order_for_byte_count(byte_count);
@@ -476,7 +479,7 @@ static void* allocate_existing(size_t byte_count) {
 	remove_free_leaf(candidate_parent_region, candidate_leaf, candidate_order);
 
 	// we might have gotten a bigger block than we wanted. split it up.
-	// to understand how this works, see `allocate_frame` in `paging.c`.
+	// to understand how this works, see allocate_frame() in `paging.c`.
 	start_split = (uintptr_t)candidate_leaf + (leaf_count_of_order(min_order) * LEAF_SIZE);
 	for (size_t order = min_order; order < candidate_order; ++order) {
 		fmempool_free_leaf_t* leaf = (void*)start_split;
@@ -495,7 +498,7 @@ static void* allocate_existing(size_t byte_count) {
 /**
  * Allocates a brand new region for the given allocation and inserts it into the region list.
  *
- * The `regions_head` lock and the first region's lock MUST NOT be held.
+ * The ::regions_head lock and the first region's lock MUST NOT be held.
  */
 static void* allocate_new(size_t byte_count) {
 	size_t min_order = min_order_for_byte_count(byte_count);

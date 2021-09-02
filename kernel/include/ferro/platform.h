@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -17,13 +17,21 @@
  */
 
 /**
- * @file ferro/platform.h
+ * @file
  *
  * Platform detection (e.g. architecture, endianness, etc.).
  */
 
 #ifndef _FERRO_PLATFORM_H_
 #define _FERRO_PLATFORM_H_
+
+/**
+ * @addtogroup Platform
+ *
+ * Platform identification.
+ *
+ * @{
+ */
 
 // CPU architecture
 #define FERRO_ARCH_x86_64 1
@@ -57,5 +65,9 @@
 #else
 	#error Unrecognized/unsupported CPU bitness! (See <ferro/platform.h>)
 #endif
+
+/**
+ * @}
+ */
 
 #endif // _FERRO_PLATFORM_H_

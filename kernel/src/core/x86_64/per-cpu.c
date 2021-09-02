@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/x86_64/per-cpu.c
-//
-// x86_64 implementation of per-CPU data
-//
+
+/**
+ * @file
+ *
+ * x86_64 implementation of per-CPU data.
+ */
 
 #include <ferro/core/x86_64/per-cpu.h>
 

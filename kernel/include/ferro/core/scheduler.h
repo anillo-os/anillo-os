@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Scheduler subsystem.
+ */
+
 #ifndef _FERRO_CORE_SCHEDULER_H_
 #define _FERRO_CORE_SCHEDULER_H_
 
@@ -24,6 +30,14 @@
 #include <ferro/core/threads.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Scheduler
+ *
+ * The scheduler subsystem.
+ *
+ * @{
+ */
 
 /**
  * Initializes the scheduler subsystem.
@@ -56,6 +70,10 @@ FERRO_NO_RETURN void fsched_init(fthread_t* thread);
  * @retval ferr_invalid_argument    The threas was `NULL`, dead/dying, or fully released just before it could be retained.
  */
 ferr_t fsched_manage(fthread_t* in_out_thread);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

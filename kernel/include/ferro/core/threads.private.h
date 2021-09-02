@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Threads subsystem; private components.
+ */
+
 #ifndef _FERRO_CORE_THREADS_PRIVATE_H_
 #define _FERRO_CORE_THREADS_PRIVATE_H_
 
@@ -26,6 +32,12 @@
 #include <ferro/core/threads.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Threads
+ *
+ * @{
+ */
 
 /**
  * Requests that the given thread be suspended as soon as possible.
@@ -96,7 +108,7 @@ void fthread_interrupt_start(fthread_t* thread);
 /**
  * Informs the threads subsystem that an interrupt has ended while the given thread was current.
  *
- * @note This is not necessarily the same thread given to `fthread_interrupt_start`.
+ * @note This is not necessarily the same thread given to fthread_interrupt_start().
  */
 void fthread_interrupt_end(fthread_t* thread);
 
@@ -113,15 +125,19 @@ void fthread_died(fthread_t* thread);
 void farch_thread_init_info(fthread_t* thread, fthread_initializer_f initializer, void* data);
 
 /**
- * Similar to `fthread_wait`, but the waitq is already locked.
+ * Similar to fthread_wait(), but the waitq is already locked.
  *
  * If the function fails, it returns with the waitq still locked.
  * However, if it succeeds, the lock will be held until the thread is fully suspended (which may already be the case). It will not drop it at all until this occurs.
  *
  * @note If the thread is already waiting for a waitq, this function may produce a deadlock if someone else is holding the lock for that old waitq and wants to lock this new waitq.
- *       This deadlock is not possible with `fthread_wait`.
+ *       This deadlock is not possible with fthread_wait().
  */
 FERRO_WUR ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

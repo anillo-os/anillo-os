@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * ACPI subsystem.
+ */
+
 #ifndef _FERRO_CORE_ACPI_H_
 #define _FERRO_CORE_ACPI_H_
 
@@ -25,6 +31,14 @@
 #include <ferro/error.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup ACPI
+ *
+ * The ACPI subsystem.
+ *
+ * @{
+ */
 
 FERRO_PACKED_STRUCT(facpi_rsdp_legacy) {
 	char signature[8];
@@ -393,7 +407,7 @@ void facpi_init(facpi_rsdp_t* physical_rsdp);
 facpi_sdt_header_t* facpi_find_table(const char* name);
 
 /**
- * Registers the given ACPI table with the ACPI subsystem, allowing it to be retrieved later with `facpi_find_table`.
+ * Registers the given ACPI table with the ACPI subsystem, allowing it to be retrieved later with facpi_find_table().
  *
  * The table MUST remain valid for as long as it is registered.
  *
@@ -404,6 +418,10 @@ facpi_sdt_header_t* facpi_find_table(const char* name);
  * @retval ferr_temporary_outage The system did not have enough resources to register the table at this time.
  */
 FERRO_WUR ferr_t facpi_register_table(facpi_sdt_header_t* table);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

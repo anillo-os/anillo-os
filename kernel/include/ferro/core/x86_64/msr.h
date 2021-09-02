@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * x86_64 MSR subsystem.
+ */
+
 #ifndef _FERRO_CORE_X86_64_MSR_H_
 #define _FERRO_CORE_X86_64_MSR_H_
 
@@ -24,6 +30,14 @@
 #include <ferro/base.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup MSR
+ *
+ * The x86_64 MSR subsystem.
+ *
+ * @{
+ */
 
 FERRO_ENUM(uint64_t, farch_msr) {
 	farch_msr_apic_base    = 0x01b,
@@ -42,6 +56,10 @@ FERRO_ALWAYS_INLINE void farch_msr_write(farch_msr_t msr, uint64_t value) {
 	uint32_t high = value >> 32ULL;
 	__asm__ volatile("wrmsr" :: "a" (low), "d" (high), "c" (msr));
 };
+
+/**
+ @}
+ */
 
 FERRO_DECLARATIONS_END;
 

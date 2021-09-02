@@ -1,3 +1,27 @@
+/*
+ * This file is part of Anillo OS
+ * Copyright (C) 2021 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file
+ *
+ * x86_64 implementations of architecture-specific functions for the scheduler subsystem.
+ */
+
 #include <ferro/core/x86_64/scheduler.private.h>
 #include <ferro/core/x86_64/interrupts.h>
 #include <ferro/core/panic.h>
@@ -32,7 +56,7 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 		// okay, so we're currently in an interrupt. well, we don't want to switch here,
 		// so we'll set everything up to switch later, after we return from the interrupt
 		//
-		// to do this, we modify the return frame to load our own helper (`delayed_switch`)
+		// to do this, we modify the return frame to load our own helper (farch_sched_delayed_switch())
 
 		if (current_thread) {
 			// first, save the old frame data to the current thread

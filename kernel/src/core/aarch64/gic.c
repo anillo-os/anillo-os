@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/aarch64/gic.c
-//
-// AARCH64 GIC (Generic Interrupt Controller) initialization and management
-//
+
+/**
+ * @file
+ *
+ * AARCH64 GIC (Generic Interrupt Controller) initialization and management.
+ */
 
 #include <ferro/core/aarch64/gic.h>
 #include <ferro/core/aarch64/interrupts.h>

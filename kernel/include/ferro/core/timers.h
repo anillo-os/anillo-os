@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Timers subsystem.
+ */
+
 #ifndef _FERRO_CORE_TIMERS_H_
 #define _FERRO_CORE_TIMERS_H_
 
@@ -27,9 +33,17 @@
 FERRO_DECLARATIONS_BEGIN;
 
 /**
+ * @addtogroup Timers
+ *
+ * The timers subsystem.
+ *
+ * @{
+ */
+
+/**
  * Type of a timer callback.
  *
- * @param data User-defined data argument given to one of the timer scheduling functions (e.g. `ftimers_oneshot`).
+ * @param data User-defined data argument given to one of the timer scheduling functions (e.g. ftimers_oneshot_blocking()).
  */
 typedef void (*ftimers_callback_f)(void* data);
 
@@ -68,7 +82,7 @@ FERRO_WUR ferr_t ftimers_oneshot_blocking(uint64_t delay, ftimers_callback_f cal
  *
  * @param id ID of the timer to cancel.
  *
- * @note If the timer is a oneshot timer and it has already fired or been cancelled, this function will return `ferr_no_such_resource`.
+ * @note If the timer is a oneshot timer and it has already fired or been cancelled, this function will return ::ferr_no_such_resource.
  *
  * Return values:
  * @retval ferr_ok               The timer was successfully cancelled.
@@ -76,6 +90,10 @@ FERRO_WUR ferr_t ftimers_oneshot_blocking(uint64_t delay, ftimers_callback_f cal
  * @retval ferr_temporary_outage No timer backend is currently available to fulfill the request.
  */
 FERRO_WUR ferr_t ftimers_cancel(ftimers_id_t id);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

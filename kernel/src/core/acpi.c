@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/acpi.c
-//
-// ACPI table parsing and registration
-//
+
+/**
+ * @file
+ *
+ * ACPI table parsing and registration.
+ */
 
 #include <stddef.h>
 

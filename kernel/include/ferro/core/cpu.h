@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * CPU subsystem.
+ */
+
 #ifndef _FERRO_CORE_CPU_H_
 #define _FERRO_CORE_CPU_H_
 
@@ -24,6 +30,14 @@
 #include <ferro/base.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup CPU
+ *
+ * The CPU subsystem.
+ *
+ * @{
+ */
 
 // these are arch-dependent functions that each architecture is expected to implement
 
@@ -42,6 +56,10 @@ uint64_t fcpu_id(void);
  * If, instead, it presents itself as two logical CPUs BUT they both have the same ID, then this function would return `1`.
  */
 uint64_t fcpu_count(void);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

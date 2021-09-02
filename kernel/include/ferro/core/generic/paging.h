@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Generic implementations of architecture-specific components for the paging subsystem.
+ */
+
 #ifndef _FERRO_CORE_GENERIC_PAGING_H_
 #define _FERRO_CORE_GENERIC_PAGING_H_
 
@@ -26,7 +32,15 @@
 FERRO_DECLARATIONS_BEGIN;
 
 /**
- * Generic (and inefficient) implementation of `fpage_invalidate_tlb_for_range` that uses `fpage_invalidate_tlb_for_address`.
+ * @addtogroup Paging
+ *
+ * @{
+ */
+
+/**
+ * @cond internal
+ *
+ * Generic (and inefficient) implementation of fpage_invalidate_tlb_for_range() that uses fpage_invalidate_tlb_for_address().
  */
 FERRO_ALWAYS_INLINE void generic_fpage_invalidate_tlb_for_range(void* start, void* end) {
 	uintptr_t start_addr = (uintptr_t)start;
@@ -41,6 +55,10 @@ FERRO_ALWAYS_INLINE void generic_fpage_invalidate_tlb_for_range(void* start, voi
 		return generic_fpage_invalidate_tlb_for_range(start, end);
 	};
 #endif
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

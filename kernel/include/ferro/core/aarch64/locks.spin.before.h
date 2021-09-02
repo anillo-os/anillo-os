@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * AARCH64 implementations of architecture-specific components for locks subsystem; spinlock component; before-header.
+ */
+
 #ifndef _FERRO_CORE_AARCH64_LOCKS_SPIN_BEFORE_H_
 #define _FERRO_CORE_AARCH64_LOCKS_SPIN_BEFORE_H_
 
@@ -23,9 +29,19 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
+/**
+ * @addtogroup Locks
+ *
+ * @{
+ */
+
 FERRO_ALWAYS_INLINE void farch_lock_spin_yield(void) {
 	__asm__ volatile("yield" :::);
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

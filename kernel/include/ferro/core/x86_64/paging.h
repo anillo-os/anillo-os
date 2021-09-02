@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * x86_64 implementations of architecture-specific components for the paging subsystem.
+ */
+
 #ifndef _FERRO_CORE_X86_64_PAGING_H_
 #define _FERRO_CORE_X86_64_PAGING_H_
 
@@ -27,6 +33,12 @@
 #include <ferro/core/paging.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Paging
+ *
+ * @{
+ */
 
 #define FARCH_PAGE_VIRT_L3_HUGE_MASK 0x000000003fffffffULL
 #define FARCH_PAGE_VIRT_L2_HUGE_MASK 0x00000000001fffffULL
@@ -128,6 +140,10 @@ FERRO_ALWAYS_INLINE bool fpage_entry_is_large_page_entry(uint64_t entry) {
 FERRO_ALWAYS_INLINE uint64_t fpage_entry_disable_caching(uint64_t entry) {
 	return entry | FARCH_PAGE_NO_CACHE_BIT;
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

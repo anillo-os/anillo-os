@@ -1,3 +1,27 @@
+/*
+ * This file is part of Anillo OS
+ * Copyright (C) 2021 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+/**
+ * @file
+ *
+ * x86_64 scheduler helpers.
+ */
+
 #include <gen/ferro/offsets.h>
 
 #define MAKE_IMMEDIATE_HELPER(x) $ ## x
@@ -118,7 +142,7 @@ farch_sched_immediate_switch:
 	ret
 
 // arg 1 (rdi) is the new frame to load (it's a `farch_int_isr_frame_t*`)
-// but it's also rsp, which is more useful since the call to `fsched_arm_timer` can overwrite rdi
+// but it's also rsp, which is more useful since the call to fsched_arm_timer() can overwrite rdi
 .text
 .global farch_sched_delayed_switch
 farch_sched_delayed_switch:
@@ -157,7 +181,7 @@ farch_sched_delayed_switch:
 	// now perform the fake interrupt return
 	iretq
 
-// similar to `delayed_switch`, but does not assume that the frame is already placed on the stack
+// similar to farch_sched_delayed_switch(), but does not assume that the frame is already placed on the stack
 //
 // arg 1 (rdi) is the new frame to load (it's a `farch_int_isr_frame_t*`)
 .text

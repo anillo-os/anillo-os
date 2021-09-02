@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,8 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _FERRO_CORE_AARCH64_INTERRUPTS_H_
-#define _FERRO_CORE_AARCH64_INTERRUPTS_H_
+/**
+ * @file
+ *
+ * AARCH64 implementations of architecture-specific components for interrupts subsystem.
+ */
+
+#ifndef _FERRO_CORE_AARCH64_INTERRUPTS_AFTER_H_
+#define _FERRO_CORE_AARCH64_INTERRUPTS_AFTER_H_
 
 #include <stdbool.h>
 
@@ -26,6 +32,12 @@
 #include <ferro/core/interrupts.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Interrupts
+ *
+ * @{
+ */
 
 FERRO_PACKED_STRUCT(farch_int_exception_frame) {
 	uint64_t x0;
@@ -74,11 +86,6 @@ FERRO_PACKED_STRUCT(farch_int_exception_frame) {
 // needs to be 16-byte aligned so we can push it onto the stack
 FERRO_VERIFY_ALIGNMENT(farch_int_exception_frame_t, 16);
 
-/**
- * The type used to represent the interrupt state returned by `fint_save` and accepted by `fint_restore`.
- */
-typedef FARCH_PER_CPU_TYPEOF(outstanding_interrupt_disable_count) fint_state_t;
-
 FERRO_ALWAYS_INLINE void fint_disable(void) {
 	if (FARCH_PER_CPU(outstanding_interrupt_disable_count)++ == 0) {
 		// '\043' == '#'
@@ -93,18 +100,10 @@ FERRO_ALWAYS_INLINE void fint_enable(void) {
 	}
 };
 
-/**
- * Returns the current interrupt state. Useful to save the current state and restore it later.
- */
 FERRO_ALWAYS_INLINE fint_state_t fint_save(void) {
 	return FARCH_PER_CPU(outstanding_interrupt_disable_count);
 };
 
-/**
- * Applies the given interrupt state. Useful to restore a previously saved interrupt state.
- *
- * Note that it is unsafe to use `fint_enable`/`fint_disable` and this function in the same context (as it will lead to the outstanding-interrupt-disable count becoming unbalanced).
- */
 FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state) {
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = state;
 
@@ -127,6 +126,10 @@ FERRO_ALWAYS_INLINE bool fint_is_interrupt_context(void) {
 	return FARCH_PER_CPU(current_exception_frame) != NULL;
 };
 
+/**
+ * @}
+ */
+
 FERRO_DECLARATIONS_END;
 
-#endif // _FERRO_CORE_AARCH64_INTERRUPTS_H_
+#endif // _FERRO_CORE_AARCH64_INTERRUPTS_AFTER_H_

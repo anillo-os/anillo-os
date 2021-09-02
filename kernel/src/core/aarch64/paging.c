@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/aarch64/paging.c
-//
-// AARCH64-specific paging function implementations
-//
+
+/**
+ * @file
+ *
+ * AARCH64-specific paging function implementations.
+ */
 
 #include <ferro/core/aarch64/paging.h>
 

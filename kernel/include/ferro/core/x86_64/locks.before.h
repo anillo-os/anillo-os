@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * x86_64 implementations of architecture-specific components for locks subsystem; before-header.
+ */
+
 #ifndef _FERRO_CORE_X86_64_LOCKS_BEFORE_H_
 #define _FERRO_CORE_X86_64_LOCKS_BEFORE_H_
 

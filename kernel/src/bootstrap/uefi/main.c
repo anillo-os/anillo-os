@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/bootstrap/uefi/main.c
-//
-// main UEFI bootstrap logic
-//
+
+/**
+ * @file
+ *
+ * Main UEFI bootstrap logic.
+ */
 
 #include <ferro/base.h>
 #include <ferro/core/memory-regions.h>
@@ -556,7 +557,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	printf("Info: Allocated Ferro memory map\n");
 	memset(ferro_memory_map, 0, ferro_map_size);
 
-	// can't call `printf` anymore after acquiring the memory map; it might allocate more memory and mess up the memory map
+	// can't call printf() anymore after acquiring the memory map; it might allocate more memory and mess up the memory map
 	printf("Info: Going to acquire final UEFI memory map (no more UEFI-based messages after this point, except for fatal errors)\n");
 	// populate the UEFI memory map
 	mib[0] = CTL_BS;

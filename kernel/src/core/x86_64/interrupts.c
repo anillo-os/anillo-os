@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/x86_64/interrupts.c
-//
-// x86_64 interrupt handling
-//
+
+/**
+ * @file
+ *
+ * x86_64 interrupt handling.
+ */
 
 #include <ferro/core/interrupts.h>
 #include <ferro/core/panic.h>
@@ -212,7 +213,7 @@ fint_gdt_t gdt = {
 
 		// TSS segment
 		// occupies two entries
-		// needs to be initialized with the pointer value in `fint_init`
+		// needs to be initialized with the pointer value in fint_init()
 		fint_gdt_flag_accessed | fint_gdt_flag_executable | fint_gdt_flag_present | ((sizeof(fint_tss_t) - 1ULL) & 0xffffULL),
 		0,
 	},

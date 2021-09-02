@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/bootstrap/uefi/wrappers.c
-//
-// POSIX-like wrappers over UEFI functions
-//
+
+/**
+ * @file
+ *
+ * POSIX-like wrappers over UEFI functions.
+ */
 
 #include <ferro/bootstrap/uefi/wrappers.h>
 #include <ferro/bits.h>

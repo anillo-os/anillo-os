@@ -1,0 +1,50 @@
+:root {
+	--side-nav-arrow-hover-opacity: 1;
+	--side-nav-arrow-opacity: 1;
+
+	/* from https://github.com/jothepro/doxygen-awesome-css/pull/41 */
+	--note-color-darker: #1c1d1f;
+}
+
+html.dark-mode {
+	/* from https://github.com/jothepro/doxygen-awesome-css/pull/41 */
+	--note-color-darker: #1c1d1f;
+}
+
+.arrow {
+	--arrow-side-length: 0.75em;
+	/* `1.732050808` about equals `sqrt(3)` */
+	--arrow-longest-side-length: calc(var(--arrow-side-length) * 1.732050808);
+	--arrow-color: var(--primary-color);
+
+	display: inline-block;
+
+	text-indent: 100%;
+	white-space: nowrap;
+	overflow: hidden;
+	margin-left: calc(var(--arrow-side-length));
+
+	position: relative;
+}
+
+.arrow:not(.no-expand)::before {
+	position: absolute;
+	left: calc(50% - calc(var(--arrow-longest-side-length) / 2));
+	top: calc(50% - calc(var(--arrow-longest-side-length) / 2));
+	content: ' ';
+
+	transition: transform 0.2s ease-in-out;
+
+	display: inline-block;
+	width: 0;
+	height: 0;
+	border: 0 solid transparent;
+	border-bottom-width: var(--arrow-side-length);
+	border-top-width: var(--arrow-side-length);
+
+	border-left: var(--arrow-longest-side-length) solid var(--arrow-color);
+}
+
+.arrow.expanded:not(.no-expand)::before {
+	transform: rotate(90deg);
+}

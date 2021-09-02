@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/paging.c
-//
-// physical and virtual memory allocation
-//
+
+/**
+ * @file
+ *
+ * Physical and virtual memory allocation.
+ */
 
 #include <ferro/core/paging.h>
 #include <ferro/core/locks.h>
@@ -167,7 +168,9 @@ FERRO_ALWAYS_INLINE bool table_is_in_use(const fpage_table_t* table) {
 //
 
 #if USE_TEMPORARY_MAPPING
-// `slot` must be from 0-511 (inclusive)
+/**
+ * @param slot Must be from 0-511 (inclusive).
+ */
 FERRO_ALWAYS_INLINE void* map_temporarily(void* physical_address, uint16_t slot) {
 	void* temporary_address = NULL;
 	temporary_table.entries[slot] = fpage_page_entry((uintptr_t)physical_address, true);
@@ -181,9 +184,13 @@ FERRO_ALWAYS_INLINE void* map_temporarily(void* physical_address, uint16_t slot)
 #endif
 
 #if USE_TEMPORARY_MAPPING
-// like `map_temporarily`, but automatically chooses the next available slot.
-// this *will* automatically wrap around once it reaches the maximum,
-// but that should be no issue, as it is unlikely that you'll need to use 512 temporary pages simultaneously
+/**
+ * @see map_temporarily
+ *
+ * Like map_temporarily(), but automatically chooses the next available slot.
+ * This *will* automatically wrap around once it reaches the maximum,
+ * but that should be no issue, as it is unlikely that you'll need to use 512 temporary pages simultaneously.
+ */
 FERRO_ALWAYS_INLINE void* map_temporarily_auto(void* physical_address) {
 	static size_t next_slot = 0;
 	void* address = map_temporarily(physical_address, next_slot++);
@@ -193,7 +200,9 @@ FERRO_ALWAYS_INLINE void* map_temporarily_auto(void* physical_address) {
 	return address;
 };
 #else
-// we're using identity mapping for the entire physical memory now, so there's no need to do temporary mapping
+/**
+ * We're using fixed offset mapping for the entire physical memory, so there's no need to do temporary mapping.
+ */
 FERRO_ALWAYS_INLINE void* map_temporarily_auto(void* physical_address) {
 	return (void*)fpage_make_virtual_address(root_offset_index, FPAGE_VIRT_L3(physical_address), FPAGE_VIRT_L2(physical_address), FPAGE_VIRT_L1(physical_address), FPAGE_VIRT_OFFSET(physical_address));
 };
@@ -340,7 +349,7 @@ static fpage_free_block_t* find_buddy(fpage_region_header_t* parent_region, fpag
 };
 
 /**
- * Reads and acquires the lock for the first region at `regions_head`.
+ * Reads and acquires the lock for the first region at ::regions_head.
  *
  * The first region's lock MUST NOT be held.
  */
@@ -372,7 +381,7 @@ static fpage_region_header_t* acquire_next_region(fpage_region_header_t* prev) {
 };
 
 /**
- * Like `acquire_next_region`, but if the given region matches the given exception region, its lock is NOT released.
+ * Like acquire_next_region(), but if the given region matches the given exception region, its lock is NOT released.
  */
 static fpage_region_header_t* acquire_next_region_with_exception(fpage_region_header_t* prev, fpage_region_header_t* exception) {
 	fpage_region_header_t* virt_prev = map_temporarily_auto(prev);
@@ -389,7 +398,7 @@ static fpage_region_header_t* acquire_next_region_with_exception(fpage_region_he
 /**
  * Allocates a physical frame of the given size.
  *
- * The `regions_head` lock and all the region locks MUST NOT be held.
+ * The ::regions_head lock and all the region locks MUST NOT be held.
  */
 static void* allocate_frame(size_t page_count, size_t* out_allocated_page_count) {
 	size_t min_order = min_order_for_page_count(page_count);
@@ -481,7 +490,7 @@ FERRO_ALWAYS_INLINE bool block_belongs_to_region(fpage_free_block_t* block, fpag
 /**
  * Frees a physical frame of the given size.
  *
- * The `regions_head` lock and all the region locks MUST NOT be held.
+ * The ::regions_head lock and all the region locks MUST NOT be held.
  */
 static void free_frame(void* frame, size_t page_count) {
 	size_t order = min_order_for_page_count(page_count);
@@ -811,9 +820,9 @@ static fpage_free_block_t* find_virtual_buddy(fpage_region_header_t* parent_regi
 };
 
 /**
- * Reads and acquires the lock for the first region at `regions_head`.
+ * Reads and acquires the lock for the first region at ::kernel_virtual_regions_head.
  *
- * The `kernel_virtual_regions_head` lock and the first region's lock MUST NOT be held.
+ * The ::kernel_virtual_regions_head lock and the first region's lock MUST NOT be held.
  */
 static fpage_region_header_t* virtual_acquire_first_region(void) {
 	fpage_region_header_t* region;
@@ -842,7 +851,7 @@ static fpage_region_header_t* virtual_acquire_next_region(fpage_region_header_t*
 };
 
 /**
- * Like `acquire_next_region`, but if the given region matches the given exception region, its lock is NOT released.
+ * Like virtual_acquire_next_region(), but if the given region matches the given exception region, its lock is NOT released.
  */
 static fpage_region_header_t* virtual_acquire_next_region_with_exception(fpage_region_header_t* prev, fpage_region_header_t* exception) {
 	fpage_region_header_t* next = prev->next;
@@ -858,7 +867,7 @@ static fpage_region_header_t* virtual_acquire_next_region_with_exception(fpage_r
 /**
  * Allocates a virtual region of the given size.
  *
- * The `kernel_virtual_regions_head_lock` lock and all the region locks MUST NOT be held.
+ * The kernel_virtual_regions_head_lock() lock and all the region locks MUST NOT be held.
  */
 static void* allocate_virtual(size_t page_count, size_t* out_allocated_page_count, bool user) {
 	size_t min_order = min_order_for_page_count(page_count);
@@ -900,7 +909,7 @@ static void* allocate_virtual(size_t page_count, size_t* out_allocated_page_coun
 	remove_virtual_free_block(candidate_block);
 
 	// we might have gotten a bigger block than we wanted. split it up.
-	// to understand how this works, see `allocate_frame`.
+	// to understand how this works, see allocate_frame().
 	start_split = (uintptr_t)candidate_block + (page_count_of_order(min_order) * FPAGE_PAGE_SIZE);
 	for (size_t order = min_order; order < candidate_order; ++order) {
 		fpage_free_block_t* block = (void*)start_split;
@@ -937,7 +946,7 @@ FERRO_ALWAYS_INLINE bool virtual_block_belongs_to_region(fpage_free_block_t* blo
 /**
  * Frees a virtual region of the given size.
  *
- * The `kernel_virtual_regions_head_lock` lock and all the region locks MUST NOT be held.
+ * The ::kernel_virtual_regions_head_lock lock and all the region locks MUST NOT be held.
  */
 static void free_virtual(void* virtual, size_t page_count, bool user) {
 	size_t order = min_order_for_page_count(page_count);
@@ -1020,7 +1029,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	}
 
 	// set up the recursive mapping
-	// can't use `fpage_virtual_to_physical` for the physical address lookup because it depends on the recursive entry (which is what we're setting up right now).
+	// can't use fpage_virtual_to_physical() for the physical address lookup because it depends on the recursive entry (which is what we're setting up right now).
 	root_table->entries[root_recursive_index] = fpage_table_entry(FERRO_KERNEL_VIRT_TO_PHYS(root_table) + (uintptr_t)image_base, true);
 	fpage_synchronize_after_table_modification();
 

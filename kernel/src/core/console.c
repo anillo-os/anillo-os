@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/console.c
-//
-// console implementation for the kernel that starts working on early boot and continues later on
-//
+
+/**
+ * @file
+ *
+ * Console implementation for the kernel.
+ */
 
 #include <stdint.h>
 #include <stdbool.h>

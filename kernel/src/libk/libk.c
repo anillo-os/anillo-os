@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/libk/libk.c
-//
-// minimalistic library for kernel-space utilities
-//
+
+/**
+ * @file
+ *
+ * Minimalistic library for kernel-space utilities.
+ */
 
 #include <stdint.h>
 

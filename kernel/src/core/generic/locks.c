@@ -17,11 +17,9 @@
  */
 
 /**
- *
- * @file src/core/generic/locks.c
+ * @file
  *
  * Generic lock implementations.
- *
  */
 
 #include <ferro/core/locks.h>
@@ -117,7 +115,7 @@ static void flock_semaphore_wait(flock_semaphore_t* semaphore) {
 			fentry_idle();
 		}
 	} else {
-		// `fthread_wait_locked` will drop the waitq lock later
+		// fthread_wait_locked() will drop the waitq lock later
 		FERRO_WUR_IGNORE(fthread_wait_locked(fthread_current(), &semaphore->waitq));
 	}
 };

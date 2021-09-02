@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Console subsystem.
+ */
+
 #ifndef _FERRO_CORE_CONSOLE_H_
 #define _FERRO_CORE_CONSOLE_H_
 
@@ -26,6 +32,16 @@
 #include <ferro/core/framebuffer.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Console
+ *
+ * The console subsystem.
+ *
+ * Used for general logging.
+ *
+ * @{
+ */
 
 // no warn-unused-result for these; logging is usually just fire-and-forget
 
@@ -44,7 +60,7 @@ void fconsole_init(void);
  * @retval ferr_invalid_argument  The given string was not a valid UTF-8 string.
  *
  * @note This method automatically determines the length of the string by counting the number of bytes before the first null terminator.
- *       As such, UTF-8 string containing null terminators cannot be logged with this function. Instead, use `fconsole_logn`.
+ *       As such, UTF-8 string containing null terminators cannot be logged with this function. Instead, use fconsole_logn().
  */
 ferr_t fconsole_log(const char* string);
 
@@ -69,7 +85,7 @@ ferr_t fconsole_logn(const char* string, size_t size);
  * @retval ferr_ok                Successfully logged the given string.
  * @retval ferr_invalid_argument  One or more of: 1) the given string was not a valid UTF-8 string, 2) one of the format arguments was invalid.
  *
- * @note See the note on `fconsole_log`.
+ * @note See the note on fconsole_log().
  *
  * @note Strings and character arrays passed as format arguments are also interpretted as UTF-8 strings and character arrays.
  */
@@ -77,7 +93,9 @@ FERRO_PRINTF(1, 2)
 ferr_t fconsole_logf(const char* format, ...);
 
 /**
- * See `fconsole_logf`. This function is almost identical, except that it accepts its format arguments in a `va_list` rather than directly.
+ * @see fconsole_logf
+ *
+ * This function is almost identical, except that it accepts its format arguments in a `va_list` rather than directly.
  */
 FERRO_PRINTF(1, 0)
 ferr_t fconsole_logfv(const char* format, va_list args);
@@ -98,12 +116,16 @@ FERRO_PRINTF(1, 3)
 ferr_t fconsole_lognf(const char* format, size_t format_size, ...);
 
 /**
- * See `fconsole_lognf`. This function is almost identical, except that it accepts its format arguments in a `va_list` rather than directly.
+ * @see fconsole_lognf
+ *
+ * This function is almost identical, except that it accepts its format arguments in a `va_list` rather than directly.
  */
 FERRO_PRINTF(1, 0)
 ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args);
 
-
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

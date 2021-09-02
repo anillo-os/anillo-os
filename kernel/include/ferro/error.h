@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -17,7 +17,7 @@
  */
 
 /**
- * @file ferro/error.h
+ * @file
  *
  * List of error codes that Ferro functions can return.
  */
@@ -28,6 +28,14 @@
 #include <ferro/base.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Error
+ *
+ * Error codes used throughout the kernel.
+ *
+ * @{
+ */
 
 FERRO_ENUM(int, ferr) {
 	// No error; success.
@@ -54,6 +62,10 @@ FERRO_ENUM(int, ferr) {
 	// The requested action/service is already in progress.
 	ferr_already_in_progress = -7,
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

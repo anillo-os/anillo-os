@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * AARCH64 implementations of architecture-specific components for paging subsystem.
+ */
+
 #ifndef _FERRO_CORE_AARCH64_PAGING_H_
 #define _FERRO_CORE_AARCH64_PAGING_H_
 
@@ -27,6 +33,12 @@
 #include <ferro/core/paging.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Paging
+ *
+ * @{
+ */
 
 #define FARCH_PAGE_PRESENT_BIT                    (1ULL << 0)
 // for l1 table
@@ -141,6 +153,10 @@ FERRO_ALWAYS_INLINE uint64_t fpage_entry_disable_caching(uint64_t entry) {
 	// TODO
 	return entry;
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

@@ -1,0 +1,4 @@
+Framebuffer subsystem
+=====================
+
+.. doxygengroup:: Framebuffer

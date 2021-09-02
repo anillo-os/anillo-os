@@ -1,0 +1,4 @@
+CPU subsystem
+=============
+
+.. doxygengroup:: CPU

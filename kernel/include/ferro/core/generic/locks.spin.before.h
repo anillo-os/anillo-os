@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Generic implementations of architecture-specific components for locks subsystem; spinlock component; before-header.
+ */
+
 #ifndef _FERRO_CORE_GENERIC_LOCKS_SPIN_BEFORE_H_
 #define _FERRO_CORE_GENERIC_LOCKS_SPIN_BEFORE_H_
 
@@ -26,6 +32,12 @@
 FERRO_DECLARATIONS_BEGIN;
 
 /**
+ * @addtogroup Locks
+ *
+ * @{
+ */
+
+/**
  * A general-purpose spinlock.
  */
 FERRO_STRUCT(flock_spin) {
@@ -33,7 +45,7 @@ FERRO_STRUCT(flock_spin) {
 };
 
 /**
- * A value that can be used to statically initialize an `flock_spin_t` at compile-time.
+ * A value that can be used to statically initialize an ::flock_spin at compile-time.
  */
 #define FLOCK_SPIN_INIT {0}
 
@@ -45,9 +57,13 @@ FERRO_STRUCT(flock_spin_intsafe) {
 };
 
 /**
- * A value that can be used to statically initialize an `flock_spin_intsafe_t`.
+ * A value that can be used to statically initialize an ::flock_spin_intsafe.
  */
 #define FLOCK_SPIN_INTSAFE_INIT {0}
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

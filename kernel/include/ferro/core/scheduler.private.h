@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Scheduler subsystem; private components.
+ */
+
 #ifndef _FERRO_CORE_SCHEDULER_PRIVATE_H_
 #define _FERRO_CORE_SCHEDULER_PRIVATE_H_
 
@@ -27,6 +33,12 @@
 #include <ferro/core/timers.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Scheduler
+ *
+ * @{
+ */
 
 FERRO_STRUCT(fsched_info) {
 	// protects the structure contents from being read or written
@@ -69,11 +81,11 @@ fsched_info_t* fsched_per_cpu_info(void);
  *
  * @note This function may or may not be called from an interrupt context. Arch-dependent implementations need to be aware of this and adapt.
  *
- * @note This function MUST arm the timer as well (with `fsched_arm_timer`).
+ * @note This function MUST arm the timer as well (with fsched_arm_timer()).
  *
- * @note If `current_thread` is `NULL`, this function should not save the current context. It should only load the new context.
+ * @note If @p current_thread is `NULL`, this function should not save the current context. It should only load the new context.
  *
- * @note `current_thread` and `new_thread` might be the same thread. In that case, all this function needs to do is arm the timer.
+ * @note @p current_thread and @p new_thread might be the same thread. In that case, all this function needs to do is arm the timer.
  *       However, this need not be a separate behavior. As long as the implementation can properly handle the two threads being equal, it doesn't matter if this is handled as a separate case or not.
  */
 void fsched_switch(fthread_t* current_thread, fthread_t* new_thread);
@@ -85,7 +97,7 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread);
  *
  * @note This function does not return to its caller. It switches to the destination thread and continues execution there.
  *
- * @note This function MUST arm the timer as well (with `fsched_arm_timer`).
+ * @note This function MUST arm the timer as well (with fsched_arm_timer()).
  *
  * @note This function WILL NOT be called from an interrupt context and implementations may assume this is true.
  */
@@ -106,6 +118,10 @@ void farch_sched_init(void);
  * @note If the given thread is the current thread, this function MUST NOT return.
  */
 void fsched_preempt_thread(fthread_t* thread);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

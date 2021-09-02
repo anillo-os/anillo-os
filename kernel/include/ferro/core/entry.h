@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * Kernel entry function declaration and types.
+ *
+ * This is mainly intended to be used by bootstrappers to load the kernel.
+ */
+
 #ifndef _FERRO_CORE_ENTRY_H_
 #define _FERRO_CORE_ENTRY_H_
 
@@ -29,6 +37,14 @@
 #include <ferro/core/acpi.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Kernel-Entry
+ *
+ * An API for bootstraps to load the kernel and hand over control to it.
+ *
+ * @{
+ */
 
 typedef struct ferro_kernel_segment ferro_kernel_segment_t;
 struct ferro_kernel_segment {
@@ -47,31 +63,49 @@ struct ferro_kernel_image_info {
 };
 
 FERRO_ENUM(int, ferro_boot_data_type) {
-	// default value; not a valid value
+	/**
+	 * Default value; not a valid value
+	 */
 	ferro_boot_data_type_none,
 
-	// pointer to where our ramdisk is stored
+	/**
+	 * A pointer to where our ramdisk is stored.
+	 */
 	ferro_boot_data_type_ramdisk,
 
-	// pointer to where our config data (a.k.a. boot params) is stored
+	/**
+	 * A pointer to where our config data (a.k.a. boot params) is stored.
+	 */
 	ferro_boot_data_type_config,
 
-	// pointer to where our kernel image information is stored
+	/**
+	 * A pointer to where our kernel image information is stored.
+	 */
 	ferro_boot_data_type_kernel_image_info,
 
-	// pointer to where our kernel segment information table is stored
+	/**
+	 * A pointer to where our kernel segment information table is stored.
+	 */
 	ferro_boot_data_type_kernel_segment_info_table,
 
-	// pointer to where our framebuffer information is stored
+	/**
+	 * A pointer to where our framebuffer information is stored.
+	 */
 	ferro_boot_data_type_framebuffer_info,
 
-	// pointer to where a pool of essential/permanent data is stored early in the boot process
+	/**
+	 * A pointer to where a pool of essential/permanent data is stored early in the boot process.
+	 */
 	ferro_boot_data_type_initial_pool,
 
-	// pointer to where our memory map is stored
+	/**
+	 * A pointer to where our memory map is stored.
+	 */
 	ferro_boot_data_type_memory_map,
 
-	// pointer to the ACPI XSDT pointer (`facpi_rsdp_t`)
+	/**
+	 * A pointer to the ACPI XSDT pointer (::facpi_rsdp).
+	 */
 	ferro_boot_data_type_rsdp_pointer,
 };
 
@@ -96,7 +130,7 @@ struct ferro_boot_data_info {
  * @param initial_pool            Pointer to beginning of initial pool of data for the kernel. May NOT be `NULL`.
  * @param initial_pool_page_count Size of the initial pool in 4KiB pages.
  * @param boot_data               Array of structures containing information about boot data the kernel needs/wants. May NOT be `NULL`. The table MUST contain at least two entries: one for the memory map and one for the kernel image information structure.
- * @param boot_data_count         Number of entires in the `boot_data_ array.
+ * @param boot_data_count         Number of entires in the @p boot_data array.
  *
  * @note The kernel assumes that all boot data passed into it except for the memory map is allocated within the initial pool.
  */
@@ -132,6 +166,10 @@ FERRO_ALWAYS_INLINE void fentry_idle(void);
  *       so it technically does return to the caller, just not at the original address.
  */
 FERRO_ALWAYS_INLINE void fentry_jump_to_virtual(void* address);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

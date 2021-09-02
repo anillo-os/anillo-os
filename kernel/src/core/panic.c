@@ -15,12 +15,14 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/panic.c
-//
-// panic facilities for Ferro
-// (for when things go downhill)
-//
+
+/**
+ * @file
+ *
+ * Panic facilities for Ferro.
+ *
+ * For when things go downhill.
+ */
 
 #include <ferro/core/panic.h>
 #include <ferro/core/entry.h>

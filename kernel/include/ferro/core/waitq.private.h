@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * waitq subsystem; private components.
+ */
+
 #ifndef _FERRO_CORE_WAITQ_PRIVATE_H_
 #define _FERRO_CORE_WAITQ_PRIVATE_H_
 
@@ -23,6 +29,12 @@
 #include <ferro/core/waitq.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Waitq
+ *
+ * @{
+ */
 
 void fwaitq_lock(fwaitq_t* waitq);
 
@@ -33,12 +45,16 @@ void fwaitq_add_locked(fwaitq_t* waitq, fwaitq_waiter_t* waiter);
 void fwaitq_remove_locked(fwaitq_t* waitq, fwaitq_waiter_t* waiter);
 
 /**
- * Like `fwaitq_wake_many`, but enters with the waitq already locked.
+ * Like fwaitq_wake_many(), but enters with the waitq already locked.
  *
  * @note This function MUST drop the lock before calling any wakeup callbacks and reacquire it afterwards.
  *       It returns with the lock held.
  */
 void fwaitq_wake_many_locked(fwaitq_t* waitq, size_t count);
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

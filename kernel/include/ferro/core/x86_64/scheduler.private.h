@@ -16,14 +16,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * x86_64 implementations of architecture-specific components for scheduler subsystem; private components.
+ */
+
 #ifndef _FERRO_CORE_X86_64_SCHEDULER_PRIVATE_H_
 #define _FERRO_CORE_X86_64_SCHEDULER_PRIVATE_H_
 
 #include <ferro/base.h>
 #include <ferro/core/scheduler.private.h>
-
-FERRO_DECLARATIONS_BEGIN;
-
-FERRO_DECLARATIONS_END;
 
 #endif // _FERRO_CORE_X86_64_SCHEDULER_PRIVATE_H_

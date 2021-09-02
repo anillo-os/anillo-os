@@ -15,12 +15,14 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/timers.c
-//
-// generic timer interface and management
-// (actual firing is done by various backends)
-//
+
+/**
+ * @file
+ *
+ * Generic timer interface and management.
+ *
+ * Actual firing is done by various backends.
+ */
 
 #include <ferro/core/timers.private.h>
 #include <ferro/core/locks.h>
@@ -410,7 +412,7 @@ ferr_t ftimers_cancel(ftimers_id_t id) {
 			status = ferr_ok;
 
 			// the shortest delay was determined by this timer, but it's no longer active.
-			// inform the backend about this. `fire_all_locked` will take care of removing this disabled timer
+			// inform the backend about this. fire_all_locked() will take care of removing this disabled timer
 			// and if there are any other timers in the queue, it'll arm the backend with the next appropriate delay.
 			if (i == 0) {
 				backends[backend]->cancel();

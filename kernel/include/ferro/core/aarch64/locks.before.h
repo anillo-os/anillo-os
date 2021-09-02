@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * AARCH64 implementations of architecture-specific components for locks subsystem; before-header.
+ */
+
 #ifndef _FERRO_CORE_AARCH64_LOCKS_BEFORE_H_
 #define _FERRO_CORE_AARCH64_LOCKS_BEFORE_H_
 

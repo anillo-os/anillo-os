@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/aarch64/thread-runner.s
-//
-// AARCH64 thread entry function
-//
+
+/**
+ * @file
+ *
+ * AARCH64 thread entry function.
+ */
 
 .text
 .global farch_threads_runner

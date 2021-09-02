@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * x86_64 legacy I/O subsystem.
+ */
+
 #ifndef _FERRO_CORE_X86_64_LEGACY_IO_H_
 #define _FERRO_CORE_X86_64_LEGACY_IO_H_
 
@@ -24,6 +30,14 @@
 #include <ferro/base.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup Legacy-IO
+ *
+ * The x86_64 legacy IO subsystem.
+ *
+ * @{
+ */
 
 #define FARCH_LIO_READ_DEFINITION(ferro_suffix, type, instruction_suffix) \
 	FERRO_ALWAYS_INLINE type farch_lio_read_ ## ferro_suffix(uint16_t port) { \
@@ -75,6 +89,10 @@ FERRO_ENUM(uint16_t, farch_lio_port) {
 
 	farch_lio_port_pc_speaker            = 0x61,
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

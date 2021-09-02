@@ -15,11 +15,12 @@
  * You should have received a copy of the GNU Lesser General Public License
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
-//
-// src/core/aarch64/ivt.S
-//
-// AARCH64 IVT (interrupt vector table), mainly for forwarding to C handlers
-//
+
+/**
+ * @file
+ *
+ * AARCH64 IVT (interrupt vector table), mainly for forwarding to C handlers.
+ */
 
 #include <gen/ferro/offsets.h>
 

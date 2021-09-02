@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -17,7 +17,7 @@
  */
 
 /**
- * @file ferro/ramdisk.h
+ * @file
  *
  * Definitions for Ferro ramdisks.
  */
@@ -31,6 +31,14 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
+/**
+ * @addtogroup Ramdisk
+ *
+ * Ramdisk definitions.
+ *
+ * @{
+ */
+
 FERRO_PACKED_STRUCT(ferro_ramdisk_header) {
 	// Size of the contents of the ramdisk. Does NOT include the size of this header.
 	uint64_t ramdisk_size;
@@ -38,6 +46,10 @@ FERRO_PACKED_STRUCT(ferro_ramdisk_header) {
 	// Temporary char array until we actually get something in the ramdisk.
 	char contents[];
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 

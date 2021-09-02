@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2020 Anillo OS Developers
+ * Copyright (C) 2021 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,6 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+/**
+ * @file
+ *
+ * x86_64 TSC subsystem.
+ */
+
 #ifndef _FERRO_CORE_X86_64_TSC_H_
 #define _FERRO_CORE_X86_64_TSC_H_
 
@@ -27,6 +33,14 @@
 #include <x86intrin.h>
 
 FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup TSC
+ *
+ * The x86_64 TSC subsystem.
+ *
+ * @{
+ */
 
 /**
  * Initializes the TSC subsystem.
@@ -77,6 +91,10 @@ FERRO_ALWAYS_INLINE uint64_t farch_tsc_offset_to_ns(uint64_t offset) {
 
 	return (uint64_t)tmp;
 };
+
+/**
+ * @}
+ */
 
 FERRO_DECLARATIONS_END;
 
