@@ -23,7 +23,7 @@
  */
 
 #include <ferro/core/aarch64/gic.h>
-#include <ferro/core/aarch64/interrupts.h>
+#include <ferro/core/interrupts.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/acpi.h>
 #include <ferro/core/console.h>

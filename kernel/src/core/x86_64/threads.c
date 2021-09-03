@@ -24,7 +24,7 @@
 
 #include <ferro/core/threads.private.h>
 #include <ferro/core/paging.h>
-#include <ferro/core/x86_64/interrupts.h>
+#include <ferro/core/interrupts.h>
 #include <libk/libk.h>
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>

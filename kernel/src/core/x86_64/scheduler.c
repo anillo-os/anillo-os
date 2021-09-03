@@ -23,7 +23,7 @@
  */
 
 #include <ferro/core/x86_64/scheduler.private.h>
-#include <ferro/core/x86_64/interrupts.h>
+#include <ferro/core/interrupts.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/mempool.h>
 #include <libk/libk.h>

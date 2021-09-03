@@ -44,7 +44,7 @@ FERRO_DECLARATIONS_BEGIN;
 
 typedef void (*fworker_f)(void* data);
 
-FERRO_STRUCT_FWD(fworker);
+FERRO_STRUCT_FWD(fwork);
 
 /**
  * Initializes the workers subsystem.
@@ -52,80 +52,105 @@ FERRO_STRUCT_FWD(fworker);
 void fworkers_init(void);
 
 /**
- * Creates a new worker instance for the given worker function and data.
+ * Creates a new work instance for the given worker function and data.
  *
  * @param worker_function The worker function to run.
- * @param data            Optional user-defined data to pass to the worker function.
- * @param[out] out_worker      Pointer in which a pointer to the newly created worker instance will be placed.
+ * @param            data Optional user-defined data to pass to the worker function.
+ * @param[out]   out_work Pointer in which a pointer to the newly created work instance will be placed.
  *
- * @note The worker instance structure is an opaque pointer. It is managed through reference counting using fworker_retain() and fworker_release().
- *       The caller of this function receives a new worker instance with a single reference.
+ * @note The work instance structure is an opaque pointer. It is managed through reference counting using fwork_retain() and fwork_release().
+ *       The caller of this function receives a new work instance with a single reference.
  *
- * @note This does NOT schedule the worker instance to run. For that, use fworker_schedule().
+ * @note This does NOT schedule the work instance to run. For that, use fwork_schedule().
+ *       Alternatively, to create a new work instance and schedule it at the same time, use fworker_schedule_new().
  *
  * Return values:
- * @retval ferr_ok               The worker instance was successfully created.
- * @retval ferr_invalid_argument One or more of: 1) the worker function was `NULL`, 2) @p out_worker was `NULL`.
- * @retval ferr_temporary_outage There were insufficient resources to create a new worker instance.
+ * @retval ferr_ok               The work instance was successfully created.
+ * @retval ferr_invalid_argument One or more of: 1) the worker function was `NULL`, 2) @p out_work was `NULL`.
+ * @retval ferr_temporary_outage There were insufficient resources to create a new work instance.
  */
-FERRO_WUR ferr_t fworker_new(fworker_f worker_function, void* data, fworker_t** out_worker);
+FERRO_WUR ferr_t fwork_new(fworker_f worker_function, void* data, fwork_t** out_worker);
 
 /**
- * Tries to retain the given worker instance.
+ * Tries to retain the given work instance.
  *
- * @param thread The worker instance to try to retain.
+ * @param thread The work instance to try to retain.
  *
  * Return values:
- * @retval ferr_ok               The worker instance was successfully retained.
- * @retval ferr_permanent_outage The worker instance was deallocated while this call occurred. It is no longer valid.
+ * @retval ferr_ok               The work instance was successfully retained.
+ * @retval ferr_permanent_outage The work instance was deallocated while this call occurred. It is no longer valid.
  */
-FERRO_WUR ferr_t fworker_retain(fworker_t* worker);
+FERRO_WUR ferr_t fwork_retain(fwork_t* work);
 
 /**
  * Releases the given thread.
  *
- * @param thread The worker instance to release.
+ * @param thread The work instance to release.
  */
-void fworker_release(fworker_t* worker);
+void fwork_release(fwork_t* work);
 
 /**
- * Schedules then given worker instance to run on a worker thread sometime in the future.
+ * Schedules the given work instance to run on a worker thread sometime in the future.
  *
- * @param worker The worker instance to schedule.
+ * @param  work The work instance to schedule.
+ * @param delay Optional delay in nanoseconds to wait before actually scheduling the work.
+ *              If this is 0, the work will be scheduled immediately and run as soon as a worker thread is able to run it.
+ *              Otherwise, a timer will be created after which the work will be scheduled and run as soon as a worker thread is able to run it.
  *
  * Return values:
- * @retval ferr_ok               The worker was successfully scheduled.
- * @retval ferr_invalid_argument One or more of: 1) the worker instance was `NULL`, 2) the worker instance was already scheduled.
- * @retval ferr_permanent_outage Retaining the worker failed.
- * @retval ferr_temporary_outage There were insufficient resources to schedule a new worker instance.
+ * @retval ferr_ok               The work was successfully scheduled.
+ * @retval ferr_invalid_argument One or more of: 1) the work instance was `NULL`, 2) the work instance was already scheduled.
+ * @retval ferr_permanent_outage Retaining the work instance failed.
+ * @retval ferr_temporary_outage There were insufficient resources to schedule a new work instance.
  */
-FERRO_WUR ferr_t fworker_schedule(fworker_t* worker);
+FERRO_WUR ferr_t fwork_schedule(fwork_t* work, uint64_t delay);
 
 /**
- * Cancels the given worker instance if it hasn't started running yet.
+ * Creates and schedules a new work instance to run on a worker thread sometime in the future.
  *
- * @param id The worker instance to cancel.
+ * @param worker_function The worker function to run.
+ * @param            data Optional user-defined data to pass to the worker function.
+ * @param           delay Optional delay in nanoseconds to wait before actually scheduling the work. See fwork_schedule() for more information on how this parameter is used.
+ * @param[out]   out_work Optional pointer in which a pointer to the newly created work instance will be placed.
+ *                        If this is `NULL`, the work instance is managed entirely by the subsystem and the caller will be given no references to the newly created work instance.
+ *                        Otherwise, if this is not `NULL`, then the caller is granted a reference on the work instance.
  *
- * @note This function CANNOT stop a worker instance that's already running.
+ * @note Passing `NULL` for @p out_work is useful for creating oneshot work instances that you don't need to release later.
  *
- * Return values:
- * @retval ferr_ok                  The worker instance was successfully cancelled.
- * @retval ferr_invalid_argument    The worker instance was `NULL`.
- * @retval ferr_already_in_progress The worker instance was already running and could not be cancelled. This is also returned if the worker has already completed.
+ * @retval ferr_ok               The work instance was successfully created and scheduled.
+ * @retval ferr_invalid_argument The worker function was `NULL`.
+ * @retval ferr_temporary_outage There were insufficient resources to create and schedule a new work instance.
  */
-FERRO_WUR ferr_t fworker_cancel(fworker_t* worker);
+FERRO_WUR ferr_t fwork_schedule_now(fworker_f worker_function, void* data, uint64_t delay, fwork_t** out_work);
 
 /**
- * Waits for the given worker instance to complete.
+ * Cancels the given work instance if it hasn't started running yet.
  *
- * @param worker The worker instance to wait for.
+ * @param id The work instance to cancel.
  *
- * @note If the worker has already completed, this function will return immediately.
+ * @note This function CANNOT stop a work instance that's already running.
  *
  * Return values:
- * @retval ferr_ok The worker instance has successfully completed.
+ * @retval ferr_ok                  The work instance was successfully cancelled.
+ * @retval ferr_invalid_argument    The work instance was `NULL`.
+ * @retval ferr_already_in_progress The work instance was already running and could not be cancelled. This is also returned if the work has already completed.
  */
-void fworker_wait(fworker_t* worker);
+FERRO_WUR ferr_t fwork_cancel(fwork_t* work);
+
+/**
+ * Waits for the given work instance to complete (or be cancelled).
+ *
+ * @param work The work instance to wait for.
+ *
+ * @note If the work has already completed, this function will return immediately.
+ *
+ * @note If called from a thread context, it will suspend the current thread until the work is done, to save on CPU cycles.
+ *       If called from an interrupt context, it will spin-wait until the work is done (which may freeze the system in certain cases).
+ *
+ * @retval ferr_ok        The work completed successfully.
+ * @retval ferr_cancelled The work was cancelled.
+ */
+ferr_t fwork_wait(fwork_t* work);
 
 /**
  * @}

@@ -34,56 +34,84 @@
 #include <ferro/core/threads.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/cpu.h>
+#include <ferro/core/waitq.private.h>
+#include <ferro/core/interrupts.h>
+#include <ferro/core/entry.h>
+#include <ferro/core/threads.private.h>
 
 #include <stdatomic.h>
 
-FERRO_ENUM(uint8_t, fworker_state) {
-	fworker_state_pending,
-	fworker_state_cancelled,
-	fworker_state_running,
-	fworker_state_complete,
+FERRO_ENUM(uint8_t, fwork_state) {
+	fwork_state_pending,
+	fwork_state_cancelled,
+	fwork_state_running,
+	fwork_state_complete,
 };
 
-FERRO_STRUCT_FWD(fworker_queue);
+FERRO_STRUCT_FWD(fwork_queue);
 
-FERRO_STRUCT(fworker) {
-	fworker_t* prev;
-	fworker_t* next;
-	fworker_queue_t* queue;
+FERRO_STRUCT(fwork) {
+	fwork_t* prev;
+	fwork_t* next;
+	fwork_queue_t* queue;
 	uint64_t reference_count;
 	fworker_f function;
 	void* data;
-	flock_spin_intsafe_t state_lock;
-	fworker_state_t state;
+
+	/**
+	 * Waitq that can be used to wait for the work to complete.
+	 *
+	 * The waitq's lock is also used to protect #state.
+	 */
+	fwaitq_t waitq;
+
+	/**
+	 * The current state of the work. See ::fwork_state for more details.
+	 */
+	fwork_state_t state;
+
+	ftimers_id_t timer_id;
 };
 
-FERRO_STRUCT(fworker_queue) {
+FERRO_STRUCT(fwork_queue) {
 	flock_spin_intsafe_t lock;
-	fworker_t* head;
-	fworker_t* tail;
+	fwork_t* head;
+	fwork_t* tail;
+
+	/**
+	 * The size of the work load.
+	 *
+	 * @note This number is not necessarily equal to the the number of ::fwork nodes currently in the queue.
+	 *       Because it represents the work load, it is also incremented (through the reservation system) when items are waiting to be added to the queue.
+	 */
 	size_t length;
+
+	/**
+	 * The worker thread used to process the queue.
+	 */
 	fthread_t* thread;
 
-	// used by the worker thread to sleep until more workers are added
+	/**
+	 * Used by the worker thread to sleep until more workers are added.
+	 */
 	flock_semaphore_t semaphore;
 };
 
-static fworker_queue_t** worker_queues = NULL;
+static fwork_queue_t** worker_queues = NULL;
 static size_t worker_queue_count = 0;
 
 static void worker_thread_runner(void* data);
 
-
 // the queue's lock MUST be held
-static void fworker_queue_push_locked(fworker_queue_t* queue, fworker_t* worker) {
-	worker->prev = queue->tail;
-	worker->next = NULL;
-	worker->queue = queue;
+static void fwork_queue_push_locked(fwork_queue_t* queue, fwork_t* work) {
+	work->prev = queue->tail;
+	work->next = NULL;
+	work->queue = queue;
 
 	if (!queue->head) {
-		queue->head = worker;
+		queue->head = work;
 	}
-	queue->tail = worker;
+	queue->tail = work;
 
 	++queue->length;
 
@@ -91,102 +119,151 @@ static void fworker_queue_push_locked(fworker_queue_t* queue, fworker_t* worker)
 };
 
 // the queue's lock must NOT be held
-static void fworker_queue_push(fworker_queue_t* queue, fworker_t* worker) {
+static void fwork_queue_push(fwork_queue_t* queue, fwork_t* work) {
 	flock_spin_intsafe_lock(&queue->lock);
-	fworker_queue_push_locked(queue, worker);
+	fwork_queue_push_locked(queue, work);
 	flock_spin_intsafe_unlock(&queue->lock);
 };
 
 // the queue's lock MUST be held
-static void fworker_queue_remove_locked(fworker_queue_t* queue, fworker_t* worker) {
-	if (worker->prev) {
-		worker->prev->next = worker->next;
+static void fwork_queue_remove_locked(fwork_queue_t* queue, fwork_t* work) {
+	if (work->prev) {
+		work->prev->next = work->next;
 	} else {
-		queue->head = worker->next;
+		queue->head = work->next;
 	}
 
-	if (worker->next) {
-		worker->next->prev = worker->prev;
+	if (work->next) {
+		work->next->prev = work->prev;
 	} else {
-		queue->tail = worker->prev;
+		queue->tail = work->prev;
 	}
 
-	worker->prev = NULL;
-	worker->next = NULL;
-	worker->queue = NULL;
+	work->prev = NULL;
+	work->next = NULL;
+	work->queue = NULL;
 
 	--queue->length;
 };
 
 // the queue's lock must NOT be held
-static void fworker_queue_remove(fworker_queue_t* queue, fworker_t* worker) {
+static void fwork_queue_remove(fwork_queue_t* queue, fwork_t* work) {
 	flock_spin_intsafe_lock(&queue->lock);
-	fworker_queue_remove_locked(queue, worker);
+	fwork_queue_remove_locked(queue, work);
 	flock_spin_intsafe_unlock(&queue->lock);
 };
 
 // the queue's lock must NOT be held
-static fworker_t* fworker_queue_pop(fworker_queue_t* queue) {
-	fworker_t* result = NULL;
+static fwork_t* fwork_queue_pop(fwork_queue_t* queue) {
+	fwork_t* result = NULL;
 	flock_spin_intsafe_lock(&queue->lock);
 	if (queue->head) {
 		result = queue->head;
-		fworker_queue_remove_locked(queue, result);
+		fwork_queue_remove_locked(queue, result);
 	}
 	flock_spin_intsafe_unlock(&queue->lock);
 	return result;
 };
 
-ferr_t fworker_new(fworker_f worker_function, void* data, fworker_t** out_worker) {
-	fworker_t* worker = NULL;
+/**
+ * Reserves space in the given queue for the given work instance, but does not actually add it.
+ *
+ * This is useful because the queue length is used to determine which work queue has the lightest load.
+ *
+ * It also associates the queue with the given work instance, in case the work is cancelled before it is fully added.
+ *
+ * @pre The queue's lock MUST be held.
+ */
+static void fwork_queue_reserve_locked(fwork_queue_t* queue, fwork_t* work) {
+	work->prev = NULL;
+	work->next = NULL;
+	work->queue = queue;
+
+	++queue->length;
+};
+
+/**
+ * Adds the given work instance to the given work queue, assuming that it had already been previously reserved.
+ *
+ * @pre The queue's lock MUST be held.
+ */
+static void fwork_queue_complete_reservation_locked(fwork_queue_t* queue, fwork_t* work) {
+	work->prev = queue->tail;
+	work->next = NULL;
+	work->queue = queue;
+
+	if (!queue->head) {
+		queue->head = work;
+	}
+	queue->tail = work;
+
+	flock_semaphore_up(&queue->semaphore);
+};
+
+/**
+ * Undoes the work of fwork_queue_reserve_locked(), assuming it had not been completed yet.
+ *
+ * @pre The queue's lock MUST be held.
+ */
+static void fwork_queue_cancel_reservation_locked(fwork_queue_t* queue, fwork_t* work) {
+	work->prev = NULL;
+	work->next = NULL;
+	work->queue = NULL;
+
+	--queue->length;
+};
+
+ferr_t fwork_new(fworker_f worker_function, void* data, fwork_t** out_worker) {
+	fwork_t* work = NULL;
 
 	if (!worker_function || !out_worker) {
 		return ferr_invalid_argument;
 	}
 
-	if (fmempool_allocate(sizeof(fworker_t), NULL, (void**)&worker) != ferr_ok) {
+	if (fmempool_allocate(sizeof(fwork_t), NULL, (void**)&work) != ferr_ok) {
 		return ferr_temporary_outage;
 	}
 
-	worker->prev = NULL;
-	worker->next = NULL;
-	worker->reference_count = 1;
-	worker->function = worker_function;
-	worker->data = data;
-	worker->state = fworker_state_cancelled;
-	flock_spin_intsafe_init(&worker->state_lock);
+	work->prev = NULL;
+	work->next = NULL;
+	work->reference_count = 1;
+	work->function = worker_function;
+	work->data = data;
+	work->state = fwork_state_complete;
+	work->timer_id = FTIMERS_ID_INVALID;
+	fwaitq_init(&work->waitq);
 
-	*out_worker = worker;
+	*out_worker = work;
 
 	return ferr_ok;
 };
 
-static void fworker_destroy(fworker_t* worker) {
-	if (fmempool_free(worker) != ferr_ok) {
-		fpanic("Failed to free worker instance structure");
+static void fworker_destroy(fwork_t* work) {
+	if (fmempool_free(work) != ferr_ok) {
+		fpanic("Failed to free work instance structure");
 	}
 };
 
-ferr_t fworker_retain(fworker_t* worker) {
-	if (__atomic_fetch_add(&worker->reference_count, 1, __ATOMIC_RELAXED) == 0) {
+ferr_t fwork_retain(fwork_t* work) {
+	if (__atomic_fetch_add(&work->reference_count, 1, __ATOMIC_RELAXED) == 0) {
 		return ferr_permanent_outage;
 	}
 
 	return ferr_ok;
 };
 
-void fworker_release(fworker_t* worker) {
-	if (__atomic_sub_fetch(&worker->reference_count, 1, __ATOMIC_ACQ_REL) != 0) {
+void fwork_release(fwork_t* work) {
+	if (__atomic_sub_fetch(&work->reference_count, 1, __ATOMIC_ACQ_REL) != 0) {
 		return;
 	}
 
-	fworker_destroy(worker);
+	fworker_destroy(work);
 };
 
-static fworker_queue_t* fworker_queue_new(void) {
-	fworker_queue_t* queue = NULL;
+static fwork_queue_t* fwork_queue_new(void) {
+	fwork_queue_t* queue = NULL;
 
-	if (fmempool_allocate(sizeof(fworker_queue_t), NULL, (void**)&queue) != ferr_ok) {
+	if (fmempool_allocate(sizeof(fwork_queue_t), NULL, (void**)&queue) != ferr_ok) {
 		return NULL;
 	}
 
@@ -221,21 +298,21 @@ void fworkers_init(void) {
 	worker_queue_count = fcpu_count();
 
 	if (fmempool_allocate(sizeof(fthread_t*) * worker_queue_count, NULL, (void*)&worker_queues) != ferr_ok) {
-		fpanic("Failed to allocate worker queue pointer array");
+		fpanic("Failed to allocate work queue pointer array");
 	}
 
 	for (size_t i = 0; i < worker_queue_count; ++i) {
-		worker_queues[i] = fworker_queue_new();
+		worker_queues[i] = fwork_queue_new();
 		if (!worker_queues[i]) {
-			fpanic("Failed to create a new worker queue");
+			fpanic("Failed to create a new work queue");
 		}
 	}
 };
 
 // very similar to the scheduler's find_lightest_load()
 // returns with the queue lock held
-static fworker_queue_t* find_lightest_load(void) {
-	fworker_queue_t* result = NULL;
+static fwork_queue_t* find_lightest_load(void) {
+	fwork_queue_t* result = NULL;
 	for (size_t i = 0; i < worker_queue_count; ++i) {
 		size_t prev_count = result ? result->length : SIZE_MAX;
 		if (result) {
@@ -251,107 +328,232 @@ static fworker_queue_t* find_lightest_load(void) {
 	return result;
 };
 
-ferr_t fworker_schedule(fworker_t* worker) {
-	fworker_queue_t* queue;
+static void fwork_delayed_schedule(void* data) {
+	fwork_t* work = data;
 
-	if (!worker) {
+	fwaitq_lock(&work->waitq);
+	if (work->state != fwork_state_pending) {
+		// huh, weird. this shouldn't happen because cancelling the work should prevent us from ever being called.
+		// oh well. just ignore it. fwork_cancel() will take care of releasing it.
+		fwaitq_unlock(&work->waitq);
+		return;
+	}
+	fwaitq_unlock(&work->waitq);
+
+	work->timer_id = FTIMERS_ID_INVALID;
+
+	// complete the reservation
+	flock_spin_intsafe_lock(&work->queue->lock);
+	fwork_queue_complete_reservation_locked(work->queue, work);
+	flock_spin_intsafe_unlock(&work->queue->lock);
+};
+
+ferr_t fwork_schedule(fwork_t* work, uint64_t delay) {
+	fwork_queue_t* queue;
+
+	if (!work) {
 		return ferr_invalid_argument;
 	}
 
-	flock_spin_intsafe_lock(&worker->state_lock);
+	fwaitq_lock(&work->waitq);
 
-	if (worker->state != fworker_state_complete && worker->state != fworker_state_cancelled) {
-		flock_spin_intsafe_unlock(&worker->state_lock);
+	if (work->state != fwork_state_complete && work->state != fwork_state_cancelled) {
+		fwaitq_unlock(&work->waitq);
 		return ferr_invalid_argument;
 	}
 
-	worker->state = fworker_state_pending;
+	work->state = fwork_state_pending;
 
-	flock_spin_intsafe_unlock(&worker->state_lock);
+	fwaitq_unlock(&work->waitq);
 
-	if (fworker_retain(worker) != ferr_ok) {
+	if (fwork_retain(work) != ferr_ok) {
 		return ferr_permanent_outage;
 	}
 
 	queue = find_lightest_load();
 	if (!queue) {
-		fpanic("Failed to find worker queue with lightest load (this is impossible)");
+		fpanic("Failed to find work queue with lightest load (this is impossible)");
 	}
 
-	fworker_queue_push_locked(queue, worker);
+	if (delay == 0) {
+		fwork_queue_push_locked(queue, work);
+	} else {
+		fwork_queue_reserve_locked(queue, work);
+		if (ftimers_oneshot_blocking(delay, fwork_delayed_schedule, work, &work->timer_id) != ferr_ok) {
+			fwork_release(work);
+			fwork_queue_cancel_reservation_locked(queue, work);
+			flock_spin_intsafe_unlock(&queue->lock);
+			return ferr_temporary_outage;
+		}
+	}
 
 	flock_spin_intsafe_unlock(&queue->lock);
 
 	return ferr_ok;
 };
 
-ferr_t fworker_cancel(fworker_t* worker) {
-	if (!worker) {
+ferr_t fwork_schedule_now(fworker_f worker_function, void* data, uint64_t delay, fwork_t** out_work) {
+	fwork_t* work = NULL;
+	ferr_t status = ferr_ok;
+
+	status = fwork_new(worker_function, data, &work);
+	if (status != ferr_ok) {
+		return status;
+	}
+
+	status = fwork_schedule(work, delay);
+	if (status != ferr_ok) {
+		fwork_release(work);
+		if (status == ferr_permanent_outage || status == ferr_invalid_argument) {
+			fpanic("Impossible error returned from fwork_schedule()");
+		}
+		return status;
+	}
+
+	// fwork_schedule() retains the work, so if the user wants a reference, just give them ours.
+	// otherwise, release our reference so that the one held by the queue is the only one on the work instance.
+	if (out_work) {
+		*out_work = work;
+	} else {
+		fwork_release(work);
+	}
+
+	return status;
+};
+
+ferr_t fwork_cancel(fwork_t* work) {
+	if (!work) {
 		return ferr_invalid_argument;
 	}
 
-	flock_spin_intsafe_lock(&worker->state_lock);
+	fwaitq_lock(&work->waitq);
 
-	if (worker->state != fworker_state_pending) {
-		flock_spin_intsafe_unlock(&worker->state_lock);
+	if (work->state != fwork_state_pending) {
+		fwaitq_unlock(&work->waitq);
 		return ferr_already_in_progress;
 	}
 
-	worker->state = fworker_state_cancelled;
+	work->state = fwork_state_cancelled;
 
-	flock_spin_intsafe_unlock(&worker->state_lock);
+	fwaitq_unlock(&work->waitq);
 
-	fworker_queue_remove(worker->queue, worker);
+	if (work->timer_id == FTIMERS_ID_INVALID) {
+		fwork_queue_remove(work->queue, work);
+	} else {
+		// cancel the timer
+		FERRO_WUR_IGNORE(ftimers_cancel(work->timer_id));
+		work->timer_id = FTIMERS_ID_INVALID;
 
-	fworker_release(worker);
+		// and cancel the reservation
+		flock_spin_intsafe_lock(&work->queue->lock);
+		fwork_queue_cancel_reservation_locked(work->queue, work);
+		flock_spin_intsafe_unlock(&work->queue->lock);
+	}
+
+	fwork_release(work);
 
 	return ferr_ok;
 };
 
+static void fwork_interrupt_wakeup(void* data) {
+	bool* keep_looping = data;
+	*keep_looping = false;
+};
+
+// needs the waitq lock to be held; returns with it dropped
+static void fwork_wait_raw(fwork_t* work) {
+	// TODO: warn if we're going to block while in an interrupt context.
+	//       that should definitely not be happening.
+	if (fint_is_interrupt_context()) {
+		fwaitq_waiter_t waiter;
+		bool keep_looping = true;
+
+		fwaitq_waiter_init(&waiter, fwork_interrupt_wakeup, &keep_looping);
+
+		fwaitq_add_locked(&work->waitq, &waiter);
+		fwaitq_unlock(&work->waitq);
+
+		while (keep_looping) {
+			fentry_idle();
+		}
+	} else {
+		// fthread_wait_locked() will drop the waitq lock later
+		FERRO_WUR_IGNORE(fthread_wait_locked(fthread_current(), &work->waitq));
+	}
+};
+
+ferr_t fwork_wait(fwork_t* work) {
+	ferr_t status = ferr_ok;
+
+	// loop to properly handle spurious wakeups
+	while (true) {
+		fwaitq_lock(&work->waitq);
+
+		if (work->state != fwork_state_pending && work->state != fwork_state_running) {
+			// great; it's not pending and it's not running, so it must have been cancelled or completed
+			status = (work->state == fwork_state_cancelled) ? ferr_cancelled : ferr_ok;
+			fwaitq_unlock(&work->waitq);
+			return status;
+		}
+
+		fwork_wait_raw(work);
+	}
+};
+
 static void worker_thread_runner(void* data) {
-	fworker_queue_t* queue = data;
+	fwork_queue_t* queue = data;
 
 	while (true) {
-		fworker_t* worker;
+		fwork_t* work;
 
 		// wait until we have something to work with
 		flock_semaphore_down(&queue->semaphore);
 
-		worker = fworker_queue_pop(queue);
+		work = fwork_queue_pop(queue);
 
-		// no worker? no problem.
-		if (!worker) {
+		// no work? no problem.
+		if (!work) {
 			continue;
 		}
 
-		flock_spin_intsafe_lock(&worker->state_lock);
+		fwaitq_lock(&work->waitq);
 
 		// if it's not pending, it's:
 		//   * cancelled, so we shouldn't do anything with it
 		//   * running? which would be weird, because that means someone else ran it.
 		//   * complete? which would also be weird, because it would also mean someone else ran it.
-		if (worker->state != fworker_state_pending) {
-			// in any case, if we can't run it, release it and try again for another worker instance
-			flock_spin_intsafe_unlock(&worker->state_lock);
-			fworker_release(worker);
+		if (work->state != fwork_state_pending) {
+			// in any case, if we can't run it, release it and try again for another work instance
+			fwaitq_unlock(&work->waitq);
+			fwork_release(work);
 			continue;
 		}
 
 		// okay, we're about to start running it ourselves, so mark it as such
-		worker->state = fworker_state_running;
-		flock_spin_intsafe_unlock(&worker->state_lock);
+		work->state = fwork_state_running;
+		fwaitq_unlock(&work->waitq);
 
 		// now let's run it
-		worker->function(worker->data);
+		work->function(work->data);
 
 		// okay, we're done running it, so mark it as such
-		flock_spin_intsafe_lock(&worker->state_lock);
-		worker->state = fworker_state_complete;
-		flock_spin_intsafe_unlock(&worker->state_lock);
 
-		// okay, we don't need the worker anymore so we can release it
-		fworker_release(worker);
+		// first lock the queue
+		fwaitq_unlock(&work->waitq);
 
-		// great, now we'll loop around again and try to process another worker instance
+		// mark it as complete
+		// anyone doing fwork_wait() should now see this and not add themselves to the waitq
+		work->state = fwork_state_complete;
+
+		// wake everyone up
+		fwaitq_wake_many_locked(&work->waitq, SIZE_MAX);
+
+		// and unlock the waitq; there should be no one left waiting
+		fwaitq_unlock(&work->waitq);
+
+		// okay, we don't need the work instance anymore so we can release it
+		fwork_release(work);
+
+		// great, now we'll loop around again and try to process another work instance
 	}
 };

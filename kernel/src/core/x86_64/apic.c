@@ -30,7 +30,7 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/console.h>
 #include <ferro/core/x86_64/legacy-io.h>
-#include <ferro/core/x86_64/interrupts.h>
+#include <ferro/core/interrupts.h>
 #include <ferro/core/timers.private.h>
 #include <ferro/core/x86_64/tsc.h>
 #include <ferro/core/x86_64/msr.h>

@@ -27,7 +27,7 @@
 
 #include <ferro/base.h>
 #include <ferro/error.h>
-#include <ferro/core/aarch64/interrupts.h>
+#include <ferro/core/interrupts.h>
 
 FERRO_DECLARATIONS_BEGIN;
 

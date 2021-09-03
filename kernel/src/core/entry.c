@@ -215,32 +215,45 @@ static void do_work2(void* data) {
 	}
 };
 
+static void do_work3(void* data) {
+	fconsole_log("The third worker was called!\n");
+};
+
 static void ferro_entry_threaded(void* data) {
 	fconsole_log("Entering threaded kernel startup\n");
 
 	fworkers_init();
 
-	fworker_t* worker1;
-	fworker_t* worker2;
+	fwork_t* worker1;
+	fwork_t* worker2;
 
-	if (fworker_new(do_work1, NULL, &worker1) != ferr_ok) {
+	if (fwork_new(do_work1, NULL, &worker1) != ferr_ok) {
 		fpanic("Failed to create first worker");
 	}
 
-	if (fworker_new(do_work2, NULL, &worker2) != ferr_ok) {
+	if (fwork_new(do_work2, NULL, &worker2) != ferr_ok) {
 		fpanic("Failed to create second worker");
 	}
 
-	if (fworker_schedule(worker1) != ferr_ok) {
+	if (fwork_schedule(worker1, 0) != ferr_ok) {
 		fpanic("Failed to schedule first worker");
 	}
 
-	if (fworker_schedule(worker2) != ferr_ok) {
+	if (fwork_schedule(worker2, 0) != ferr_ok) {
 		fpanic("Failed to schedule second worker");
 	}
 
-	fworker_release(worker1);
-	fworker_release(worker2);
+	fwork_wait(worker1);
+	fwork_wait(worker2);
+
+	fwork_release(worker1);
+	fwork_release(worker2);
+
+	fconsole_log("Both work items have completed, now we'll schedule a third to run in 3 seconds.\n");
+
+	if (fwork_schedule_now(do_work3, NULL, 1000000000ULL * 3, NULL) != ferr_ok) {
+		fpanic("Failed to schedule third worker");
+	}
 };
 
 __attribute__((section(".text.ferro_entry")))
