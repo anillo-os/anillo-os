@@ -420,6 +420,20 @@ facpi_sdt_header_t* facpi_find_table(const char* name);
 FERRO_WUR ferr_t facpi_register_table(facpi_sdt_header_t* table);
 
 /**
+ * Triggers a soft system reset, better known as a reboot.
+ */
+FERRO_NO_RETURN void facpi_reboot(void);
+
+// these are arch-dependent functions we expect all architectures to implement
+
+/**
+ * @cond internal
+ *
+ * Like facpi_reboot(), but used during early boot when the ACPI subsystem is not fully initialized.
+ */
+FERRO_NO_RETURN void facpi_reboot_early(void);
+
+/**
  * @}
  */
 

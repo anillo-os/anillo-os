@@ -38,6 +38,7 @@
 #include <ferro/core/interrupts.h>
 #include <ferro/core/entry.h>
 #include <ferro/core/threads.private.h>
+#include <ferro/core/console.h>
 
 #include <stdatomic.h>
 
@@ -102,6 +103,14 @@ static size_t worker_queue_count = 0;
 
 static void worker_thread_runner(void* data);
 
+static void fwork_queue_lock(fwork_queue_t* queue) {
+	flock_spin_intsafe_lock(&queue->lock);
+};
+
+static void fwork_queue_unlock(fwork_queue_t* queue) {
+	flock_spin_intsafe_unlock(&queue->lock);
+};
+
 // the queue's lock MUST be held
 static void fwork_queue_push_locked(fwork_queue_t* queue, fwork_t* work) {
 	work->prev = queue->tail;
@@ -116,13 +125,6 @@ static void fwork_queue_push_locked(fwork_queue_t* queue, fwork_t* work) {
 	++queue->length;
 
 	flock_semaphore_up(&queue->semaphore);
-};
-
-// the queue's lock must NOT be held
-static void fwork_queue_push(fwork_queue_t* queue, fwork_t* work) {
-	flock_spin_intsafe_lock(&queue->lock);
-	fwork_queue_push_locked(queue, work);
-	flock_spin_intsafe_unlock(&queue->lock);
 };
 
 // the queue's lock MUST be held
@@ -148,20 +150,20 @@ static void fwork_queue_remove_locked(fwork_queue_t* queue, fwork_t* work) {
 
 // the queue's lock must NOT be held
 static void fwork_queue_remove(fwork_queue_t* queue, fwork_t* work) {
-	flock_spin_intsafe_lock(&queue->lock);
+	fwork_queue_lock(queue);
 	fwork_queue_remove_locked(queue, work);
-	flock_spin_intsafe_unlock(&queue->lock);
+	fwork_queue_unlock(queue);
 };
 
 // the queue's lock must NOT be held
 static fwork_t* fwork_queue_pop(fwork_queue_t* queue) {
 	fwork_t* result = NULL;
-	flock_spin_intsafe_lock(&queue->lock);
+	fwork_queue_lock(queue);
 	if (queue->head) {
 		result = queue->head;
 		fwork_queue_remove_locked(queue, result);
 	}
-	flock_spin_intsafe_unlock(&queue->lock);
+	fwork_queue_unlock(queue);
 	return result;
 };
 
@@ -316,13 +318,16 @@ static fwork_queue_t* find_lightest_load(void) {
 	for (size_t i = 0; i < worker_queue_count; ++i) {
 		size_t prev_count = result ? result->length : SIZE_MAX;
 		if (result) {
-			flock_spin_intsafe_unlock(&result->lock);
+			fwork_queue_unlock(result);
 		}
 		// yes, dropping the previous one's lock before acquire this one's lock means the count might've changed.
 		// however, if we hold the lock, we can run into deadlocks; so let's prefer to be a little bit inaccurate rather than frozen.
-		flock_spin_intsafe_lock(&worker_queues[i]->lock);
+		fwork_queue_lock(worker_queues[i]);
 		if (prev_count > worker_queues[i]->length) {
 			result = worker_queues[i];
+		} else {
+			fwork_queue_unlock(worker_queues[i]);
+			fwork_queue_lock(result);
 		}
 	}
 	return result;
@@ -343,9 +348,9 @@ static void fwork_delayed_schedule(void* data) {
 	work->timer_id = FTIMERS_ID_INVALID;
 
 	// complete the reservation
-	flock_spin_intsafe_lock(&work->queue->lock);
+	fwork_queue_lock(work->queue);
 	fwork_queue_complete_reservation_locked(work->queue, work);
-	flock_spin_intsafe_unlock(&work->queue->lock);
+	fwork_queue_unlock(work->queue);
 };
 
 ferr_t fwork_schedule(fwork_t* work, uint64_t delay) {
@@ -382,12 +387,12 @@ ferr_t fwork_schedule(fwork_t* work, uint64_t delay) {
 		if (ftimers_oneshot_blocking(delay, fwork_delayed_schedule, work, &work->timer_id) != ferr_ok) {
 			fwork_release(work);
 			fwork_queue_cancel_reservation_locked(queue, work);
-			flock_spin_intsafe_unlock(&queue->lock);
+			fwork_queue_unlock(queue);
 			return ferr_temporary_outage;
 		}
 	}
 
-	flock_spin_intsafe_unlock(&queue->lock);
+	fwork_queue_unlock(queue);
 
 	return ferr_ok;
 };
@@ -445,9 +450,9 @@ ferr_t fwork_cancel(fwork_t* work) {
 		work->timer_id = FTIMERS_ID_INVALID;
 
 		// and cancel the reservation
-		flock_spin_intsafe_lock(&work->queue->lock);
+		fwork_queue_lock(work->queue);
 		fwork_queue_cancel_reservation_locked(work->queue, work);
-		flock_spin_intsafe_unlock(&work->queue->lock);
+		fwork_queue_unlock(work->queue);
 	}
 
 	fwork_release(work);
@@ -513,6 +518,7 @@ static void worker_thread_runner(void* data) {
 
 		// no work? no problem.
 		if (!work) {
+			fpanic("No work!");
 			continue;
 		}
 

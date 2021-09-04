@@ -323,6 +323,9 @@ static fsched_info_t* find_lightest_load(void) {
 		flock_spin_intsafe_lock(&infos[i]->lock);
 		if (prev_count > infos[i]->count) {
 			result = infos[i];
+		} else {
+			flock_spin_intsafe_unlock(&infos[i]->lock);
+			flock_spin_intsafe_lock(&result->lock);
 		}
 	}
 	return result;

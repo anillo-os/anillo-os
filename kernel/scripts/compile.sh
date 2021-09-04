@@ -7,6 +7,17 @@ KERNEL_SOURCE_ROOT="${SOURCE_ROOT}/kernel"
 source "${SOURCE_ROOT}/scripts/util.sh"
 
 #
+# build configuration
+#
+if [ -z "${USE_UBSAN}" ]; then
+	USE_UBSAN=0
+fi
+
+if [ -z "${USE_UBSAN_MINIMAL}" ]; then
+	USE_UBSAN_MINIMAL=0
+fi
+
+#
 # programs
 #
 source "${SOURCE_ROOT}/scripts/find-programs.sh"
@@ -91,6 +102,7 @@ SOURCES_aarch64=(
 	src/core/aarch64/gic.c
 	src/core/aarch64/scheduler.c
 	src/core/aarch64/threads.c
+	src/core/aarch64/acpi.c
 
 	src/core/generic/locks.c
 
@@ -201,6 +213,26 @@ OBJECTS=(
 	# statically link the compiler-rt builtins library
 	"${COMPILER_RT_BUILTINS}"
 )
+
+#
+# configuration dependent stuff
+#
+
+if [ "${USE_UBSAN}" -eq 1 ]; then
+	SOURCES+=(
+		src/ubsan/ubsan.c
+	)
+	CFLAGS+=(
+		-fsanitize=undefined
+	)
+
+	if [ "${USE_UBSAN_MINIMAL}" -eq 1 ]; then
+		CFLAGS+=(
+			-fsanitize-minimal-runtime
+			-DUBSAN_MINIMAL=1
+		)
+	fi
+fi
 
 #
 # this is where the compilation actually starts

@@ -28,6 +28,7 @@
 #include <ferro/core/entry.h>
 #include <ferro/core/console.h>
 #include <ferro/core/interrupts.h>
+#include <ferro/core/acpi.h>
 
 void fpanicv(const char* reason_format, va_list args) {
 	//__builtin_debugtrap();
@@ -35,9 +36,11 @@ void fpanicv(const char* reason_format, va_list args) {
 	// we're going to die, so don't let anyone interrupt us
 	fint_disable();
 
-	// technically, we shouldn't do this because the panic might've come from there, but oh well
-	fconsole_logfv(reason_format, args);
-	fconsole_log("\n");
+	if (reason_format) {
+		// technically, we shouldn't do this because the panic might've come from there, but oh well
+		fconsole_logfv(reason_format, args);
+		fconsole_log("\n");
+	}
 
 	// for now
 	fentry_hang_forever();

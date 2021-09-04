@@ -192,3 +192,7 @@ void facpi_init(facpi_rsdp_t* physical_rsdp) {
 		tables[i] = header;
 	}
 };
+
+FERRO_NO_RETURN void facpi_reboot(void) {
+	facpi_reboot_early();
+};

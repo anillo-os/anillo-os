@@ -54,6 +54,8 @@ QEMU_ARGS=(
 	-net none
 )
 
+BUILD_TOO=0
+
 for ((i=0; i <= "${#@}"; ++i)); do
 	arg="${!i}"
 	if [ "x${arg}" == "x-d" ] || [ "x${arg}" == "x--debug" ]; then
@@ -78,6 +80,9 @@ for ((i=0; i <= "${#@}"; ++i)); do
 		if [ "x${SERIAL}" != "xpty" ] && [ "x${SERIAL}" != "xstdio" ] && [ "x${SERIAL}" != "xnone" ]; then
 			die-red "Unrecognized/unsupported serial option: ${SERIAL}"
 		fi
+	fi
+	if [ "x${arg}" == "x-b" ] || [ "x${arg}" == "x--build" ]; then
+		BUILD_TOO=1
 	fi
 done
 
@@ -184,7 +189,9 @@ setup-efi-images() {
 
 setup-efi-images || die-red "Failed to set up EFI firmware/variables"
 
-"${SOURCE_ROOT}/scripts/compile.sh" || command-failed
+if [ "${BUILD_TOO}" -eq 1 ]; then
+	"${SOURCE_ROOT}/scripts/compile.sh" || command-failed
+fi
 
 cleanup-disk() {
 	rm "${DISK_PATH}"

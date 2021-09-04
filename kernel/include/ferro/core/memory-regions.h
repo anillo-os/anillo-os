@@ -40,43 +40,78 @@ FERRO_DECLARATIONS_BEGIN;
  */
 
 FERRO_ENUM(int, ferro_memory_region_type) {
-	// default value; not a valid value
+	/**
+	 * Default value; not a valid value.
+	 */
 	ferro_memory_region_type_none,
 
-	// general multi-purpose memory
+	/**
+	 * General multi-purpose memory.
+	 */
 	ferro_memory_region_type_general,
 
-	// general multi-purpose memory that also happens to be non-volatile
+	/**
+	 * General multi-purpose memory that also happens to be non-volatile.
+	 */
 	ferro_memory_region_type_nvram,
 
-	// memory that is reserved for hardware use; never to be touched by the OS
+	/**
+	 * Memory that is reserved for hardware use.
+	 *
+	 * Not to be arbitrarily touched by the OS, but some devices (e.g. framebuffers, interrupt controllers, etc.) might use this kind of memory for MMIO, in which case
+	 * the OS may access/modify the memory **according to how the device dictates it must be used**.
+	 */
 	ferro_memory_region_type_hardware_reserved,
 
-	// memory that is reserved until ACPI is enabled; afterwards, it becomes general memory
+	/**
+	 * Memory that is reserved until ACPI is enabled.
+	 *
+	 * Afterwards, it becomes general memory.
+	 */
 	ferro_memory_region_type_acpi_reclaim,
 
-	// memory reserved for processor code; never to be touched by the OS
+	/**
+	 * Memory reserved for processor code.
+	 *
+	 * Never to be touched by the OS.
+	 */
 	ferro_memory_region_type_pal_code,
 
-	// memory where special kernel data is stored on boot; this is usually permanent
+	/**
+	 * Memory where special kernel data is stored on boot.
+	 *
+	 * This is usually permanent.
+	 */
 	ferro_memory_region_type_kernel_reserved,
 
-	// memory where the kernel's entry stack is stored; this is reserved in early boot but can be turned into general memory later
+	/**
+	 * Memory where the kernel's entry stack is stored.
+	 *
+	 * This is reserved in early boot but can be turned into general memory later.
+	 */
 	ferro_memory_region_type_kernel_stack,
 };
 
 typedef struct ferro_memory_region ferro_memory_region_t;
 struct ferro_memory_region {
-	// what kind of memory this memory region is
+	/**
+	 * What kind of memory this memory region is.
+	 */
 	ferro_memory_region_type_t type;
 
-	// physical start address of this memory region
+	/**
+	 * The physical start address of this memory region.
+	 */
 	uintptr_t physical_start;
 
-	// virtual start address of this memory region
+	/**
+	 * The virtual start address of this memory region.
+	 */
 	uintptr_t virtual_start;
 
-	// number of 4KiB pages this memory region occupies
+	/**
+	 * The number of 4KiB pages this memory region occupies.
+	 */
 	size_t page_count;
 };
 
@@ -86,4 +121,6 @@ struct ferro_memory_region {
 
 FERRO_DECLARATIONS_END;
 
-#endif // _FERRO_CORE_MEMORY_REGIONS_H_
+#endif /**
+	 * _FERRO_CORE_MEMORY_REGIONS_H_
+	 */

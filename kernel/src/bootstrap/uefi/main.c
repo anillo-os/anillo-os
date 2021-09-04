@@ -159,7 +159,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	uintptr_t rsdp_pointer = 0;
 
 	// 2MiB stack
-	size_t stack_size = 0x200000;
+	size_t stack_size = 2ULL * 1024 * 1024;
 	uintptr_t stack_base = round_down_power_of_2((uintptr_t)__builtin_frame_address(0), stack_size);
 	//ferro_memory_region_type_kernel_stack
 
@@ -176,6 +176,8 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 #if PRINT_BASE
 	printf("Info: UEFI image base: %p\n", (void*)(uintptr_t)sysconf(_SC_IMAGE_BASE));
 #endif
+
+	printf("Info: Kernel stack physical address: %p\n", (void*)stack_base);
 
 	graphics_available = sysconf(_SC_FB_AVAILABLE);
 	if (graphics_available) {
@@ -629,7 +631,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 				++j;
 			}
 
-			if ((uintptr_t)physical_address == ferro_region->physical_start) {
+			if (physical_address == ferro_region->physical_start) {
 				if (ferro_region->page_count > page_count) {
 					// we have to create a new entry for the remaining memory
 					ferro_memory_region_t* new_ferro_region = &ferro_memory_map[j + 1];
@@ -644,7 +646,13 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 				ferro_region->type = new_type;
 				ferro_region->virtual_start = virtual_address;
 				ferro_region->page_count = page_count;
-				break;
+			} else if (physical_address < ferro_region->physical_start && ferro_region->physical_start < physical_address + (page_count * 0x1000)) {
+				// this region lies within our target region.
+				// it must die.
+				ferro_region->type = ferro_memory_region_type_none;
+				ferro_region->physical_start = 0;
+				ferro_region->virtual_start = 0;
+				ferro_region->page_count = 0;
 			}
 		}
 	}

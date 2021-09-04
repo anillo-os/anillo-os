@@ -20,6 +20,8 @@
  * @file
  *
  * x86_64 interrupt handling.
+ *
+ * This file also implements facpi_reboot_early().
  */
 
 #include <ferro/core/interrupts.h>
@@ -977,4 +979,16 @@ void fint_init(void) {
 
 	// enable interrupts
 	fint_enable();
+};
+
+FERRO_NO_RETURN void facpi_reboot_early(void) {
+	// the idea here is to corrupt the IDT and the processor should triple-fault
+	fint_disable();
+	memset(&idt, 0, sizeof(idt));
+
+	// now trigger an interrupt, which should make us triple-fault
+	__asm__ volatile("int3" ::: );
+
+	// if we get here, well, crap.
+	__builtin_unreachable();
 };

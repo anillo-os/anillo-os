@@ -47,6 +47,8 @@
 
 #define FERRO_ALWAYS_INLINE static __attribute__((always_inline))
 
+#define FERRO_NEVER_INLINE __attribute__((noinline))
+
 #define FERRO_NO_RETURN __attribute__((noreturn))
 
 #define FERRO_PACKED_STRUCT(name) \

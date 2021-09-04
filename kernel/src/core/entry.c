@@ -217,6 +217,8 @@ static void do_work2(void* data) {
 
 static void do_work3(void* data) {
 	fconsole_log("The third worker was called!\n");
+
+	facpi_reboot();
 };
 
 static void ferro_entry_threaded(void* data) {
