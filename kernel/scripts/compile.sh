@@ -39,6 +39,9 @@ CFLAGS=(
 	-ggdb3
 	-fno-plt
 	-fno-pic
+
+	# TEMPORARY until we start saving and restoring floating point registers
+	-mno-implicit-float
 )
 ASFLAGS=(
 	"-I${KERNEL_SOURCE_ROOT}/include"
