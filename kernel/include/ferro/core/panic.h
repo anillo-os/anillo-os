@@ -28,6 +28,7 @@
 #include <stdarg.h>
 
 #include <ferro/base.h>
+#include <ferro/error.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -54,6 +55,16 @@ FERRO_NO_RETURN void fpanic(const char* reason_format, ...);
  */
 FERRO_PRINTF(1, 0)
 FERRO_NO_RETURN void fpanicv(const char* reason_format, va_list args);
+
+/**
+ * A useful macro to automatically panic when the result of an expression is not ::ferr_ok.
+ */
+#define fpanic_status(expr) ({ \
+		ferr_t status = (expr); \
+		if (status != ferr_ok) { \
+			fpanic("Expression returned non-OK status %d; %s @ %s:%d", status, #expr, __FILE__, __LINE__); \
+		} \
+	})
 
 /**
  * @}
