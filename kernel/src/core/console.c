@@ -111,6 +111,28 @@ out:
 	return utf32_char;
 };
 
+static uint8_t utf32_to_utf8(uint32_t code_point, char* out_bytes) {
+	if (code_point < 0x80) {
+		out_bytes[0] = code_point;
+		return 1;
+	} else if (code_point < 0x800) {
+		out_bytes[0] = 0xc0 | ((code_point & (0x1fULL << 6)) >> 6);
+		out_bytes[1] = 0x80 | (code_point & 0x3f);
+		return 2;
+	} else if (code_point < 0x10000) {
+		out_bytes[0] = 0xe0 | ((code_point & (0x0fULL << 12)) >> 12);
+		out_bytes[1] = 0x80 | (code_point & (0x3fULL << 6) >> 6);
+		out_bytes[2] = 0x80 | (code_point & 0x3f);
+		return 3;
+	} else {
+		out_bytes[0] = 0xf0 | ((code_point & (0x07ULL << 18)) >> 18);
+		out_bytes[1] = 0x80 | (code_point & (0x3fULL << 12) >> 12);
+		out_bytes[2] = 0x80 | (code_point & (0x3fULL << 6) >> 6);
+		out_bytes[3] = 0x80 | (code_point & 0x3f);
+		return 4;
+	}
+};
+
 static ferr_t fconsole_put_utf32_char(uint32_t unichar, size_t x, size_t y, const ferro_fb_pixel_t* foreground, const ferro_fb_pixel_t* background) {
 	uint16_t index = (font->flags & PSF_FLAG_UNICODE) ? unicode_map[unichar] : (uint16_t)(unichar & 0xffff);
 	uint8_t* glyph;
@@ -156,31 +178,37 @@ static ferro_fb_coords_t next_location = {
 #endif
 static size_t character_padding = FCONSOLE_CHARACTER_PADDING_DEFAULT;
 static size_t line_padding = FCONSOLE_LINE_PADDING_DEFAULT;
+static fserial_t* serial_port = NULL;
+
+static const char* serial_init_sequence = "\033[m\033[2J\033[H";
 
 void fconsole_init() {
 	fconsole_log("ferro kernel version 0.0.0 starting...\n");
+};
 
-#if 0
-	const char* orig = "foo!\n";
-	char* copied = NULL;
+void fconsole_init_serial(fserial_t* serial) {
+	if (fserial_connected(serial) == ferr_ok) {
+		serial_port = serial;
 
-	if (fmempool_allocate(strlen(orig) + 1, NULL, (void*)&copied) != ferr_ok) {
-		fpanic(NULL);
+		// initialize the serial port console
+		for (size_t i = 0; i < strlen(serial_init_sequence); ++i) {
+			fserial_write(serial_port, true, serial_init_sequence[i]);
+		}
 	}
-
-	memcpy(copied, orig, strlen(orig) + 1);
-
-	fconsole_log(copied);
-
-	if (fmempool_free(copied) != ferr_ok) {
-		fpanic(NULL);
-	}
-#endif
 };
 
 static void fconsole_log_code_point(uint32_t code_point) {
 	const ferro_fb_info_t* fb_info = ferro_fb_get_info();
 	bool print_it = true;
+
+	if (serial_port) {
+		char utf8[4];
+		uint8_t utf8_length = utf32_to_utf8(code_point, &utf8[0]);
+
+		for (uint8_t i = 0; i < utf8_length; ++i) {
+			fserial_write(serial_port, true, utf8[i]);
+		}
+	}
 
 	if (!fb_info) {
 		return;

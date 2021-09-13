@@ -30,6 +30,7 @@
 
 #include <ferro/base.h>
 #include <ferro/core/framebuffer.h>
+#include <ferro/core/serial.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -49,6 +50,11 @@ FERRO_DECLARATIONS_BEGIN;
  * Initializes the console subsystem. Called on kernel startup.
  */
 void fconsole_init(void);
+
+/**
+ * Tells the console subsystem to being logging to the given serial port in addition to the framebuffer.
+ */
+void fconsole_init_serial(fserial_t* serial);
 
 /**
  * Logs a UTF-8 string to the console (without formatting).
