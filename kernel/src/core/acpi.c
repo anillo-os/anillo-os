@@ -187,7 +187,7 @@ void facpi_init(facpi_rsdp_t* physical_rsdp) {
 
 		memcpy(tmp, header->signature, 4);
 
-		fconsole_logf("info: found ACPI table at %p (mapped to %p) with signature \"%s\"\n", phys_header, header, tmp);
+		//fconsole_logf("info: found ACPI table at %p (mapped to %p) with signature \"%s\"\n", phys_header, header, tmp);
 
 		tables[i] = header;
 	}

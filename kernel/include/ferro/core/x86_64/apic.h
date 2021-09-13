@@ -27,7 +27,10 @@
 #ifndef _FERRO_CORE_X86_64_APIC_H_
 #define _FERRO_CORE_X86_64_APIC_H_
 
+#include <stdbool.h>
+
 #include <ferro/base.h>
+#include <ferro/error.h>
 #include <ferro/core/x86_64/per-cpu.h>
 
 FERRO_DECLARATIONS_BEGIN;
@@ -73,6 +76,79 @@ FERRO_ALWAYS_INLINE uint64_t farch_apic_timer_cycles_to_ns(uint64_t offset) {
 
 	return (uint64_t)tmp;
 };
+
+/**
+ * Tells the local APIC that you've finished processing the most recent interrupt.
+ */
+void farch_apic_signal_eoi(void);
+
+/**
+ * Tells the IOAPIC to map the given Global System Interrupt (GSI) to the given interrupt vector.
+ *
+ * @param gsi_number           The number that identifies the desired GSI.
+ * @param active_low           If `true`, the interrupt is processed as being active when input is low. Otherwise, if `false`, it is processed as being active when input is high.
+ * @param level_triggered      If `true`, the interrupt is processed as being level triggered. Otherwise, if `false`, it is processed as being edge triggered.
+ * @param target_vector_number The number that identifies the target interrupt vector.
+ *
+ * @note By default, when an interrupt is mapped, it is masked. To enable interrupt generation for it, it must be unmasked with farch_ioapic_unmask().
+ *
+ * @retval ferr_ok               The GSI was successfully mapped.
+ * @retval ferr_invalid_argument One or more of: 1) @p gsi_number was outside the range supported by the system, or 2) @p target_vector_number was outside the permitted range (48-254, inclusive).
+ */
+ferr_t farch_ioapic_map(uint32_t gsi_number, bool active_low, bool level_triggered, uint8_t target_vector_number);
+
+/**
+ * Tells the IOAPIC not to generate interrupts when the given Global System Interrupt (GSI) is active.
+ *
+ * @param gsi_number The number that identifies the desired GSI.
+ *
+ * @retval ferr_ok               The GSI was successfully masked.
+ * @retval ferr_invalid_argument @p gsi_number was outside the range supported by the system.
+ */
+ferr_t farch_ioapic_mask(uint32_t gsi_number);
+
+/**
+ * Tells the IOAPIC to generate interrupts when the given Global System Interrupt (GSI) is active.
+ *
+ * @param gsi_number The number that identifies the desired GSI.
+ *
+ * @retval ferr_ok               The GSI was successfully unmasked.
+ * @retval ferr_invalid_argument @p gsi_number was outside the range supported by the system.
+ */
+ferr_t farch_ioapic_unmask(uint32_t gsi_number);
+
+/**
+ * Tells the IOAPIC not to generate interrupts when the given legacy IRQ is active.
+ *
+ * @param legacy_irq_number The number that identifies the desired legacy IRQ.
+ *
+ * @retval ferr_ok               The legacy IRQ was successfully masked.
+ * @retval ferr_invalid_argument @p legacy_irq_number was outside the permitted range (0-15, inclusive).
+ */
+ferr_t farch_ioapic_mask_legacy(uint8_t legacy_irq_number);
+
+/**
+ * Tells the IOAPIC to generate interrupts when the given legacy IRQ is active.
+ *
+ * @param legacy_irq_number The number that identifies the desired legacy IRQ.
+ *
+ * @retval ferr_ok               The legacy IRQ was successfully unmasked.
+ * @retval ferr_invalid_argument @p legacy_irq_number was outside the permitted range (0-15, inclusive).
+ */
+ferr_t farch_ioapic_unmask_legacy(uint8_t legacy_irq_number);
+
+/**
+ * Tells the IOAPIC to map the given legacy IRQ to the given interrupt vector.
+ *
+ * @param legacy_irq_number    The number that identifies the desired legacy IRQ.
+ * @param target_vector_number The number that identifies the target interrupt vector.
+ *
+ * @note Just like farch_ioapic_map(), the interrupt is masked by default. To enable interrupt generation for it, it must be unmasked with farch_ioapic_unmask().
+ *
+ * @retval ferr_ok                               The legacy IRQ was mapped successfully.
+ * @retval ferr_invalid_argument One or more of: 1) @p legacy_irq_number was outside the permitted range (0-15, inclusive), or 2) @p target_vector_number was outside the permitted range (48-254, inclusive).
+ */
+ferr_t farch_ioapic_map_legacy(uint8_t legacy_irq_number, uint8_t target_vector_number);
 
 /**
  * @}

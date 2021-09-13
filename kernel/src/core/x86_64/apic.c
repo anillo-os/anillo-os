@@ -34,6 +34,7 @@
 #include <ferro/core/timers.private.h>
 #include <ferro/core/x86_64/tsc.h>
 #include <ferro/core/x86_64/msr.h>
+#include <ferro/core/mempool.h>
 #include <cpuid.h>
 
 #define HZ_PER_KHZ 1000
@@ -132,7 +133,7 @@ FERRO_OPTIONS(uint32_t, fapic_lvt_flags) {
 
 static fapic_block_t* lapic = NULL;
 
-static void ignore_interrupt(farch_int_isr_frame_t* frame) {};
+static void ignore_interrupt(fint_frame_t* frame) {};
 
 static void remap_and_disable_pic(void) {
 	for (size_t i = 0x20; i < 0x30; ++i) {
@@ -141,6 +142,7 @@ static void remap_and_disable_pic(void) {
 		}
 	}
 
+#if 0
 	// start PIC initialization
 	farch_lio_write_u8(farch_lio_port_pic_primary_command, fpic_command_initialize);
 	farch_lio_write_u8(farch_lio_port_pic_secondary_command, fpic_command_initialize);
@@ -158,6 +160,7 @@ static void remap_and_disable_pic(void) {
 	// initialize both to 8086 mode
 	farch_lio_write_u8(farch_lio_port_pic_primary_data, fpic_mode_8086);
 	farch_lio_write_u8(farch_lio_port_pic_secondary_data, fpic_mode_8086);
+#endif
 
 	// mask all interrupts on both
 	farch_lio_write_u8(farch_lio_port_pic_primary_data, 0xff);
@@ -200,9 +203,9 @@ static void disarm_timer(void) {
 };
 
 // this is the same for both the TSC-deadline and LAPIC timer backends
-static void timer_interrupt_handler(farch_int_isr_frame_t* frame) {
+static void timer_interrupt_handler(fint_frame_t* frame) {
 	// signal EOI here instead of after because it may never return here
-	lapic->end_of_interrupt = 0;
+	farch_apic_signal_eoi();
 	ftimers_backend_fire();
 };
 
@@ -400,7 +403,78 @@ static uint64_t apic_current_processor_id(void) {
 	}
 };
 
+FERRO_STRUCT(farch_ioapic_node_mmio) {
+	REGISTER(selector);
+	REGISTER(window);
+};
+
+FERRO_STRUCT(farch_ioapic_node) {
+	farch_ioapic_node_mmio_t* mmio;
+	uint8_t id;
+	uint8_t version;
+	uint8_t redirection_entry_count;
+	uint32_t gsi_base;
+};
+
+static uint32_t farch_ioapic_node_read_u32(farch_ioapic_node_t* ioapic_node, size_t index) {
+	ioapic_node->mmio->selector = index;
+	return ioapic_node->mmio->window;
+};
+
+static void farch_ioapic_node_write_u32(farch_ioapic_node_t* ioapic_node, size_t index, uint32_t value) {
+	ioapic_node->mmio->selector = index;
+	ioapic_node->mmio->window = value;
+};
+
+static uint64_t farch_ioapic_node_read_u64(farch_ioapic_node_t* ioapic_node, size_t index) {
+	return ((uint64_t)farch_ioapic_node_read_u32(ioapic_node, index + 1) << 32) | ((uint64_t)farch_ioapic_node_read_u32(ioapic_node, index));
+};
+
+static void farch_ioapic_node_write_u64(farch_ioapic_node_t* ioapic_node, size_t index, uint64_t value) {
+	farch_ioapic_node_write_u32(ioapic_node, index, (uint32_t)(value & 0xffffffffULL));
+	farch_ioapic_node_write_u32(ioapic_node, index + 1, (uint32_t)(value >> 32));
+};
+
+FERRO_ENUM(size_t, farch_ioapic_node_mmio_index) {
+	farch_ioapic_node_mmio_index_id               = 0,
+	farch_ioapic_node_mmio_index_version          = 1,
+	farch_ioapic_node_mmio_index_arbitration      = 2,
+	farch_ioapic_node_mmio_index_redirection_base = 0x10,
+};
+
 static uint64_t cpu_count = 0;
+static farch_ioapic_node_t* ioapic_nodes = NULL;
+static size_t ioapic_node_count = 0;
+
+FERRO_STRUCT(farch_apic_legacy_mapping) {
+	uint32_t gsi;
+	bool active_low;
+	bool level_triggered;
+};
+
+/**
+ * Each index in this map is a legacy IRQ number, and the value at the index indicates the Global System Interrupt (GSI) number for that legacy IRQ number.
+ *
+ * By default, they're mapped 1:1, but the MADT table might specify Interrupt Source Overrides (ISOs) which might change that mapping.
+ */
+static farch_apic_legacy_mapping_t legacy_irq_to_gsi[16] = {
+	{ .gsi =  0 },
+	{ .gsi =  1 },
+	{ .gsi =  2 },
+	{ .gsi =  3 },
+	{ .gsi =  4 },
+	{ .gsi =  5 },
+	{ .gsi =  6 },
+	{ .gsi =  7 },
+	{ .gsi =  8 },
+	{ .gsi =  9 },
+	{ .gsi = 10 },
+	{ .gsi = 11 },
+	{ .gsi = 12 },
+	{ .gsi = 13 },
+	{ .gsi = 14 },
+	{ .gsi = 15 },
+};
 
 uint64_t fcpu_id(void) {
 	return FARCH_PER_CPU(processor_id);
@@ -410,10 +484,15 @@ uint64_t fcpu_count(void) {
 	return cpu_count;
 };
 
+void farch_apic_signal_eoi(void) {
+	lapic->end_of_interrupt = 0;
+};
+
 void farch_apic_init(void) {
 	facpi_madt_t* madt = (facpi_madt_t*)facpi_find_table("APIC");
 	uintptr_t lapic_address = 0;
 	uint64_t lapic_frequency = UINT64_MAX;
+	size_t ioapic_node_index = 0;
 
 	if (!supports_apic()) {
 		fpanic("CPU has no APIC");
@@ -441,6 +520,52 @@ void farch_apic_init(void) {
 			case facpi_madt_entry_type_lapic_override: {
 				facpi_madt_entry_lapic_override_t* override = (void*)header;
 				lapic_address = override->address;
+			} break;
+			case facpi_madt_entry_type_ioapic: {
+				facpi_madt_entry_ioapic_t* ioapic_node_info = (void*)header;
+				++ioapic_node_count;
+			} break;
+			case facpi_madt_entry_type_ioapic_iso: {
+				facpi_madt_entry_ioapic_iso_t* iso = (void*)header;
+				if (iso->irq_source >= sizeof(legacy_irq_to_gsi)) {
+					fconsole_logf("warning: IRQ number for legacy IRQ mapping override is outside the range of 0-15 (inclusive): %u\n", iso->irq_source);
+				} else if (iso->bus_source != 0) {
+					fconsole_logf("warning: unknown legacy IRQ bus source: %u\n", iso->bus_source);
+				} else {
+					legacy_irq_to_gsi[iso->irq_source].gsi = iso->gsi;
+					legacy_irq_to_gsi[iso->irq_source].active_low = (iso->flags & 2) != 0;
+					legacy_irq_to_gsi[iso->irq_source].level_triggered = (iso->flags & 8) != 0;
+				}
+			} break;
+		}
+
+		offset += header->length;
+	}
+
+	if (fmempool_allocate(sizeof(farch_ioapic_node_t) * ioapic_node_count, NULL, (void*)&ioapic_nodes) != ferr_ok) {
+		fpanic("failed to allocate IOAPIC node descriptor array");
+	}
+
+	for (size_t offset = 0; offset < madt->header.length - offsetof(facpi_madt_t, entries); /* handled in the body */) {
+		facpi_madt_entry_header_t* header = (void*)&madt->entries[offset];
+
+		switch (header->type) {
+			case facpi_madt_entry_type_ioapic: {
+				facpi_madt_entry_ioapic_t* ioapic_node_info = (void*)header;
+				farch_ioapic_node_t* ioapic_node = &ioapic_nodes[ioapic_node_index++];
+				uint32_t version_value;
+
+				if (fpage_map_kernel_any((void*)(uintptr_t)ioapic_node_info->address, sizeof(farch_ioapic_node_mmio_t), (void*)&ioapic_node->mmio, fpage_page_flag_no_cache) != ferr_ok) {
+					fpanic("Failed to map IOAPIC node register space");
+				}
+
+				ioapic_node->id = (farch_ioapic_node_read_u32(ioapic_node, farch_ioapic_node_mmio_index_id) >> 24) & 0x0f;
+
+				version_value = farch_ioapic_node_read_u32(ioapic_node, farch_ioapic_node_mmio_index_version);
+				ioapic_node->version = version_value & 0xff;
+				ioapic_node->redirection_entry_count = ((version_value >> 16) & 0xff) + 1;
+
+				ioapic_node->gsi_base = ioapic_node_info->gsi_base;
 			} break;
 		}
 
@@ -495,13 +620,112 @@ void farch_apic_init(void) {
 	}
 
 	if (supports_tsc_deadline()) {
+#if 0
 		fconsole_log("info: CPU/APIC supports TSC-deadline mode; using it\n");
 		set_timer_mode(fapic_timer_mode_tsc_deadline);
 
 		tsc_deadline_backend.precision = farch_tsc_offset_to_ns(1);
 
 		ftimers_register_backend(&tsc_deadline_backend);
+#endif
 	} else {
 		fconsole_log("warning: CPU/APIC doesn't support TSC-deadline mode; no TSC-deadline timer will be available\n");
 	}
+};
+
+/**
+ * Finds the IOAPIC node that manages the given GSI.
+ *
+ * @param[in,out] in_out_gsi_number On input, this points to the GSI number whose IOAPIC node should be found.
+ *                                  On output, the GSI number relative to the IOAPIC node's base GSI will be written into it.
+ *
+ * @returns The IOAPIC node for the given GSI, or `NULL` if none was found.
+ */
+static farch_ioapic_node_t* farch_ioapic_node_for_gsi(uint32_t* in_out_gsi_number) {
+	for (size_t i = 0; i < ioapic_node_count; ++i) {
+		farch_ioapic_node_t* ioapic_node = &ioapic_nodes[i];
+		if (ioapic_node->gsi_base <= *in_out_gsi_number && ioapic_node->gsi_base + ioapic_node->redirection_entry_count > *in_out_gsi_number) {
+			*in_out_gsi_number = *in_out_gsi_number - ioapic_node->gsi_base;
+			return ioapic_node;
+		}
+	}
+	return NULL;
+};
+
+ferr_t farch_ioapic_map(uint32_t gsi_number, bool active_low, bool level_triggered, uint8_t target_vector_number) {
+	farch_ioapic_node_t* ioapic_node;
+	uint32_t low;
+	uint32_t high;
+
+	if (target_vector_number < 0x30 || target_vector_number == 0xff) {
+		return ferr_invalid_argument;
+	}
+
+	ioapic_node = farch_ioapic_node_for_gsi(&gsi_number);
+	if (!ioapic_node) {
+		return ferr_invalid_argument;
+	}
+
+	low = farch_ioapic_node_read_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2);
+	low = (low & ~(0xffULL)) | target_vector_number;
+	low = (low & ~(0x7ULL << 8)) | (0ULL << 8);
+	low = (low & ~(1ULL << 11)) | (0ULL << 11);
+	low = (low & ~(1ULL << 13)) | ((active_low ? 1ULL : 0ULL) << 13);
+	low = (low & ~(1ULL << 15)) | ((level_triggered ? 1ULL : 0ULL) << 15);
+	low |= 1ULL << 16;
+	farch_ioapic_node_write_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2, low);
+
+	high = farch_ioapic_node_read_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2 +1);
+	high = (high & ~(0xffULL << 24)) | ((fcpu_id() & 0x0fULL) << 24);
+	farch_ioapic_node_write_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2 + 1, high);
+
+	return ferr_ok;
+};
+
+ferr_t farch_ioapic_mask(uint32_t gsi_number) {
+	farch_ioapic_node_t* ioapic_node = farch_ioapic_node_for_gsi(&gsi_number);
+	if (!ioapic_node) {
+		return ferr_invalid_argument;
+	}
+
+	uint32_t low = farch_ioapic_node_read_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2);
+	low |= 1ULL << 16;
+	farch_ioapic_node_write_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2, low);
+
+	return ferr_ok;
+};
+
+ferr_t farch_ioapic_unmask(uint32_t gsi_number) {
+	farch_ioapic_node_t* ioapic_node = farch_ioapic_node_for_gsi(&gsi_number);
+	if (!ioapic_node) {
+		return ferr_invalid_argument;
+	}
+
+	uint32_t low = farch_ioapic_node_read_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2);
+	low &= ~(1ULL << 16);
+	farch_ioapic_node_write_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2, low);
+
+	return ferr_ok;
+};
+
+ferr_t farch_ioapic_mask_legacy(uint8_t legacy_irq_number) {
+	if (legacy_irq_number >= 16) {
+		return ferr_invalid_argument;
+	}
+	return farch_ioapic_mask(legacy_irq_to_gsi[legacy_irq_number].gsi);
+};
+
+ferr_t farch_ioapic_unmask_legacy(uint8_t legacy_irq_number) {
+	if (legacy_irq_number >= 16) {
+		return ferr_invalid_argument;
+	}
+	return farch_ioapic_unmask(legacy_irq_to_gsi[legacy_irq_number].gsi);
+};
+
+ferr_t farch_ioapic_map_legacy(uint8_t legacy_irq_number, uint8_t target_vector_number) {
+	if (legacy_irq_number >= 16) {
+		return ferr_invalid_argument;
+	}
+
+	return farch_ioapic_map(legacy_irq_to_gsi[legacy_irq_number].gsi, legacy_irq_to_gsi[legacy_irq_number].active_low, legacy_irq_to_gsi[legacy_irq_number].level_triggered, target_vector_number);
 };
