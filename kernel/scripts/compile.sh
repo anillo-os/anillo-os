@@ -74,6 +74,7 @@ SOURCES=(
 	src/core/threads.c
 	src/core/waitq.c
 	src/core/workers.c
+	src/core/config.c
 
 	src/libk/libk.c
 )
@@ -86,6 +87,7 @@ SOURCES_x86_64=(
 	src/core/x86_64/tsc.c
 	src/core/x86_64/scheduler.c
 	src/core/x86_64/threads.c
+	src/core/x86_64/serial.c
 
 	src/core/generic/locks.c
 
@@ -103,6 +105,7 @@ SOURCES_aarch64=(
 	src/core/aarch64/scheduler.c
 	src/core/aarch64/threads.c
 	src/core/aarch64/acpi.c
+	src/core/aarch64/serial.c
 
 	src/core/generic/locks.c
 
