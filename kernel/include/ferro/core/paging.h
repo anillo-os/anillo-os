@@ -258,7 +258,9 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 FERRO_ALWAYS_INLINE uintptr_t fpage_virtual_to_physical_early(uintptr_t virtual_address);
 
 /**
- * Translates the given virtual address into a physical address. Always valid.
+ * Translates the given virtual address into a physical address. Valid after early startup; more specifically, valid once the paging subsystem has been initialized.
+ *
+ * @returns The physical address for the given virtual address, or `UINTPTR_MAX` if it's not a valid virtual address.
  */
 uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address);
 
