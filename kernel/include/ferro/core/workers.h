@@ -121,7 +121,7 @@ FERRO_WUR ferr_t fwork_schedule(fwork_t* work, uint64_t delay);
  * @retval ferr_invalid_argument The worker function was `NULL`.
  * @retval ferr_temporary_outage There were insufficient resources to create and schedule a new work instance.
  */
-FERRO_WUR ferr_t fwork_schedule_now(fworker_f worker_function, void* data, uint64_t delay, fwork_t** out_work);
+FERRO_WUR ferr_t fwork_schedule_new(fworker_f worker_function, void* data, uint64_t delay, fwork_t** out_work);
 
 /**
  * Cancels the given work instance if it hasn't started running yet.

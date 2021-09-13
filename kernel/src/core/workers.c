@@ -38,7 +38,9 @@
 #include <ferro/core/interrupts.h>
 #include <ferro/core/entry.h>
 #include <ferro/core/threads.private.h>
+
 #include <ferro/core/console.h>
+#include <ferro/core/paging.h>
 
 #include <stdatomic.h>
 
@@ -116,6 +118,10 @@ static void fwork_queue_push_locked(fwork_queue_t* queue, fwork_t* work) {
 	work->prev = queue->tail;
 	work->next = NULL;
 	work->queue = queue;
+
+	if (work->prev) {
+		work->prev->next = work;
+	}
 
 	if (!queue->head) {
 		queue->head = work;
@@ -275,6 +281,10 @@ static fwork_queue_t* fwork_queue_new(void) {
 	flock_spin_intsafe_init(&queue->lock);
 	flock_semaphore_init(&queue->semaphore, 0);
 
+#if 0
+	fconsole_logf("work queue head phys: %p\n", (void*)fpage_virtual_to_physical((uintptr_t)&queue->head));
+#endif
+
 	if (fthread_new(worker_thread_runner, queue, NULL, 2ULL * 1024 * 1024, 0, &queue->thread) != ferr_ok) {
 		FERRO_WUR_IGNORE(fmempool_free(queue));
 		return NULL;
@@ -297,7 +307,11 @@ static fwork_queue_t* fwork_queue_new(void) {
 };
 
 void fworkers_init(void) {
+#if 0
 	worker_queue_count = fcpu_count();
+#else
+	worker_queue_count = 1;
+#endif
 
 	if (fmempool_allocate(sizeof(fthread_t*) * worker_queue_count, NULL, (void*)&worker_queues) != ferr_ok) {
 		fpanic("Failed to allocate work queue pointer array");
@@ -397,7 +411,7 @@ ferr_t fwork_schedule(fwork_t* work, uint64_t delay) {
 	return ferr_ok;
 };
 
-ferr_t fwork_schedule_now(fworker_f worker_function, void* data, uint64_t delay, fwork_t** out_work) {
+ferr_t fwork_schedule_new(fworker_f worker_function, void* data, uint64_t delay, fwork_t** out_work) {
 	fwork_t* work = NULL;
 	ferr_t status = ferr_ok;
 
@@ -469,7 +483,7 @@ static void fwork_interrupt_wakeup(void* data) {
 static void fwork_wait_raw(fwork_t* work) {
 	// TODO: warn if we're going to block while in an interrupt context.
 	//       that should definitely not be happening.
-	if (fint_is_interrupt_context()) {
+	if (fint_is_interrupt_context() || !fthread_current()) {
 		fwaitq_waiter_t waiter;
 		bool keep_looping = true;
 
@@ -516,7 +530,7 @@ static void worker_thread_runner(void* data) {
 
 		work = fwork_queue_pop(queue);
 
-		// no work? no problem.
+		// no work? there's a problem.
 		if (!work) {
 			fpanic("No work!");
 			continue;
@@ -545,7 +559,7 @@ static void worker_thread_runner(void* data) {
 		// okay, we're done running it, so mark it as such
 
 		// first lock the queue
-		fwaitq_unlock(&work->waitq);
+		fwaitq_lock(&work->waitq);
 
 		// mark it as complete
 		// anyone doing fwork_wait() should now see this and not add themselves to the waitq

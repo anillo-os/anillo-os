@@ -82,6 +82,21 @@ FERRO_ENUM(int, ferr) {
 	 * The operation was cancelled before it could be fully completed.
 	 */
 	ferr_cancelled           = -8,
+
+	/**
+	 * One or more of: 1) one of the input operands was too large to be processed, or 2) the result/output was too large to return.
+	 */
+	ferr_too_big             = -9,
+
+	/**
+	 * Some data (whether input, output, or internal) failed a checksum.
+	 */
+	ferr_invalid_checksum    = -10,
+
+	/**
+	 * The requested active/service/operation was not completed and should be restarted.
+	 */
+	ferr_should_restart      = -11,
 };
 
 /**
