@@ -75,8 +75,10 @@ void flock_semaphore_init(flock_semaphore_t* semaphore, uint64_t initial_count);
  * Increases the up-count of the given semaphore.
  *
  * @param semaphore The semaphore to operate on.
+ *
+ * @returns `true` if someone was woken up (i.e. the previous count was 0 and is now 1), or `false` otherwise.
  */
-void flock_semaphore_up(flock_semaphore_t* semaphore);
+bool flock_semaphore_up(flock_semaphore_t* semaphore);
 
 /**
  * Decreases the up-count of the given semaphore.

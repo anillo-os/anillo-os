@@ -27,23 +27,26 @@
 #include <ferro/core/threads.private.h>
 #include <ferro/core/waitq.private.h>
 #include <ferro/core/entry.h>
+#include <ferro/core/panic.h>
 
 void flock_spin_init(flock_spin_t* lock) {
 	lock->flag = 0;
 };
 
 void flock_spin_lock(flock_spin_t* lock) {
-	while (__atomic_test_and_set(&lock->flag, __ATOMIC_ACQUIRE)) {
+	while (__atomic_exchange_n(&lock->flag, 1, __ATOMIC_ACQUIRE) != 0) {
 		farch_lock_spin_yield();
 	}
 };
 
 bool flock_spin_try_lock(flock_spin_t* lock) {
-	return !__atomic_test_and_set(&lock->flag, __ATOMIC_ACQUIRE);
+	return __atomic_exchange_n(&lock->flag, 1, __ATOMIC_ACQUIRE) == 0;
 };
 
 void flock_spin_unlock(flock_spin_t* lock) {
-	__atomic_clear(&lock->flag, __ATOMIC_RELEASE);
+	if (__atomic_exchange_n(&lock->flag, 0, __ATOMIC_RELEASE) != 1) {
+		fpanic("Lock unlocked, but was not previously locked");
+	}
 };
 
 void flock_spin_intsafe_init(flock_spin_intsafe_t* lock) {
@@ -94,7 +97,7 @@ void flock_semaphore_init(flock_semaphore_t* semaphore, uint64_t initial_count) 
 };
 
 static void flock_semaphore_interrupt_wakeup(void* data) {
-	bool* keep_looping = data;
+	volatile bool* keep_looping = data;
 	*keep_looping = false;
 };
 
@@ -102,11 +105,13 @@ static void flock_semaphore_interrupt_wakeup(void* data) {
 static void flock_semaphore_wait(flock_semaphore_t* semaphore) {
 	// TODO: warn if we're going to block while in an interrupt context.
 	//       that should definitely not be happening.
-	if (fint_is_interrupt_context()) {
-		fwaitq_waiter_t waiter;
-		bool keep_looping = true;
 
-		fwaitq_waiter_init(&waiter, flock_semaphore_interrupt_wakeup, &keep_looping);
+	// the `!fthread_current()` check is in case we're trying to lock a semaphore early in kernel startup, where we don't have threads yet
+	if (fint_is_interrupt_context() || !fthread_current()) {
+		fwaitq_waiter_t waiter;
+		volatile bool keep_looping = true;
+
+		fwaitq_waiter_init(&waiter, flock_semaphore_interrupt_wakeup, (void*)&keep_looping);
 
 		fwaitq_add_locked(&semaphore->waitq, &waiter);
 		fwaitq_unlock(&semaphore->waitq);
@@ -120,12 +125,15 @@ static void flock_semaphore_wait(flock_semaphore_t* semaphore) {
 	}
 };
 
-void flock_semaphore_up(flock_semaphore_t* semaphore) {
+bool flock_semaphore_up(flock_semaphore_t* semaphore) {
+	bool awoken = false;
 	fwaitq_lock(&semaphore->waitq);
 	if (semaphore->up_count++ == 0) {
 		fwaitq_wake_many_locked(&semaphore->waitq, 1);
+		awoken = true;
 	}
 	fwaitq_unlock(&semaphore->waitq);
+	return awoken;
 };
 
 void flock_semaphore_down(flock_semaphore_t* semaphore) {
