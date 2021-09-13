@@ -48,9 +48,20 @@ void* memclone(void* restrict destination, const void* restrict source, size_t n
 };
 
 size_t strlen(const char* string) {
+	// strlen is used often enough that it's worth it to have it be completely separate from strnlen (rather than calling strnlen with a SIZE_MAX limit)
 	size_t count = 0;
 	while (*(string++) != '\0')
 		++count;
+	return count;
+};
+
+size_t strnlen(const char* string, size_t max_length) {
+	size_t count = 0;
+	while (max_length > 0 && *string != '\0') {
+		++string;
+		++count;
+		--max_length;
+	}
 	return count;
 };
 
@@ -111,4 +122,128 @@ int memcmp(const void* _first, const void* _second, size_t n) {
 	}
 
 	return 0;
+};
+
+int isspace(int character) {
+	switch (character) {
+		case ' ':
+		case '\t':
+		case '\n':
+		case '\v':
+		case '\f':
+		case '\r':
+			return 1;
+		default:
+			return 0;
+	}
+};
+
+/**
+ * @returns The value of the given digit in the given base, or `UINT8_MAX` otherwise.
+ */
+FERRO_ALWAYS_INLINE uint8_t digit_value_for_base(char digit, uint8_t base) {
+	uint8_t value = 0;
+
+	if (digit >= '0' && digit <= '9') {
+		value = digit - '0';
+	} else if (digit >= 'a' && digit <= 'z') {
+		value = (digit - 'a') + 10;
+	} else if (digit >= 'A' && digit <= 'Z') {
+		value = (digit - 'A') + 10;
+	} else {
+		return UINT8_MAX;
+	}
+
+	if (value >= base) {
+		return UINT8_MAX;
+	} else {
+		return value;
+	}
+};
+
+ferr_t libk_string_to_integer_unsigned(const char* string, size_t string_length, const char** out_one_past_number_end, uint8_t base, uintmax_t* out_integer) {
+	uintmax_t result = 0;
+	ferr_t status = ferr_invalid_argument;
+
+	if (!string || !out_integer || base < 2 || base > 36) {
+		return ferr_invalid_argument;
+	}
+
+	while (string_length > 0 && isspace(*string)) {
+		++string;
+		--string_length;
+	}
+
+	while (string_length > 0) {
+		uint8_t value = digit_value_for_base(*string, base);
+
+		if (value == UINT8_MAX) {
+			break;
+		}
+
+		if (__builtin_mul_overflow(result, base, &result)) {
+			status = ferr_too_big;
+			break;
+		}
+
+		if (__builtin_add_overflow(result, value, &result)) {
+			status = ferr_too_big;
+			break;
+		}
+
+		// once we have at least one digit parsed, we can return success.
+		status = ferr_ok;
+
+		--string_length;
+		++string;
+	}
+
+	if (status == ferr_ok) {
+		*out_integer = result;
+		if (out_one_past_number_end) {
+			*out_one_past_number_end = string;
+		}
+	}
+
+	return status;
+};
+
+char* strchr(const char* string, int character) {
+	return strnchr(string, character, SIZE_MAX);
+};
+
+char* strnchr(const char* string, int character, size_t length) {
+	if (character == '\0') {
+		return (char*)(string + strnlen(string, length));
+	}
+
+	while (length > 0 && *string != '\0') {
+		if (*string == character) {
+			return (char*)string;
+		}
+		++string;
+		--length;
+	}
+
+	return NULL;
+};
+
+char* strpbrk(const char* haystack, const char* needle) {
+	return strnpbrk(haystack, needle, SIZE_MAX);
+};
+
+char* strnpbrk(const char* haystack, const char* needle, size_t length) {
+	size_t needle_length = strlen(needle);
+
+	while (length > 0 && *haystack != '\0') {
+		for (size_t i = 0; i < needle_length; ++i) {
+			if (*haystack == needle[i]) {
+				return (char*)haystack;
+			}
+		}
+		++haystack;
+		--length;
+	}
+
+	return NULL;
 };

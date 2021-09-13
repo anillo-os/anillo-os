@@ -26,12 +26,6 @@
 #include <ferro/bits.h>
 #include <libk/libk.h>
 
-#define max(a, b) ({ \
-		__typeof__(a) _a = (a); \
-		__typeof__(b) _b = (b); \
-		(_a > _b) ? _a : _b; \
-	})
-
 fuefi_status_t errstat = fuefi_status_ok;
 int errno = 0;
 
