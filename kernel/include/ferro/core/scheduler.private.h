@@ -54,7 +54,38 @@ FERRO_STRUCT(fsched_info) {
 
 	// the ID of the last-armed timer
 	ftimers_id_t last_timer_id;
+
+	/**
+	 * If `true`, this queue is active and new threads can be scheduled on it.
+	 * Otherwise, if `false`, this queue in inactive and new threads should NOT be scheduled on it.
+	 */
+	bool active;
 };
+
+FERRO_STRUCT(fsched_thread_private) {
+	fsched_info_t* queue;
+	fthread_t* global_next;
+	fthread_t** global_prev;
+};
+
+extern fsched_info_t** fsched_infos;
+extern size_t fsched_info_count;
+
+/**
+ * The suspension queue is shared among all CPUs.
+ * It's where threads that get suspended are placed. When they're resumed, they can be assigned to any CPU.
+ */
+extern fsched_info_t fsched_suspended;
+
+/**
+ * The type of the callback to pass to fsched_foreach_thread().
+ *
+ * If the callback returns `true`, iteration continues. Otherwise, if it returns `false`, iteration stops early (like `break` does in loops).
+ *
+ * @note This callback is invoked with some internal scheduler locks taken! Therefore, it is unsafe to call some scheduler and thread functions on the thread.
+ *       Namely, asking the scheduler to manage some new threads or stop managing existing ones (including via killing them) is not allowed.
+ */
+typedef bool (*fsched_thread_iterator_f)(void* data, fthread_t* thread);
 
 /**
  * Arms the preemption timer.
@@ -118,6 +149,15 @@ void farch_sched_init(void);
  * @note If the given thread is the current thread, this function MUST NOT return.
  */
 void fsched_preempt_thread(fthread_t* thread);
+
+/**
+ * Invokes the given callback for every thread currently being managed by the scheduler.
+ *
+ * @param iterator          The callback to invoke. See ::fsched_thread_iterator_f for more details about the callback.
+ * @param data              User-defined data to pass to the callback.
+ * @param include_suspended Whether to include suspended threads as well (if `true`).
+ */
+void fsched_foreach_thread(fsched_thread_iterator_f iterator, void* data, bool include_suspended);
 
 /**
  * @}

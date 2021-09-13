@@ -281,6 +281,8 @@ ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_ba
 
 	new_thread->timer_id = FTIMERS_ID_INVALID;
 
+	new_thread->thread.id = FTHREAD_ID_INVALID;
+
 	// the thread must start as suspended
 	fthread_state_execution_write_locked(&new_thread->thread, fthread_state_execution_suspended);
 

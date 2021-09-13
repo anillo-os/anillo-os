@@ -123,6 +123,10 @@ FERRO_ENUM(uint8_t, fthread_timeout_type) {
 	fthread_timeout_type_ns_absolute_monotonic,
 };
 
+typedef uint64_t fthread_id_t;
+
+#define FTHREAD_ID_INVALID UINT64_MAX
+
 FERRO_STRUCT(fthread) {
 	/**
 	 * #prev and #next are owned by the thread manager responsible for this thread.
@@ -180,6 +184,11 @@ FERRO_STRUCT(fthread) {
 	 * If the thread is currently suspended and this is not `NULL`, this is the waitq that the thread is currently waiting for.
 	 */
 	fwaitq_t* waitq;
+
+	/**
+	 * Assigned by the thread manager when it starts managing the thread.
+	 */
+	fthread_id_t id;
 };
 
 /**

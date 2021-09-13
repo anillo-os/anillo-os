@@ -52,17 +52,77 @@ static void manager_resume(fthread_t* thread);
 static void manager_interrupted(fthread_t* thread);
 static void manager_ending_interrupt(fthread_t* thread);
 
-static fsched_info_t** infos = NULL;
-static size_t info_count = 0;
-
-// the suspension circular queue is shared among all CPUs.
-// it's where threads that get suspended are placed. when they're resumed, they can be assigned to any CPU.
-static fsched_info_t suspended = {0};
+fsched_info_t** fsched_infos = NULL;
+size_t fsched_info_count = 0;
+fsched_info_t fsched_suspended = {0};
 
 // these are scheduled when a CPU has nothing else to do.
 // note that these aren't actually scheduled; they're invisible to queues.
 // they're just context-switched to and from.
 static fthread_t** idle_threads = NULL;
+
+static _Atomic fthread_id_t next_id = 0;
+
+static fthread_t* global_thread_list = NULL;
+
+/**
+ * Protects ::global_thread_list.
+ *
+ * Yes, I know, this is terrible, but I'm feeling lazy right now and can't think any better alternative.
+ * An R/W lock would probably be better here, once I get around to implementing those.
+ */
+static flock_spin_intsafe_t global_thread_lock = FLOCK_SPIN_INTSAFE_INIT;
+
+static void global_thread_list_add(fthread_t* thread) {
+	fthread_private_t* private_thread = (void*)thread;
+	fsched_thread_private_t* sched_private = private_thread->manager_private;
+
+	flock_spin_intsafe_lock(&global_thread_lock);
+
+	sched_private->global_next = global_thread_list;
+	sched_private->global_prev = &global_thread_list;
+
+	if (sched_private->global_next) {
+		fthread_private_t* next_private_thread = (void*)sched_private->global_next;
+		fsched_thread_private_t* next_sched_private = next_private_thread->manager_private;
+
+		next_sched_private->global_prev = &sched_private->global_next;
+	}
+
+	*sched_private->global_prev = thread;
+
+	flock_spin_intsafe_unlock(&global_thread_lock);
+};
+
+static void global_thread_list_remove(fthread_t* thread) {
+	fthread_private_t* private_thread = (void*)thread;
+	fsched_thread_private_t* sched_private = private_thread->manager_private;
+
+	flock_spin_intsafe_lock(&global_thread_lock);
+
+	*sched_private->global_prev = sched_private->global_next;
+
+	if (sched_private->global_next) {
+		fthread_private_t* next_private_thread = (void*)sched_private->global_next;
+		fsched_thread_private_t* next_sched_private = next_private_thread->manager_private;
+
+		next_sched_private->global_prev = sched_private->global_prev;
+	}
+
+	flock_spin_intsafe_unlock(&global_thread_lock);
+};
+
+FERRO_ALWAYS_INLINE fthread_id_t get_next_id(void) {
+	fthread_id_t result;
+
+retry:
+	result = next_id++;
+	if (result == FTHREAD_ID_INVALID) {
+		goto retry;
+	}
+
+	return result;
+};
 
 static fthread_manager_t scheduler_thread_manager = {
 	.kill = manager_kill,
@@ -73,13 +133,14 @@ static fthread_manager_t scheduler_thread_manager = {
 };
 
 fsched_info_t* fsched_per_cpu_info(void) {
-	return infos[fcpu_id()];
+	return fsched_infos[fcpu_id()];
 };
 
 // returns with the queue in the same lock state as on entry
 static void remove_from_queue(fthread_t* thread, bool queue_is_locked) {
 	fthread_private_t* private_thread = (void*)thread;
-	fsched_info_t* old_queue = private_thread->manager_private;
+	fsched_thread_private_t* sched_private = private_thread->manager_private;
+	fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
 
 	if (!thread->prev || !thread->next || !old_queue) {
 		if (thread->prev || thread->next || old_queue) {
@@ -110,7 +171,7 @@ static void remove_from_queue(fthread_t* thread, bool queue_is_locked) {
 
 	thread->next = NULL;
 	thread->prev = NULL;
-	private_thread->manager_private = NULL;
+	sched_private->queue = NULL;
 
 	if (!queue_is_locked) {
 		flock_spin_intsafe_unlock(&old_queue->lock);
@@ -120,7 +181,8 @@ static void remove_from_queue(fthread_t* thread, bool queue_is_locked) {
 // returns with the queue in the same lock state as on entry
 static void add_to_queue(fthread_t* thread, fsched_info_t* new_queue, bool new_queue_is_locked) {
 	fthread_private_t* private_thread = (void*)thread;
-	fsched_info_t* old_queue = private_thread->manager_private;
+	fsched_thread_private_t* sched_private = private_thread->manager_private;
+	fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
 
 	if (thread->prev || thread->next || old_queue) {
 		if (!thread->prev || !thread->next || !old_queue) {
@@ -147,7 +209,7 @@ static void add_to_queue(fthread_t* thread, fsched_info_t* new_queue, bool new_q
 		new_queue->tail = thread;
 	}
 
-	private_thread->manager_private = new_queue;
+	sched_private->queue = new_queue;
 
 	++new_queue->count;
 
@@ -252,23 +314,24 @@ static void scheduler_idle(void* data) {
 FERRO_NO_RETURN void fsched_init(fthread_t* thread) {
 	fthread_private_t* private_thread = (void*)thread;
 	fsched_info_t* this_info = NULL;
+	fsched_thread_private_t* sched_private = NULL;
 
 	farch_sched_init();
 
-	info_count = fcpu_count();
+	fsched_info_count = fcpu_count();
 
-	if (fmempool_allocate(sizeof(fsched_info_t*) * info_count, NULL, (void*)&infos) != ferr_ok) {
+	if (fmempool_allocate(sizeof(fsched_info_t*) * fsched_info_count, NULL, (void*)&fsched_infos) != ferr_ok) {
 		fpanic("Failed to allocate scheduler information pointer array");
 	}
 
-	if (fmempool_allocate(sizeof(fthread_t*) * info_count, NULL, (void*)&idle_threads) != ferr_ok) {
+	if (fmempool_allocate(sizeof(fthread_t*) * fsched_info_count, NULL, (void*)&idle_threads) != ferr_ok) {
 		fpanic("Failed to allocate idle thread pointer array");
 	}
 
-	for (size_t i = 0; i < info_count; ++i) {
+	for (size_t i = 0; i < fsched_info_count; ++i) {
 		fthread_private_t* private_idle_thread;
 
-		if (fmempool_allocate(sizeof(fsched_info_t), NULL, (void*)&infos[i]) != ferr_ok) {
+		if (fmempool_allocate(sizeof(fsched_info_t), NULL, (void*)&fsched_infos[i]) != ferr_ok) {
 			fpanic("Failed to allocate scheduler information structure for CPU %lu", i);
 		}
 
@@ -280,21 +343,32 @@ FERRO_NO_RETURN void fsched_init(fthread_t* thread) {
 		private_idle_thread->manager = &scheduler_thread_manager;
 		private_idle_thread->manager_private = NULL;
 
-		flock_spin_intsafe_init(&infos[i]->lock);
-		infos[i]->head = NULL;
-		infos[i]->tail = NULL;
-		infos[i]->count = 0;
-		infos[i]->last_timer_id = FTIMERS_ID_INVALID;
+		flock_spin_intsafe_init(&fsched_infos[i]->lock);
+		fsched_infos[i]->head = NULL;
+		fsched_infos[i]->tail = NULL;
+		fsched_infos[i]->count = 0;
+		fsched_infos[i]->last_timer_id = FTIMERS_ID_INVALID;
+		fsched_infos[i]->active = false; // on startup, other CPUs are still sleeping
 	}
 
 	this_info = fsched_per_cpu_info();
+
+	this_info->active = true;
+
+	if (fmempool_allocate(sizeof(fsched_thread_private_t), NULL, (void*)&sched_private) != ferr_ok) {
+		fpanic("Failed to allocate private thread manager context for scheduler for bootstrap thread");
+	}
 
 	flock_spin_intsafe_lock(&thread->lock);
 
 	thread->prev = thread;
 	thread->next = thread;
+	thread->id = get_next_id();
+	sched_private->global_prev = NULL;
+	sched_private->global_next = NULL;
+	sched_private->queue = this_info;
 	private_thread->manager = &scheduler_thread_manager;
-	private_thread->manager_private = this_info;
+	private_thread->manager_private = sched_private;
 
 	thread->state &= ~fthread_state_pending_suspend;
 	fthread_state_execution_write_locked(thread, fthread_state_execution_running);
@@ -303,28 +377,30 @@ FERRO_NO_RETURN void fsched_init(fthread_t* thread) {
 	this_info->tail = thread;
 	++this_info->count;
 
+	global_thread_list_add(thread);
+
 	flock_spin_intsafe_unlock(&thread->lock);
 
 	// this will also arm the timer
 	fsched_bootstrap(thread);
 };
 
-// must hold NO locks
+// must hold NO queue locks
 // returns a scheduler information structure with its lock held
 static fsched_info_t* find_lightest_load(void) {
 	fsched_info_t* result = NULL;
-	for (size_t i = 0; i < info_count; ++i) {
+	for (size_t i = 0; i < fsched_info_count; ++i) {
 		size_t prev_count = result ? result->count : SIZE_MAX;
 		if (result) {
 			flock_spin_intsafe_unlock(&result->lock);
 		}
 		// yes, dropping the previous one's lock before acquire this one's lock means the count might've changed.
 		// however, if we hold the lock, we can run into deadlocks; so let's prefer to be a little bit inaccurate rather than frozen.
-		flock_spin_intsafe_lock(&infos[i]->lock);
-		if (prev_count > infos[i]->count) {
-			result = infos[i];
+		flock_spin_intsafe_lock(&fsched_infos[i]->lock);
+		if (fsched_infos[i]->active && prev_count > fsched_infos[i]->count) {
+			result = fsched_infos[i];
 		} else {
-			flock_spin_intsafe_unlock(&infos[i]->lock);
+			flock_spin_intsafe_unlock(&fsched_infos[i]->lock);
 			flock_spin_intsafe_lock(&result->lock);
 		}
 	}
@@ -334,7 +410,8 @@ static fsched_info_t* find_lightest_load(void) {
 static void manager_kill(fthread_t* thread) {
 	fthread_private_t* private_thread = (void*)thread;
 	fthread_state_execution_t prev_exec_state = fthread_state_execution_read_locked(thread);
-	fsched_info_t* old_queue = private_thread->manager_private;
+	fsched_thread_private_t* sched_private = private_thread->manager_private;
+	fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
 
 	// at this point, the threads subsystem has already ensured that:
 	//   * the thread is not already dead.
@@ -367,6 +444,12 @@ static void manager_kill(fthread_t* thread) {
 		fthread_state_execution_write_locked(thread, fthread_state_execution_dead);
 		thread->state &= ~(fthread_state_pending_death | fthread_state_pending_suspend);
 		remove_from_queue(thread, false);
+
+		global_thread_list_remove(thread);
+
+		fthread_died(thread);
+		fthread_release(thread); // this releases the thread manager's reference on it
+
 		return;
 	}
 
@@ -411,22 +494,23 @@ static void timeout_callback(void* data) {
 static void manager_suspend(fthread_t* thread) {
 	fthread_private_t* private_thread = (void*)thread;
 	fthread_state_execution_t prev_exec_state = fthread_state_execution_read_locked(thread);
-	fsched_info_t* old_queue = private_thread->manager_private;
+	fsched_thread_private_t* sched_private = private_thread->manager_private;
+	fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
 
 	// at this point, the threads subsystem has already ensured that:
 	//   * the thread is neither dead nor dying.
-	//   * the thread is neither suspended nor pending suspension.
+	//   * the thread is neither fsched_suspended nor pending suspension.
 	//   * the pending suspension bit has been set.
 
 	// if it's not currently running, we can take care of it right now
 	if (prev_exec_state != fthread_state_execution_running && prev_exec_state != fthread_state_execution_interrupted) {
 		remove_from_queue(thread, false);
 
-		// the suspension is no longer pending; it's now fully suspended
+		// the suspension is no longer pending; it's now fully fsched_suspended
 		fthread_state_execution_write_locked(thread, fthread_state_execution_suspended);
 		thread->state &= ~fthread_state_pending_suspend;
 
-		add_to_queue(thread, &suspended, false);
+		add_to_queue(thread, &fsched_suspended, false);
 
 		// if we want to wait for a waitq, add ourselves to its waiting list now
 		if (thread->waitq) {
@@ -474,20 +558,21 @@ static void manager_suspend(fthread_t* thread) {
 static void manager_resume(fthread_t* thread) {
 	fthread_private_t* private_thread = (void*)thread;
 	fthread_state_execution_t prev_exec_state = fthread_state_execution_read_locked(thread);
-	fsched_info_t* old_queue = private_thread->manager_private;
+	fsched_thread_private_t* sched_private = private_thread->manager_private;
+	fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
 	fsched_info_t* new_queue = NULL;
 
 	// at this point, the threads subsystem has already ensured that:
 	//   * the thread is neither dead nor dying.
-	//   * the thread is either suspended or pending suspension.
+	//   * the thread is either fsched_suspended or pending suspension.
 	//   * if it was pending suspension, the pending suspension bit has been cleared.
 
 	if (prev_exec_state != fthread_state_execution_suspended) {
-		// if it's not currently suspended, it's already scheduled on a CPU.
+		// if it's not currently fsched_suspended, it's already scheduled on a CPU.
 		// in that case, clearing the pending suspension is enough to keep it running,
 		// which the threads subsystem already does for us.
 
-		// we haven't been suspended yet, so the thread isn't on the waitq's waiting list yet
+		// we haven't been fsched_suspended yet, so the thread isn't on the waitq's waiting list yet
 		thread->waitq = NULL;
 
 		return;
@@ -540,13 +625,15 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 	flock_spin_intsafe_lock(&queue->lock);
 
 	// we should only have at most a single thread waiting for death or suspension, and it should only be the active thread.
-	// all other threads aren't running, so when they're asked to be killed or suspended, they can do it immediately.
+	// all other threads aren't running, so when they're asked to be killed or fsched_suspended, they can do it immediately.
 	if ((thread->state & (fthread_state_pending_death | fthread_state_pending_suspend)) != 0) {
 		bool needs_to_suspend = false;
 		fthread_t* new_thread = thread->next;
 		fthread_state_execution_t prev_exec_state = fthread_state_execution_read_locked(thread);
+		fsched_thread_private_t* sched_private = private_thread->manager_private;
+		fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
 
-		if (private_thread->manager_private != queue) {
+		if (old_queue != queue) {
 			fpanic("Thread information inconsistency (dying thread's queue is not current CPU's queue)");
 		}
 
@@ -558,7 +645,7 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 		// save the thread's context and load the context for the new thread
 		fsched_switch(thread, new_thread);
 
-		// mark it as dead or suspended (depending on what we want)
+		// mark it as dead or fsched_suspended (depending on what we want)
 		if ((thread->state & fthread_state_pending_death) != 0) {
 			fthread_state_execution_write_locked(thread, fthread_state_execution_dead);
 		} else {
@@ -570,9 +657,9 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 		thread->state &= ~(fthread_state_pending_death | fthread_state_pending_suspend);
 		remove_from_queue(thread, true);
 
-		// if it needs to be suspended, it needs to be added to the suspension queue
+		// if it needs to be fsched_suspended, it needs to be added to the suspension queue
 		if (needs_to_suspend) {
-			add_to_queue(thread, &suspended, false);
+			add_to_queue(thread, &fsched_suspended, false);
 
 			// if we want to wait for a waitq, add ourselves to its waiting list now
 			if (thread->waitq) {
@@ -620,6 +707,8 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 			private_thread->timer_id = FTIMERS_ID_INVALID;
 			private_thread->pending_timeout_value = 0;
 
+			global_thread_list_remove(thread);
+
 			// drop the lock now; everyone else will see the thread is dead and not use it for further execution
 			flock_spin_intsafe_unlock(&thread->lock);
 			fthread_died(thread);
@@ -660,6 +749,7 @@ ferr_t fsched_manage(fthread_t* thread) {
 	fthread_private_t* private_thread = (void*)thread;
 	fthread_state_execution_t prev_exec_state;
 	ferr_t status = ferr_ok;
+	fsched_thread_private_t* sched_private = NULL;
 
 	if (!thread) {
 		status = ferr_invalid_argument;
@@ -672,7 +762,19 @@ ferr_t fsched_manage(fthread_t* thread) {
 		goto out_unlocked;
 	}
 
+	if (fmempool_allocate(sizeof(fsched_thread_private_t), NULL, (void*)&sched_private) != ferr_ok) {
+		fthread_release(thread);
+		status = ferr_invalid_argument;
+		goto out_unlocked;
+	}
+
+	sched_private->global_next = NULL;
+	sched_private->global_prev = NULL;
+	sched_private->queue = NULL;
+
 	flock_spin_intsafe_lock(&thread->lock);
+
+	private_thread->manager_private = sched_private;
 
 	prev_exec_state = fthread_state_execution_read_locked(thread);
 
@@ -682,16 +784,19 @@ ferr_t fsched_manage(fthread_t* thread) {
 		goto out;
 	}
 
-	// we now have to set everything on the thread needed to mark it as suspended
+	// we now have to set everything on the thread needed to mark it as fsched_suspended
 
 	thread->prev = NULL;
 	thread->next = NULL;
 	private_thread->manager = &scheduler_thread_manager;
+	thread->id = get_next_id();
 
 	fthread_state_execution_write_locked(thread, fthread_state_execution_suspended);
 	thread->state &= ~fthread_state_pending_suspend;
 
-	add_to_queue(thread, &suspended, false);
+	add_to_queue(thread, &fsched_suspended, false);
+
+	global_thread_list_add(thread);
 
 out:
 	flock_spin_intsafe_unlock(&thread->lock);
@@ -702,4 +807,36 @@ out:
 
 out_unlocked:
 	return status;
+};
+
+void fsched_foreach_thread(fsched_thread_iterator_f iterator, void* data, bool include_suspended) {
+	flock_spin_intsafe_lock(&global_thread_lock);
+
+	for (fthread_t* thread = global_thread_list; thread != NULL; thread = ((fsched_thread_private_t*)((fthread_private_t*)thread)->manager_private)->global_next) {
+		// this is racy because we don't have the thread lock held, but we also don't want to lock up if someone is holding the thread's lock and wants the global thread list lock
+		if (!include_suspended && fthread_execution_state(thread) == fthread_state_execution_suspended) {
+			continue;
+		}
+
+		if (!iterator(data, thread)) {
+			break;
+		}
+	}
+
+	flock_spin_intsafe_unlock(&global_thread_lock);
+};
+
+fthread_t* fsched_find(fthread_id_t thread_id) {
+	flock_spin_intsafe_lock(&global_thread_lock);
+
+	for (fthread_t* thread = global_thread_list; thread != NULL; thread = ((fsched_thread_private_t*)((fthread_private_t*)thread)->manager_private)->global_next) {
+		if (thread->id == thread_id) {
+			flock_spin_intsafe_unlock(&global_thread_lock);
+			return thread;
+		}
+	}
+
+	flock_spin_intsafe_unlock(&global_thread_lock);
+
+	return NULL;
 };

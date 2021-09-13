@@ -72,6 +72,15 @@ FERRO_NO_RETURN void fsched_init(fthread_t* thread);
 ferr_t fsched_manage(fthread_t* in_out_thread);
 
 /**
+ * Finds and returns the thread with the given thread ID, if it exists.
+ *
+ * @param thread_id The ID to look for.
+ *
+ * @returns The thread with the given ID, or `NULL` if none was found.
+ */
+fthread_t* fsched_find(fthread_id_t thread_id);
+
+/**
  * @}
  */
 
