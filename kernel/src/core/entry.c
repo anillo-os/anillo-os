@@ -39,8 +39,12 @@
 #include <ferro/core/acpi.h>
 #include <ferro/core/timers.h>
 #include <ferro/core/scheduler.h>
-#include <libk/libk.h>
 #include <ferro/core/workers.h>
+#include <ferro/core/serial.h>
+#include <ferro/core/config.h>
+#include <ferro/gdbstub/gdbstub.h>
+
+#include <libk/libk.h>
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	#include <ferro/core/x86_64/apic.h>
@@ -253,7 +257,7 @@ static void ferro_entry_threaded(void* data) {
 
 	fconsole_log("Both work items have completed, now we'll schedule a third to run in 3 seconds.\n");
 
-	if (fwork_schedule_now(do_work3, NULL, 1000000000ULL * 3, NULL) != ferr_ok) {
+	if (fwork_schedule_new(do_work3, NULL, 1000000000ULL * 3, NULL) != ferr_ok) {
 		fpanic("Failed to schedule third worker");
 	}
 };
@@ -270,6 +274,14 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 	facpi_rsdp_t* rsdp = NULL;
 	fthread_t* main_thread = NULL;
 	void* stack_base = NULL;
+	const char* config_data = NULL;
+	size_t config_data_length = 0;
+
+	const char* console_config = NULL;
+	size_t console_config_length = 0;
+
+	const char* debug_config = NULL;
+	size_t debug_config_length = 0;
 
 	for (size_t i = 0; i < boot_data_count; ++i) {
 		ferro_boot_data_info_t* curr = &boot_data[i];
@@ -305,6 +317,9 @@ jump_here_for_virtual:;
 			fb_info = curr->virtual_address;
 		} else if (curr->type == ferro_boot_data_type_rsdp_pointer) {
 			rsdp = curr->physical_address;
+		} else if (curr->type == ferro_boot_data_type_config) {
+			config_data = curr->virtual_address;
+			config_data_length = curr->size;
 		}
 	}
 
@@ -315,6 +330,13 @@ jump_here_for_virtual:;
 
 	// initialize the console subsystem
 	fconsole_init();
+
+	if (config_data) {
+		fconfig_init(config_data, config_data_length);
+	}
+
+	console_config = fconfig_get_nocopy("console", &console_config_length);
+	debug_config = fconfig_get_nocopy("debug", &debug_config_length);
 
 	// initialize the interrupts subsystem
 	fint_init();
@@ -329,6 +351,32 @@ jump_here_for_virtual:;
 	farch_gic_init();
 	farch_generic_timer_init();
 #endif
+
+	fserial_init();
+
+	if (console_config) {
+		fserial_t* serial_port = NULL;
+
+		if (console_config_length == 7 && strncmp(console_config, "serial", 6) == 0 && console_config[6] >= '1' && console_config[6] <= '4') {
+			serial_port = fserial_find(console_config[6] - '1');
+		}
+
+		if (serial_port) {
+			fconsole_init_serial(serial_port);
+		}
+	}
+
+	if (debug_config) {
+		fserial_t* serial_port = NULL;
+
+		if (debug_config_length == 7 && strncmp(debug_config, "serial", 6) == 0 && debug_config[6] >= '1' && debug_config[6] <= '4') {
+			serial_port = fserial_find(debug_config[6] - '1');
+		}
+
+		if (serial_port) {
+			fgdb_init(serial_port);
+		}
+	}
 
 	stack_base = __builtin_frame_address(0);
 	stack_base = (void*)round_down_power_of_2((uintptr_t)stack_base, FPAGE_LARGE_PAGE_SIZE);
