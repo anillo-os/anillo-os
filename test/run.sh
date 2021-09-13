@@ -53,14 +53,16 @@ SERIAL=pty
 QEMU_ARGS=(
 	-net none
 )
+DEBUG_SERIAL=0
 
 BUILD_TOO=0
 
 for ((i=0; i <= "${#@}"; ++i)); do
 	arg="${!i}"
-	if [ "x${arg}" == "x-d" ] || [ "x${arg}" == "x--debug" ]; then
+	if [ "x${arg}" == "x-qd" ] || [ "x${arg}" == "x--qemu-debug" ]; then
 		QEMU_ARGS+=(
-			-s -S
+			-S
+			-gdb tcp::2345
 		)
 	fi
 	if [ "x${arg}" == "x-cr" ] || [ "x${arg}" == "x--cpu-reset" ]; then
@@ -83,6 +85,9 @@ for ((i=0; i <= "${#@}"; ++i)); do
 	fi
 	if [ "x${arg}" == "x-b" ] || [ "x${arg}" == "x--build" ]; then
 		BUILD_TOO=1
+	fi
+	if [ "x${arg}" == "x-d" ] || [ "x${arg}" == "x--debug" ]; then
+		DEBUG_SERIAL=1
 	fi
 done
 
@@ -161,6 +166,12 @@ elif [ "${SERIAL}" == "stdio" ]; then
 	)
 fi
 
+if [ "${DEBUG_SERIAL}" -eq 1 ]; then
+	QEMU_ARGS+=(
+		-serial tcp::1234,server,nowait
+	)
+fi
+
 EFI_BOOTSTRAP="${BUILD_DIR}/kernel/src/bootstrap/uefi/ferro-bootstrap.efi"
 FERRO_KERNEL="${BUILD_DIR}/kernel/ferro"
 
@@ -216,7 +227,7 @@ create-disk() {
 	EFI_SECTOR_COUNT="$(( (${DEFAULT_EFI_SIZE} * 1024 * 1024) / ${SECTOR_SIZE} ))"
 	LAST_EFI_SECTOR="$(( ${FIRST_ALIGNED_SECTOR} + ${EFI_SECTOR_COUNT} ))"
 
-	sgdisk -n 1:${FIRST_ALIGNED_SECTOR}:${LAST_EFI_SECTOR} -t 1:0700 "${DISK_PATH}" || return 1
+	sgdisk -o -n 1:${FIRST_ALIGNED_SECTOR}:${LAST_EFI_SECTOR} -t 1:0700 "${DISK_PATH}" || return 1
 
 	LOOP_DEV=$(sudo losetup -f -P "${DISK_PATH}" --show)
 
@@ -261,6 +272,7 @@ mkdir -p "${MOUNT_PATH}/EFI/anillo" || cleanup-mount-and-die
 mkdir -p "${MOUNT_PATH}/EFI/BOOT" || cleanup-mount-and-die
 
 cp "${SCRIPT_PATH}/startup.nsh" "${MOUNT_PATH}/startup.nsh" || cleanup-mount-and-die
+cp "${SCRIPT_PATH}/config.txt" "${MOUNT_PATH}/EFI/anillo/config.txt" || cleanup-mount-and-die
 cp "${EFI_BOOTSTRAP}" "${MOUNT_PATH}/EFI/anillo/ferro-bootstrap.efi" || cleanup-mount-and-die
 cp "${FERRO_KERNEL}" "${MOUNT_PATH}/EFI/anillo/ferro" || cleanup-mount-and-die
 

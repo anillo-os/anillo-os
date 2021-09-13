@@ -1,0 +1,2 @@
+console=serial1
+#debug=serial2
