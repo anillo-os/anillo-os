@@ -77,6 +77,10 @@ SOURCES=(
 	src/core/config.c
 
 	src/libk/libk.c
+
+	src/gdbstub/main.c
+	src/gdbstub/packet-buffer.c
+	src/gdbstub/malloc.c
 )
 
 SOURCES_x86_64=(
@@ -94,6 +98,8 @@ SOURCES_x86_64=(
 	src/core/x86_64/interrupt-wrappers.S
 	src/core/x86_64/scheduler-helpers.S
 	src/core/x86_64/thread-runner.S
+
+	src/gdbstub/x86_64/registers.c
 )
 
 SOURCES_aarch64=(
@@ -112,6 +118,8 @@ SOURCES_aarch64=(
 	src/core/aarch64/ivt.S
 	src/core/aarch64/thread-runner.S
 	src/core/aarch64/scheduler-helpers.S
+
+	src/gdbstub/aarch64/registers.c
 )
 
 COMPILER_RT_BUILTINS="${BUILD_DIR}/compiler-rt/lib/${ARCH}-unknown-none-elf/libclang_rt.builtins.a"
