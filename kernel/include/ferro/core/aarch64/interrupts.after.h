@@ -30,6 +30,7 @@
 #include <ferro/base.h>
 #include <ferro/core/aarch64/per-cpu.h>
 #include <ferro/core/interrupts.h>
+#include <ferro/core/panic.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -39,62 +40,32 @@ FERRO_DECLARATIONS_BEGIN;
  * @{
  */
 
-FERRO_PACKED_STRUCT(farch_int_exception_frame) {
-	uint64_t x0;
-	uint64_t x1;
-	uint64_t x2;
-	uint64_t x3;
-	uint64_t x4;
-	uint64_t x5;
-	uint64_t x6;
-	uint64_t x7;
-	uint64_t x8;
-	uint64_t x9;
-	uint64_t x10;
-	uint64_t x11;
-	uint64_t x12;
-	uint64_t x13;
-	uint64_t x14;
-	uint64_t x15;
-	uint64_t x16;
-	uint64_t x17;
-	uint64_t x18;
-	uint64_t x19;
-	uint64_t x20;
-	uint64_t x21;
-	uint64_t x22;
-	uint64_t x23;
-	uint64_t x24;
-	uint64_t x25;
-	uint64_t x26;
-	uint64_t x27;
-	uint64_t x28;
-	uint64_t x29; // fp
-	uint64_t x30; // lr
-	uint64_t elr;
-	uint64_t esr;
-	uint64_t far;
-	uint64_t sp;
-
-	// actually spsr
-	uint64_t pstate;
-
-	uint64_t interrupt_disable;
-	uint64_t reserved;
-};
-
-// needs to be 16-byte aligned so we can push it onto the stack
-FERRO_VERIFY_ALIGNMENT(farch_int_exception_frame_t, 16);
+#ifndef FARCH_INT_NO_INTERRUPTS_IN_INTERRUPT_CONTEXT
+	#define FARCH_INT_NO_INTERRUPTS_IN_INTERRUPT_CONTEXT 1
+#endif
 
 FERRO_ALWAYS_INLINE void fint_disable(void) {
-	if (FARCH_PER_CPU(outstanding_interrupt_disable_count)++ == 0) {
-		// '\043' == '#'
-		__asm__ volatile("msr daifset, \04315" ::: "memory");
+	// '\043' == '#'
+	__asm__ volatile("msr daifset, \04315" ::: "memory");
+
+	if (__builtin_add_overflow(FARCH_PER_CPU(outstanding_interrupt_disable_count), 1, &FARCH_PER_CPU(outstanding_interrupt_disable_count))) {
+		fpanic("Interrupt disable count overflow");
 	}
 };
 
 FERRO_ALWAYS_INLINE void fint_enable(void) {
-	if (--FARCH_PER_CPU(outstanding_interrupt_disable_count) == 0) {
+	if (__builtin_sub_overflow(FARCH_PER_CPU(outstanding_interrupt_disable_count), 1, &FARCH_PER_CPU(outstanding_interrupt_disable_count))) {
+		fpanic("Interrupt disable count underflow");
+	}
+
+	if (FARCH_PER_CPU(outstanding_interrupt_disable_count) == 0) {
+#if FARCH_INT_NO_INTERRUPTS_IN_INTERRUPT_CONTEXT
+		if (fint_is_interrupt_context()) {
+			FARCH_PER_CPU(outstanding_interrupt_disable_count) = 1;
+			fpanic("Interrupts enabled in interrupt context");
+		}
+#endif
+
 		// '\043' == '#'
 		__asm__ volatile("msr daifclr, \04315" ::: "memory");
 	}
@@ -105,17 +76,17 @@ FERRO_ALWAYS_INLINE fint_state_t fint_save(void) {
 };
 
 FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state) {
+	// '\043' == '#'
+	__asm__ volatile("msr daifset, \04315" ::: "memory");
+
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = state;
 
-	// '\043' == '#'
 	if (state == 0) {
 		__asm__ volatile("msr daifclr, \04315" ::: "memory");
-	} else {
-		__asm__ volatile("msr daifset, \04315" ::: "memory");
 	}
 };
 
-typedef void (*farch_int_irq_handler_f)(bool is_fiq, farch_int_exception_frame_t* frame);
+typedef void (*farch_int_irq_handler_f)(bool is_fiq, fint_frame_t* frame);
 
 /**
  * Sets the FIQ/IRQ handler for the system.
@@ -124,6 +95,10 @@ void farch_int_set_irq_handler(farch_int_irq_handler_f handler);
 
 FERRO_ALWAYS_INLINE bool fint_is_interrupt_context(void) {
 	return FARCH_PER_CPU(current_exception_frame) != NULL;
+};
+
+FERRO_ALWAYS_INLINE fint_frame_t* fint_current_frame(void) {
+	return FARCH_PER_CPU(current_exception_frame);
 };
 
 /**

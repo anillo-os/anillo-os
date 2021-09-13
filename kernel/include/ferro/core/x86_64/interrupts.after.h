@@ -32,6 +32,8 @@
 #include <ferro/core/interrupts.h>
 #include <ferro/error.h>
 
+#include <ferro/core/panic.h>
+
 FERRO_DECLARATIONS_BEGIN;
 
 /**
@@ -40,13 +42,29 @@ FERRO_DECLARATIONS_BEGIN;
  * @{
  */
 
+#ifndef FARCH_INT_NO_INTERRUPTS_IN_INTERRUPT_CONTEXT
+	#define FARCH_INT_NO_INTERRUPTS_IN_INTERRUPT_CONTEXT 1
+#endif
+
 FERRO_ALWAYS_INLINE void fint_disable(void) {
 	__asm__ volatile("cli" ::: "memory");
-	FARCH_PER_CPU(outstanding_interrupt_disable_count)++;
+	if (__builtin_add_overflow(FARCH_PER_CPU(outstanding_interrupt_disable_count), 1, &FARCH_PER_CPU(outstanding_interrupt_disable_count))) {
+		fpanic("Interrupt disable count overflow");
+	}
 };
 
 FERRO_ALWAYS_INLINE void fint_enable(void) {
-	if (--FARCH_PER_CPU(outstanding_interrupt_disable_count) == 0) {
+	if (__builtin_sub_overflow(FARCH_PER_CPU(outstanding_interrupt_disable_count), 1, &FARCH_PER_CPU(outstanding_interrupt_disable_count))) {
+		fpanic("Interrupt disable count underflow");
+	}
+
+	if (FARCH_PER_CPU(outstanding_interrupt_disable_count) == 0) {
+#if FARCH_INT_NO_INTERRUPTS_IN_INTERRUPT_CONTEXT
+		if (fint_is_interrupt_context()) {
+			FARCH_PER_CPU(outstanding_interrupt_disable_count) = 1;
+			fpanic("Interrupts enabled in interrupt context");
+		}
+#endif
 		__asm__ volatile("sti" ::: "memory");
 	}
 };
@@ -71,45 +89,13 @@ FERRO_ALWAYS_INLINE fint_state_t fint_save(void) {
 };
 
 FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state) {
+	__asm__ volatile("cli" ::: "memory");
+
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = state;
 
 	if (state == 0) {
 		__asm__ volatile("sti" ::: "memory");
-	} else {
-		__asm__ volatile("cli" ::: "memory");
 	}
-};
-
-FERRO_PACKED_STRUCT(farch_int_saved_registers) {
-	uint64_t rax;
-	uint64_t rcx;
-	uint64_t rdx;
-	uint64_t rbx;
-	uint64_t rsi;
-	uint64_t rdi;
-	// no RSP; this is saved by the CPU
-	uint64_t rbp;
-	uint64_t r8;
-	uint64_t r9;
-	uint64_t r10;
-	uint64_t r11;
-	uint64_t r12;
-	uint64_t r13;
-	uint64_t r14;
-	uint64_t r15;
-
-	// not actually a register, but is per-CPU and should be saved and restored
-	uint64_t interrupt_disable;
-};
-
-FERRO_PACKED_STRUCT(farch_int_isr_frame) {
-	farch_int_saved_registers_t saved_registers;
-	uint64_t code;
-	void* rip;
-	uint64_t cs;
-	uint64_t rflags;
-	void* rsp;
-	uint64_t ss;
 };
 
 FERRO_ENUM(uint8_t, farch_int_gdt_index) {
@@ -127,7 +113,7 @@ FERRO_ENUM(uint8_t, farch_int_gdt_index) {
  *
  * The handler is called with interrupts disabled.
  */
-typedef void (*farch_int_handler_f)(farch_int_isr_frame_t* frame);
+typedef void (*farch_int_handler_f)(fint_frame_t* frame);
 
 /**
  * Registers the given handler for the given interrupt number.
@@ -168,6 +154,10 @@ uint8_t farch_int_next_available(void);
 
 FERRO_ALWAYS_INLINE bool fint_is_interrupt_context(void) {
 	return FARCH_PER_CPU(current_exception_frame) != NULL;
+};
+
+FERRO_ALWAYS_INLINE fint_frame_t* fint_current_frame(void) {
+	return FARCH_PER_CPU(current_exception_frame);
 };
 
 /**

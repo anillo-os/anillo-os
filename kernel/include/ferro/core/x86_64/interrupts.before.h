@@ -42,6 +42,83 @@ FERRO_DECLARATIONS_BEGIN;
  */
 typedef uint64_t fint_state_t;
 
+FERRO_PACKED_STRUCT(farch_int_saved_registers) {
+	uint64_t rax;
+	uint64_t rcx;
+	uint64_t rdx;
+	uint64_t rbx;
+	uint64_t rsi;
+	uint64_t rdi;
+	// no RSP; this is saved by the CPU
+	uint64_t rbp;
+	uint64_t r8;
+	uint64_t r9;
+	uint64_t r10;
+	uint64_t r11;
+	uint64_t r12;
+	uint64_t r13;
+	uint64_t r14;
+	uint64_t r15;
+
+	// not actually a register, but is per-CPU and should be saved and restored
+	uint64_t interrupt_disable;
+
+	// here's a bit of packing; these 4 `uint16_t`s fit nicely here
+	uint16_t ds;
+	uint16_t es;
+	uint16_t fs;
+	uint16_t gs;
+};
+
+FERRO_PACKED_STRUCT(farch_int_frame_core) {
+	void* rip;
+	uint64_t cs;
+	uint64_t rflags;
+	void* rsp;
+	uint64_t ss;
+};
+
+FERRO_PACKED_STRUCT(fint_frame) {
+	farch_int_saved_registers_t saved_registers;
+	uint64_t code;
+	farch_int_frame_core_t core;
+};
+
+// produces a flat view of a frame, useful for macros (because these share the same names as for threads)
+FERRO_PACKED_STRUCT(farch_int_frame_flat_registers) {
+	uint64_t rax;
+	uint64_t rcx;
+	uint64_t rdx;
+	uint64_t rbx;
+	uint64_t rsi;
+	uint64_t rdi;
+	uint64_t rbp;
+	uint64_t r8;
+	uint64_t r9;
+	uint64_t r10;
+	uint64_t r11;
+	uint64_t r12;
+	uint64_t r13;
+	uint64_t r14;
+	uint64_t r15;
+	uint64_t interrupt_disable;
+	uint16_t ds;
+	uint16_t es;
+	uint16_t fs;
+	uint16_t gs;
+	uint64_t code;
+	void* rip;
+	uint64_t cs;
+	uint64_t rflags;
+	void* rsp;
+	uint64_t ss;
+};
+
+typedef union farch_int_frame_flat_registers_union {
+	fint_frame_t frame;
+	farch_int_frame_flat_registers_t flat;
+} farch_int_frame_flat_registers_union_t;
+
 /**
  * @}
  */

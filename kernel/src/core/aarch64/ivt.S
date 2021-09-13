@@ -59,42 +59,42 @@
 		// we should already be using the exception stack right here
 
 		// allocate the stack space we need
-		sub sp, sp, MAKE_IMMEDIATE(FLAYOUT_farch_int_exception_frame_SIZE)
+		sub sp, sp, MAKE_IMMEDIATE(FLAYOUT_fint_frame_SIZE)
 
 		//
 		// start saving registers
 		//
 
 		// save all registers (to make it easier to context-switch in an interrupt)
-		stp  x0,  x1, [sp, MAKE_IMMEDIATE( FOFFSET_farch_int_exception_frame_x0)]
-		stp  x2,  x3, [sp, MAKE_IMMEDIATE( FOFFSET_farch_int_exception_frame_x2)]
-		stp  x4,  x5, [sp, MAKE_IMMEDIATE( FOFFSET_farch_int_exception_frame_x4)]
-		stp  x6,  x7, [sp, MAKE_IMMEDIATE( FOFFSET_farch_int_exception_frame_x6)]
-		stp  x8,  x9, [sp, MAKE_IMMEDIATE( FOFFSET_farch_int_exception_frame_x8)]
-		stp x10, x11, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x10)]
-		stp x12, x13, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x12)]
-		stp x14, x15, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x14)]
-		stp x16, x17, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x16)]
-		stp x18, x19, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x18)]
-		stp x20, x21, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x20)]
-		stp x22, x23, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x22)]
-		stp x24, x25, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x24)]
-		stp x26, x27, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x26)]
-		stp x28, x29, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x28)]
+		stp  x0,  x1, [sp, MAKE_IMMEDIATE( FOFFSET_fint_frame_x0)]
+		stp  x2,  x3, [sp, MAKE_IMMEDIATE( FOFFSET_fint_frame_x2)]
+		stp  x4,  x5, [sp, MAKE_IMMEDIATE( FOFFSET_fint_frame_x4)]
+		stp  x6,  x7, [sp, MAKE_IMMEDIATE( FOFFSET_fint_frame_x6)]
+		stp  x8,  x9, [sp, MAKE_IMMEDIATE( FOFFSET_fint_frame_x8)]
+		stp x10, x11, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x10)]
+		stp x12, x13, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x12)]
+		stp x14, x15, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x14)]
+		stp x16, x17, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x16)]
+		stp x18, x19, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x18)]
+		stp x20, x21, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x20)]
+		stp x22, x23, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x22)]
+		stp x24, x25, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x24)]
+		stp x26, x27, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x26)]
+		stp x28, x29, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x28)]
 
 		// save x30 (the link register) and the ELR
 		mrs x0, elr_el1
-		stp x30, x0, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x30)]
+		stp x30, x0, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x30)]
 
 		// save important exception registers
 		mrs x0, esr_el1
 		mrs x1, far_el1
-		stp x0, x1, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_esr)]
+		stp x0, x1, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_esr)]
 
 		// save the stack pointer and processor state
 		mrs x0, sp_el0
 		mrs x1, spsr_el1
-		stp x0, x1, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_sp)]
+		stp x0, x1, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_sp)]
 
 		// move a pointer to the structure (the stack pointer) into the first argument register
 		// and then call the function
@@ -106,33 +106,33 @@
 		//
 
 		// load the stack pointer and processor state
-		ldp x0, x1, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_sp)]
+		ldp x0, x1, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_sp)]
 		msr sp_el0, x0
 		msr spsr_el1, x1
 
 		// load x30 (the link register) and the ELR
-		ldp x30, x0, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x30)]
+		ldp x30, x0, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x30)]
 		msr elr_el1, x0
 
 		// load the saved general-purpose registers
-		ldp  x0,  x1, [sp, MAKE_IMMEDIATE( FOFFSET_farch_int_exception_frame_x0)]
-		ldp  x2,  x3, [sp, MAKE_IMMEDIATE( FOFFSET_farch_int_exception_frame_x2)]
-		ldp  x4,  x5, [sp, MAKE_IMMEDIATE( FOFFSET_farch_int_exception_frame_x4)]
-		ldp  x6,  x7, [sp, MAKE_IMMEDIATE( FOFFSET_farch_int_exception_frame_x6)]
-		ldp  x8,  x9, [sp, MAKE_IMMEDIATE( FOFFSET_farch_int_exception_frame_x8)]
-		ldp x10, x11, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x10)]
-		ldp x12, x13, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x12)]
-		ldp x14, x15, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x14)]
-		ldp x16, x17, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x16)]
-		ldp x18, x19, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x18)]
-		ldp x20, x21, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x20)]
-		ldp x22, x23, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x22)]
-		ldp x24, x25, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x24)]
-		ldp x26, x27, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x26)]
-		ldp x28, x29, [sp, MAKE_IMMEDIATE(FOFFSET_farch_int_exception_frame_x28)]
+		ldp  x0,  x1, [sp, MAKE_IMMEDIATE( FOFFSET_fint_frame_x0)]
+		ldp  x2,  x3, [sp, MAKE_IMMEDIATE( FOFFSET_fint_frame_x2)]
+		ldp  x4,  x5, [sp, MAKE_IMMEDIATE( FOFFSET_fint_frame_x4)]
+		ldp  x6,  x7, [sp, MAKE_IMMEDIATE( FOFFSET_fint_frame_x6)]
+		ldp  x8,  x9, [sp, MAKE_IMMEDIATE( FOFFSET_fint_frame_x8)]
+		ldp x10, x11, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x10)]
+		ldp x12, x13, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x12)]
+		ldp x14, x15, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x14)]
+		ldp x16, x17, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x16)]
+		ldp x18, x19, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x18)]
+		ldp x20, x21, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x20)]
+		ldp x22, x23, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x22)]
+		ldp x24, x25, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x24)]
+		ldp x26, x27, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x26)]
+		ldp x28, x29, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_x28)]
 
 		// restore the stack pointer
-		add sp, sp, MAKE_IMMEDIATE(FLAYOUT_farch_int_exception_frame_SIZE)
+		add sp, sp, MAKE_IMMEDIATE(FLAYOUT_fint_frame_SIZE)
 
 		// return from the exception
 		eret

@@ -64,7 +64,7 @@ FERRO_ENUM(uint8_t, fint_esr_code) {
 };
 
 FERRO_STRUCT(fint_handler_common_data) {
-	farch_int_exception_frame_t* previous_exception_frame;
+	fint_frame_t* previous_exception_frame;
 };
 
 extern fint_vector_table_t fint_ivt;
@@ -80,7 +80,7 @@ FERRO_ALWAYS_INLINE uint32_t iss_from_esr(uint64_t esr) {
 	return esr & 0x1ffffffULL;
 };
 
-static void fint_handler_common_begin(fint_handler_common_data_t* data, farch_int_exception_frame_t* frame) {
+static void fint_handler_common_begin(fint_handler_common_data_t* data, fint_frame_t* frame) {
 	data->previous_exception_frame = FARCH_PER_CPU(current_exception_frame);
 	FARCH_PER_CPU(current_exception_frame) = frame;
 
@@ -94,7 +94,7 @@ static void fint_handler_common_begin(fint_handler_common_data_t* data, farch_in
 	}
 };
 
-static void fint_handler_common_end(fint_handler_common_data_t* data, farch_int_exception_frame_t* frame) {
+static void fint_handler_common_end(fint_handler_common_data_t* data, fint_frame_t* frame) {
 	if (FARCH_PER_CPU(current_thread)) {
 		fthread_interrupt_end(FARCH_PER_CPU(current_thread));
 	}
@@ -104,7 +104,7 @@ static void fint_handler_common_end(fint_handler_common_data_t* data, farch_int_
 	FARCH_PER_CPU(current_exception_frame) = data->previous_exception_frame;
 };
 
-void fint_handler_current_with_spx_sync(farch_int_exception_frame_t* frame) {
+void fint_handler_current_with_spx_sync(fint_frame_t* frame) {
 	fint_handler_common_data_t data;
 	fint_esr_code_t code;
 	uint32_t iss;
@@ -168,7 +168,7 @@ void fint_handler_current_with_spx_sync(farch_int_exception_frame_t* frame) {
 	fint_handler_common_end(&data, frame);
 };
 
-void fint_handler_current_with_spx_irq(farch_int_exception_frame_t* frame) {
+void fint_handler_current_with_spx_irq(fint_frame_t* frame) {
 	fint_handler_common_data_t data;
 	farch_int_irq_handler_f handler = NULL;
 
@@ -187,7 +187,7 @@ void fint_handler_current_with_spx_irq(farch_int_exception_frame_t* frame) {
 	fint_handler_common_end(&data, frame);
 };
 
-void fint_handler_current_with_spx_fiq(farch_int_exception_frame_t* frame) {
+void fint_handler_current_with_spx_fiq(fint_frame_t* frame) {
 	fint_handler_common_data_t data;
 	farch_int_irq_handler_f handler = NULL;
 
@@ -206,7 +206,7 @@ void fint_handler_current_with_spx_fiq(farch_int_exception_frame_t* frame) {
 	fint_handler_common_end(&data, frame);
 };
 
-void fint_handler_current_with_spx_serror(farch_int_exception_frame_t* frame) {
+void fint_handler_current_with_spx_serror(fint_frame_t* frame) {
 	fint_handler_common_data_t data;
 	fint_handler_common_begin(&data, frame);
 
@@ -217,19 +217,19 @@ void fint_handler_current_with_spx_serror(farch_int_exception_frame_t* frame) {
 	fint_handler_common_end(&data, frame);
 };
 
-void fint_handler_current_with_sp0_sync(farch_int_exception_frame_t* frame) {
+void fint_handler_current_with_sp0_sync(fint_frame_t* frame) {
 	return fint_handler_current_with_spx_sync(frame);
 };
 
-void fint_handler_current_with_sp0_irq(farch_int_exception_frame_t* frame) {
+void fint_handler_current_with_sp0_irq(fint_frame_t* frame) {
 	return fint_handler_current_with_spx_irq(frame);
 };
 
-void fint_handler_current_with_sp0_fiq(farch_int_exception_frame_t* frame) {
+void fint_handler_current_with_sp0_fiq(fint_frame_t* frame) {
 	return fint_handler_current_with_spx_fiq(frame);
 };
 
-void fint_handler_current_with_sp0_serror(farch_int_exception_frame_t* frame) {
+void fint_handler_current_with_sp0_serror(fint_frame_t* frame) {
 	return fint_handler_current_with_spx_serror(frame);
 };
 
@@ -267,4 +267,8 @@ void farch_int_set_irq_handler(farch_int_irq_handler_f handler) {
 	flock_spin_intsafe_lock(&irq_handler_lock);
 	irq_handler = handler;
 	flock_spin_intsafe_unlock(&irq_handler_lock);
+};
+
+ferr_t fint_register_special_handler(uint8_t number, fint_special_handler_f handler, void* data) {
+	return ferr_invalid_argument;
 };

@@ -40,7 +40,7 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 	fint_disable();
 
 	if (fint_is_interrupt_context()) {
-		farch_int_exception_frame_t* frame = FARCH_PER_CPU(current_exception_frame);
+		fint_frame_t* frame = FARCH_PER_CPU(current_exception_frame);
 
 		// save the current context
 		if (current_thread) {

@@ -41,13 +41,13 @@ FERRO_DECLARATIONS_BEGIN;
  */
 
 FERRO_STRUCT_FWD(fthread);
-FERRO_STRUCT_FWD(farch_int_exception_frame);
+FERRO_STRUCT_FWD(fint_frame);
 
 FERRO_STRUCT(farch_per_cpu_data) {
 	farch_per_cpu_data_t* base;
 	uint64_t outstanding_interrupt_disable_count;
 	fthread_t* current_thread;
-	farch_int_exception_frame_t* current_exception_frame;
+	fint_frame_t* current_exception_frame;
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void);

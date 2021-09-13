@@ -15,15 +15,14 @@ HEADER_GUARD_NAME = '_GEN_FERRO_OFFSETS_H'
 
 STRUCTS_COMMON = [
 	'fthread_saved_context',
+	'fint_frame',
 ]
 
 STRUCTS_PER_ARCH = {
 	'x86_64': [
-		'farch_int_isr_frame',
+		'farch_int_frame_core',
 	],
-	'aarch64': [
-		'farch_int_exception_frame',
-	],
+	'aarch64': [],
 }
 
 # from https://stackoverflow.com/a/600612/6620880

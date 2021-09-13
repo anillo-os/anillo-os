@@ -69,10 +69,10 @@ FERRO_ENUM(uint8_t, fint_ist_index) {
 	fint_ist_index_double_fault,
 };
 
-typedef void (*fint_isr_f)(farch_int_isr_frame_t* frame);
-typedef void (*fint_isr_with_code_f)(farch_int_isr_frame_t* frame);
-typedef FERRO_NO_RETURN void (*fint_isr_noreturn_f)(farch_int_isr_frame_t* frame);
-typedef FERRO_NO_RETURN void (*fint_isr_with_code_noreturn_f)(farch_int_isr_frame_t* frame);
+typedef void (*fint_isr_f)(fint_frame_t* frame);
+typedef void (*fint_isr_with_code_f)(fint_frame_t* frame);
+typedef FERRO_NO_RETURN void (*fint_isr_noreturn_f)(fint_frame_t* frame);
+typedef FERRO_NO_RETURN void (*fint_isr_with_code_noreturn_f)(fint_frame_t* frame);
 
 FERRO_OPTIONS(uint16_t, fint_idt_entry_options) {
 	fint_idt_entry_option_enable_interrupts = 1 << 8,
@@ -189,7 +189,7 @@ FERRO_PACKED_STRUCT(fint_gdt_pointer) {
 };
 
 FERRO_STRUCT(fint_handler_common_data) {
-	farch_int_isr_frame_t* previous_exception_frame;
+	fint_frame_t* previous_exception_frame;
 };
 
 FERRO_STRUCT(fint_handler_entry) {
@@ -197,12 +197,21 @@ FERRO_STRUCT(fint_handler_entry) {
 	flock_spin_intsafe_t lock;
 };
 
-fint_idt_t idt = {0};
-fint_handler_entry_t handlers[224] = {0};
+FERRO_STRUCT(fint_special_handler_entry) {
+	fint_special_handler_f handler;
+	void* data;
+	flock_spin_intsafe_t lock;
+};
 
-fint_tss_t tss = {0};
+static fint_idt_t idt = {0};
+static fint_handler_entry_t handlers[224] = {0};
 
-fint_gdt_t gdt = {
+#define SPECIAL_HANDLERS_MAX fint_special_interrupt_common_LAST
+static fint_special_handler_entry_t special_handlers[SPECIAL_HANDLERS_MAX] = {0};
+
+static fint_tss_t tss = {0};
+
+static fint_gdt_t gdt = {
 	.entries = {
 		// null segment
 		0,
@@ -221,7 +230,7 @@ fint_gdt_t gdt = {
 	},
 };
 
-static void fint_handler_common_begin(fint_handler_common_data_t* data, farch_int_isr_frame_t* frame, bool safe_mode) {
+static void fint_handler_common_begin(fint_handler_common_data_t* data, fint_frame_t* frame, bool safe_mode) {
 	// for all our handlers, we set a bit in their configuration to tell the CPU to disable interrupts when handling them
 	// so we need to let our interrupt management code know this
 	frame->saved_registers.interrupt_disable = FARCH_PER_CPU(outstanding_interrupt_disable_count);
@@ -236,7 +245,7 @@ static void fint_handler_common_begin(fint_handler_common_data_t* data, farch_in
 	}
 };
 
-static void fint_handler_common_end(fint_handler_common_data_t* data, farch_int_isr_frame_t* frame, bool safe_mode) {
+static void fint_handler_common_end(fint_handler_common_data_t* data, fint_frame_t* frame, bool safe_mode) {
 	if (!safe_mode && FARCH_PER_CPU(current_thread)) {
 		fthread_interrupt_end(FARCH_PER_CPU(current_thread));
 	}
@@ -245,7 +254,7 @@ static void fint_handler_common_end(fint_handler_common_data_t* data, farch_int_
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = frame->saved_registers.interrupt_disable;
 };
 
-static void print_frame(const farch_int_isr_frame_t* frame) {
+static void print_frame(const fint_frame_t* frame) {
 	fconsole_logf(
 		"rip=%p; rsp=%p\n"
 		"rax=%lu; rcx=%lu\n"
@@ -257,7 +266,7 @@ static void print_frame(const farch_int_isr_frame_t* frame) {
 		"r13=%lu; r14=%lu\n"
 		"r15=%lu\n"
 		,
-		(void*)((uintptr_t)frame->rip - 1), frame->rsp,
+		(void*)((uintptr_t)frame->core.rip - 1), frame->core.rsp,
 		frame->saved_registers.rax, frame->saved_registers.rcx,
 		frame->saved_registers.rdx, frame->saved_registers.rbx,
 		frame->saved_registers.rsi, frame->saved_registers.rdi,
@@ -271,30 +280,71 @@ static void print_frame(const farch_int_isr_frame_t* frame) {
 
 #define INTERRUPT_HANDLER(name) \
 	void farch_int_wrapper_ ## name(void); \
-	void farch_int_ ## name ## _handler(farch_int_isr_frame_t* frame)
+	void farch_int_ ## name ## _handler(fint_frame_t* frame)
 
 #define INTERRUPT_HANDLER_NORETURN(name) \
 	FERRO_NO_RETURN void farch_int_wrapper_ ## name(void); \
-	FERRO_NO_RETURN void farch_int_ ## name ## _handler(farch_int_isr_frame_t* frame)
+	FERRO_NO_RETURN void farch_int_ ## name ## _handler(fint_frame_t* frame)
 
 INTERRUPT_HANDLER(debug) {
 	fint_handler_common_data_t data;
+	uint64_t dr6;
+	fint_special_handler_entry_t* entry = NULL;
+	fint_special_handler_f handler = NULL;
+	void* handler_data = NULL;
+
+	__asm__ volatile("mov %%dr6, %0" : "=r" (dr6));
 
 	fint_handler_common_begin(&data, frame, true);
 
-	fconsole_logf("watchpoint hit; frame:\n");
-	print_frame(frame);
+	if ((dr6 & (1ULL << 14)) != 0) {
+		dr6 &= ~(1ULL << 14);
+		entry = &special_handlers[fint_special_interrupt_common_single_step];
+		frame->core.rflags &= ~(1ULL << 8);
+	} else if ((dr6 & 0x0fULL) != 0) {
+		dr6 &= ~(0x0fULL);
+		entry = &special_handlers[fint_special_interrupt_common_watchpoint];
+	}
+
+	__asm__ volatile("mov %0, %%dr6" :: "r" (dr6));
+
+	if (entry) {
+		flock_spin_intsafe_lock(&entry->lock);
+		handler = entry->handler;
+		handler_data = entry->data;
+		flock_spin_intsafe_unlock(&entry->lock);
+	}
+
+	if (handler) {
+		handler(handler_data);
+	} else {
+		fconsole_logf("watchpoint hit; frame:\n");
+		print_frame(frame);
+	}
 
 	fint_handler_common_end(&data, frame, true);
 };
 
 INTERRUPT_HANDLER(breakpoint) {
 	fint_handler_common_data_t data;
+	fint_special_handler_entry_t* entry = &special_handlers[fint_special_interrupt_common_breakpoint];
+	fint_special_handler_f handler = NULL;
+	void* handler_data = NULL;
 
 	fint_handler_common_begin(&data, frame, true);
 
-	fconsole_logf("breakpoint hit; frame:\n");
-	print_frame(frame);
+	flock_spin_intsafe_lock(&entry->lock);
+	handler = entry->handler;
+	handler_data = entry->data;
+	flock_spin_intsafe_unlock(&entry->lock);
+
+	if (handler) {
+		frame->core.rip = (void*)((uintptr_t)frame->core.rip - 1);
+		handler(handler_data);
+	} else {
+		fconsole_logf("breakpoint hit; frame:\n");
+		print_frame(frame);
+	}
 
 	fint_handler_common_end(&data, frame, true);
 };
@@ -598,8 +648,14 @@ jump_here_for_cs_reload:;
 		"mov %0, %%ss\n"
 		"mov %0, %%ds\n"
 		"mov %0, %%es\n"
+
+		// load (temporarily) unused segment registers with null
+		// these are used later by the per-CPU data subsystem, but for now, nobody uses them
+		"movw %1, %%fs\n"
+		"movw %1, %%gs\n"
 		::
-		"r" ((uint64_t)(ds * 8))
+		"r" ((uint64_t)(ds * 8)),
+		"r" (0)
 		:
 		"memory"
 	);
@@ -966,6 +1022,11 @@ void fint_init(void) {
 	DEFINE_INTERRUPT(222);
 	DEFINE_INTERRUPT(223);
 
+	// initialize the array of special interrupts
+	for (size_t i = 0; i < sizeof(special_handlers) / sizeof(*special_handlers); ++i) {
+		flock_spin_intsafe_init(&special_handlers[i].lock);
+	}
+
 	// load the idt
 	idt_pointer.limit = sizeof(idt) - 1;
 	idt_pointer.base = &idt;
@@ -991,4 +1052,27 @@ FERRO_NO_RETURN void facpi_reboot_early(void) {
 
 	// if we get here, well, crap.
 	__builtin_unreachable();
+};
+
+ferr_t fint_register_special_handler(uint8_t number, fint_special_handler_f handler, void* data) {
+	fint_special_handler_entry_t* entry;
+	ferr_t status = ferr_temporary_outage;
+
+	if (number > SPECIAL_HANDLERS_MAX || !handler) {
+		return ferr_invalid_argument;
+	}
+
+	entry = &special_handlers[number];
+
+	flock_spin_intsafe_lock(&entry->lock);
+
+	if (!entry->handler) {
+		status = ferr_ok;
+		entry->handler = handler;
+		entry->data = data;
+	}
+
+	flock_spin_intsafe_unlock(&entry->lock);
+
+	return status;
 };

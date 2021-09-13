@@ -40,7 +40,7 @@ FERRO_DECLARATIONS_BEGIN;
  * @{
  */
 
-FERRO_STRUCT_FWD(farch_int_isr_frame);
+FERRO_STRUCT_FWD(fint_frame);
 FERRO_STRUCT_FWD(fthread);
 
 FERRO_STRUCT(farch_per_cpu_data) {
@@ -74,7 +74,7 @@ FERRO_STRUCT(farch_per_cpu_data) {
 	 * Owner: interrupts subsystem.
 	 * Also read by: scheduler subsystem.
 	 */
-	farch_int_isr_frame_t* current_exception_frame;
+	fint_frame_t* current_exception_frame;
 
 	/**
 	 * The unique ID assigned to this processor.

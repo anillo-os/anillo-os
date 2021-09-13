@@ -68,6 +68,12 @@ FERRO_STRUCT(fthread_saved_context) {
 
 	// the per-CPU interrupt-disable count
 	uint64_t interrupt_disable;
+
+	// some struct packing/space optimization by placing these 4 `uint16_t`s together
+	uint16_t ds;
+	uint16_t es;
+	uint16_t fs;
+	uint16_t gs;
 };
 
 /**
