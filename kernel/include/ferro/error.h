@@ -97,6 +97,67 @@ FERRO_ENUM(int, ferr) {
 	 * The requested active/service/operation was not completed and should be restarted.
 	 */
 	ferr_should_restart      = -11,
+
+	/**
+	 * The caller was not allowed to access the requested action/service/operation/resource.
+	 */
+	ferr_forbidden           = -12,
+};
+
+static const char* ferr_names[] = {
+	"ferr_ok",
+	"ferr_unknown",
+	"ferr_invalid_argument",
+	"ferr_temporary_outage",
+	"ferr_permanent_outage",
+	"ferr_unsupported",
+	"ferr_no_such_resource",
+	"ferr_already_in_progress",
+	"ferr_cancelled",
+	"ferr_too_big",
+	"ferr_invalid_checksum",
+	"ferr_should_restart",
+	"ferr_forbidden",
+};
+
+static const char* ferr_descriptions[] = {
+	"No error; success.",
+	"An unknown error occurred.",
+	"One or more arguments provided were invalid.",
+	"The requested resource is temporarily unavailable.",
+	"The requested resource is permanently unavailable.",
+	"The requested action/service is unsupported.",
+	"The requested resource could not be found.",
+	"The requested action/service was already in progress.",
+	"The operation was cancelled before it could be fully completed.",
+	"One or more of: 1) one of the input operands was too large to be processed, or 2) the result/output was too large to return.",
+	"Some data (whether input, output, or internal) failed a checksum.",
+	"The requested active/service/operation was not completed and should be restarted.",
+	"The caller was not allowed to access the requested action/service/operation/resource.",
+};
+
+FERRO_ALWAYS_INLINE const char* ferr_name(ferr_t error) {
+	if (error < 0) {
+		error *= -1;
+	}
+
+	if (error >= sizeof(ferr_names)) {
+		return "ferr_xxx_invalid_error";
+	}
+
+	return ferr_names[error];
+};
+
+FERRO_ALWAYS_INLINE const char* ferr_description(ferr_t error) {
+	if (error < 0) {
+		error *= -1;
+	}
+
+	if (error >= sizeof(ferr_descriptions)) {
+		return "This is an invalid/unknown error code.";
+	}
+
+	return ferr_descriptions[error];
 };
 
 /**
