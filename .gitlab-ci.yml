@@ -1,0 +1,13 @@
+image: registry.git.facekapow.dev/anillo-os/anillo-os:latest
+
+variables:
+  GIT_SUBMODULE_STRATEGY: recursive
+
+build-x86_64:
+  stage: build
+  script:
+    - |
+      ARCH=x86_64 ./scripts/build-image.sh -b
+  artifacts:
+    paths:
+      - build/x86_64/disk.img
