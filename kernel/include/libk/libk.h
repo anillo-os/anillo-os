@@ -31,6 +31,16 @@
 
 #include <ferro/error.h>
 
+FERRO_DECLARATIONS_BEGIN;
+
+/**
+ * @addtogroup libk
+ *
+ * Minimal libc-like functions for kernel-space.
+ *
+ * @{
+ */
+
 /**
  * Copies @p n bytes from @p source to @p destination. @p source and @p destination MUST NOT overlap.
  *
@@ -205,6 +215,10 @@ char* strchr(const char* string, int character);
  */
 char* strnchr(const char* string, int character, size_t length);
 
+char* strrchr(const char* string, int character);
+
+char* strrnchr(const char* string, int character, size_t length);
+
 /**
  * Finds the first occurrence of any one of the characters from @p needle in @p haystack.
  *
@@ -241,5 +255,11 @@ char* strnpbrk(const char* haystack, const char* needle, size_t length);
 		__typeof__(b) b_tmp = (b); \
 		(a_tmp > b_tmp) ? a_tmp : b_tmp; \
 	})
+
+/**
+ * @}
+ */
+
+FERRO_DECLARATIONS_END;
 
 #endif // _LIBK_LIBK_H_

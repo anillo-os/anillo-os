@@ -228,6 +228,28 @@ char* strnchr(const char* string, int character, size_t length) {
 	return NULL;
 };
 
+char* strrchr(const char* string, int character) {
+	return strrnchr(string, character, strlen(string));
+};
+
+char* strrnchr(const char* string, int character, size_t length) {
+	const char* pos = string + (length - 1);
+
+	if (character == '\0') {
+		return (char*)(string + strnlen(string, length));
+	}
+
+	while (length > 0 && pos >= string) {
+		if (*pos == character) {
+			return (char*)pos;
+		}
+		--pos;
+		--length;
+	}
+
+	return NULL;
+};
+
 char* strpbrk(const char* haystack, const char* needle) {
 	return strnpbrk(haystack, needle, SIZE_MAX);
 };
