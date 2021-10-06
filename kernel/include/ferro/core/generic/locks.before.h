@@ -50,6 +50,25 @@ FERRO_STRUCT(flock_semaphore) {
 	fwaitq_t waitq;
 };
 
+/*
+ * A general-purpose mutex.
+ *
+ * @note Like semaphores, mutexes *can* be used in both thread and interrupt contexts, but it is recommended NOT to use them in interrupt contexts because interrupt contexts run with interrupts disabled by default (unless explicitly re-enabled by the interrupt handler).
+ *       The same warning applies to running in *any* context with interrupts disabled: if the code is running on a uniprocessor system and the mutex needs to block while interrupts are disabled, the system will completely freeze.
+ *
+ * @note Mutexes are always recursive; it is always safe to lock a mutex that you have already previously locked.
+ */
+FERRO_STRUCT(flock_mutex) {
+	uint64_t owner;
+	uint64_t lock_count;
+	fwaitq_t waitq;
+};
+
+/*
+ * A value that can be used to statically initialize an ::flock_mutex at compile-time.
+ */
+#define FLOCK_MUTEX_INIT { .owner = UINT64_MAX }
+
 /**
  * @}
  */

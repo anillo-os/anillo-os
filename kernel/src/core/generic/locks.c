@@ -162,3 +162,101 @@ ferr_t flock_semaphore_try_down(flock_semaphore_t* semaphore) {
 
 	return result;
 };
+
+void flock_mutex_init(flock_mutex_t* mutex) {
+	mutex->owner = UINT64_MAX;
+	mutex->lock_count = 0;
+	fwaitq_init(&mutex->waitq);
+};
+
+static void flock_mutex_interrupt_wakeup(void* data) {
+	volatile bool* keep_looping = data;
+	*keep_looping = false;
+};
+
+// needs the waitq lock to be held; returns with it dropped
+static void flock_mutex_wait(flock_mutex_t* mutex) {
+	// TODO: warn if we're going to block while in an interrupt context.
+	//       that should definitely not be happening.
+
+	if (fint_is_interrupt_context()) {
+		fwaitq_waiter_t waiter;
+		volatile bool keep_looping = true;
+
+		fwaitq_waiter_init(&waiter, flock_mutex_interrupt_wakeup, (void*)&keep_looping);
+
+		fwaitq_add_locked(&mutex->waitq, &waiter);
+		fwaitq_unlock(&mutex->waitq);
+
+		while (keep_looping) {
+			fentry_idle();
+		}
+	} else {
+		// fthread_wait_locked() will drop the waitq lock later
+		FERRO_WUR_IGNORE(fthread_wait_locked(fthread_current(), &mutex->waitq));
+	}
+};
+
+void flock_mutex_lock(flock_mutex_t* mutex) {
+	if (!fthread_current()) {
+		fpanic("Mutexes can only be used once the kernel has entered threading mode");
+	}
+
+	while (true) {
+		fwaitq_lock(&mutex->waitq);
+
+		if (mutex->lock_count > 0 && mutex->owner != fthread_current()->id) {
+			flock_mutex_wait(mutex);
+			continue;
+		}
+
+		mutex->owner = fthread_current()->id;
+		++mutex->lock_count;
+
+		fwaitq_unlock(&mutex->waitq);
+		break;
+	}
+};
+
+FERRO_WUR ferr_t flock_mutex_try_lock(flock_mutex_t* mutex) {
+	ferr_t result = ferr_ok;
+
+	if (!fthread_current()) {
+		fpanic("Mutexes can only be used once the kernel has entered threading mode");
+	}
+
+	fwaitq_lock(&mutex->waitq);
+
+	if (mutex->lock_count > 0 && mutex->owner != fthread_current()->id) {
+		result = ferr_temporary_outage;
+	} else {
+		mutex->owner = fthread_current()->id;
+		++mutex->lock_count;
+	}
+
+	fwaitq_unlock(&mutex->waitq);
+
+	return result;
+};
+
+void flock_mutex_unlock(flock_mutex_t* mutex) {
+	if (!fthread_current()) {
+		fpanic("Mutexes can only be used once the kernel has entered threading mode");
+	}
+
+	fwaitq_lock(&mutex->waitq);
+
+	if (mutex->owner != fthread_current()->id) {
+		fpanic("Mutex unlocked by non-owning thread");
+	} else if (mutex->lock_count == 0) {
+		fpanic("Mutex over-unlocked");
+	}
+
+	if (--mutex->lock_count == 0) {
+		mutex->owner = UINT64_MAX;
+	}
+
+	fwaitq_unlock(&mutex->waitq);
+};
+
+// TODO: when a thread is holding a mutex, it should know this so that the mutex can be unlocked if the thread dies.

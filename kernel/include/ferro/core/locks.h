@@ -102,6 +102,62 @@ void flock_semaphore_down(flock_semaphore_t* semaphore);
  */
 FERRO_WUR ferr_t flock_semaphore_try_down(flock_semaphore_t* semaphore);
 
+//
+// flock_mutex_t
+//
+
+/*
+ * A general-purpose mutex.
+ *
+ * @note Like semaphores, mutexes *can* be used in both thread and interrupt contexts, but it is recommended NOT to use them in interrupt contexts because interrupt contexts run with interrupts disabled by default (unless explicitly re-enabled by the interrupt handler).
+ *       The same warning applies to running in *any* context with interrupts disabled: if the code is running on a uniprocessor system and the mutex needs to block while interrupts are disabled, the system will completely freeze.
+ *
+ * @note Mutexes are always recursive; it is always safe to lock a mutex that you have already previously locked.
+ */
+//typedef <something> flock_mutex_t;
+
+/*
+ * A value that can be used to statically initialize an ::flock_mutex at compile-time.
+ */
+//#define FLOCK_MUTEX_INIT <something>
+
+/**
+ * Initializes an ::flock_semaphore at runtime.
+ *
+ * @param initial_count The initial up-count to assign to the semaphore.
+ */
+void flock_mutex_init(flock_mutex_t* mutex);
+
+/**
+ * Locks the given mutex.
+ *
+ * @param mutex The mutex to operate on.
+ *
+ * @note If the mutex was already locked by the calling thread, this function will return immediately. Otherwise, it will block until it is able to acquire the lock.
+ *       If running in a thread context, it will suspend the current thread until resumed by someone else unlocking the mutex.
+ *       If running in an interrupt context, it will spin-wait until someone else unlocks the mutex.
+ */
+void flock_mutex_lock(flock_mutex_t* mutex);
+
+/**
+ * Tries to lock the given mutex.
+ *
+ * @param mutex The mutex to operate on.
+ *
+ * @retval ferr_ok               The mutex was successfully locked.
+ * @retval ferr_temporary_outage The mutex was already locked by someone else; locking it would require blocking.
+ */
+FERRO_WUR ferr_t flock_mutex_try_lock(flock_mutex_t* mutex);
+
+/**
+ * Unlocks the given mutex.
+ *
+ * @param mutex The mutex to operate on.
+ *
+ * @note Mutexes must only be unlocked by the thread that locked them. It is an error for anyone else to unlock it.
+ */
+void flock_mutex_unlock(flock_mutex_t* mutex);
+
 /**
  * @}
  */
