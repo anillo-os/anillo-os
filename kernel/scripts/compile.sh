@@ -78,6 +78,8 @@ SOURCES=(
 	src/core/waitq.c
 	src/core/workers.c
 	src/core/config.c
+	src/core/vfs.c
+	src/core/ramdisk.c
 
 	src/libk/libk.c
 

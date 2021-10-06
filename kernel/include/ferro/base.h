@@ -81,6 +81,8 @@
 
 #define FERRO_USED __attribute__((used))
 
+#define FERRO_IS_ALIGNED(number, alignment) (((number) & ((alignment) - 1)) == 0)
+
 /**
  * Mainly just a prettier name for `_Static_assert`.
  */
@@ -91,7 +93,7 @@
 /**
  * @note This is the checks actual alignment of the type, not the required alignment (like what `alignof` returns).
  */
-#define FERRO_VERIFY_ALIGNMENT(type, alignment) FERRO_VERIFY((sizeof(type) & ((alignment) - 1)) == 0, "Alignment verification failed for " #type " (expected type to be aligned to " #alignment " bytes)");
+#define FERRO_VERIFY_ALIGNMENT(type, alignment) FERRO_VERIFY(FERRO_IS_ALIGNED(sizeof(type), alignment), "Alignment verification failed for " #type " (expected type to be aligned to " #alignment " bytes)");
 
 #define FSTRINGIFY_HELPER(x) #x
 #define FSTRINGIFY(x) FSTRINGIFY_HELPER(x)

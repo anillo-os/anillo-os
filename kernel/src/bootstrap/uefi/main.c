@@ -24,7 +24,7 @@
 
 #include <ferro/base.h>
 #include <ferro/core/memory-regions.h>
-#include <ferro/ramdisk.h>
+#include <ferro/core/ramdisk.h>
 #include <ferro/core/entry.h>
 #include <ferro/bits.h>
 
@@ -390,7 +390,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 			ferro_ramdisk_header_t* ramdisk_header = ramdisk_address;
 
 			// actually read the data
-			if (fread(ramdisk_header->contents, ramdisk_size - sizeof(ferro_ramdisk_header_t), 1, ramdisk_file) != ramdisk_size - sizeof(ferro_ramdisk_header_t)) {
+			if (fread(ramdisk_header + 1, ramdisk_size - sizeof(ferro_ramdisk_header_t), 1, ramdisk_file) != ramdisk_size - sizeof(ferro_ramdisk_header_t)) {
 				printf("Warning: Failed to read ramdisk contents.\n");
 				ramdisk_address = NULL;
 			} else {

@@ -1,21 +1,43 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import os
 import errno
 import subprocess
 import re
+import json
+import io
 
 ARCH=os.environ.get('ARCH', 'x86_64')
 SCRIPT_DIR = os.path.dirname(__file__)
 SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..', '..')
 KERNEL_SOURCE_ROOT = os.path.join(SOURCE_ROOT, 'kernel')
 BUILD_DIR = os.path.join(SOURCE_ROOT, 'build', ARCH, 'kernel')
-OUTPUT_PATH = os.path.join(BUILD_DIR, 'include', 'gen', 'ferro', 'offsets.h')
+OUTPUT_HEADER_PATH = os.path.join(BUILD_DIR, 'include', 'gen', 'ferro', 'offsets.h')
+OUTPUT_JSON_PATH = os.path.join(BUILD_DIR, 'offsets.json')
 HEADER_GUARD_NAME = '_GEN_FERRO_OFFSETS_H'
+
+OFFSETS_TMP_PATH = os.path.join(BUILD_DIR, 'offsets.c')
+
+HEADERS_COMMON = [
+	'ferro/core/interrupts.h',
+	'ferro/core/threads.h',
+	'ferro/platform.h',
+	'ferro/core/ramdisk.h',
+]
+
+HEADERS_PER_ARCH = {
+	'x86_64': [],
+	'aarch64': [],
+}
 
 STRUCTS_COMMON = [
 	'fthread_saved_context',
 	'fint_frame',
+
+	'ferro_ramdisk',
+	'ferro_ramdisk_header',
+	'ferro_ramdisk_section_header',
+	'ferro_ramdisk_directory_entry',
 ]
 
 STRUCTS_PER_ARCH = {
@@ -35,8 +57,21 @@ def mkdir_p(path):
 
 data = {}
 defs = ''
+tmp_index = 0
 
-result = subprocess.run(['clang', '-Xclang', '-fdump-record-layouts', '-target', ARCH + '-unknown-none-elf', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), '-c', '-o', os.path.join(BUILD_DIR, 'offsets.c.tmp'), os.path.join(SCRIPT_DIR, 'resources', 'offsets.c'), '-emit-llvm'], stdout=subprocess.PIPE)
+mkdir_p(os.path.dirname(OFFSETS_TMP_PATH))
+
+with io.open(OFFSETS_TMP_PATH, 'w', newline='\n') as tmpfile:
+	for header in HEADERS_COMMON + HEADERS_PER_ARCH[ARCH]:
+		tmpfile.write('#include <' + header + '>\n')
+
+	tmpfile.write('\n')
+
+	for struct in STRUCTS_COMMON + STRUCTS_PER_ARCH[ARCH]:
+		tmpfile.write('struct ' + struct + ' tmp' + str(tmp_index) + ';\n')
+		tmp_index = tmp_index + 1
+
+result = subprocess.run(['clang', '-Xclang', '-fdump-record-layouts', '-target', ARCH + '-unknown-none-elf', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), '-c', '-o', os.path.join(BUILD_DIR, 'offsets.c.o'), OFFSETS_TMP_PATH, '-emit-llvm'], stdout=subprocess.PIPE)
 
 result.check_returncode()
 
@@ -95,9 +130,12 @@ for struct in data:
 	for member in data[struct]['layout']:
 		defs += '#define FOFFSET_' + struct + '_' + member + ' ' + data[struct]['layout'][member] + '\n'
 
-mkdir_p(os.path.dirname(OUTPUT_PATH))
+mkdir_p(os.path.dirname(OUTPUT_HEADER_PATH))
 
-with open(OUTPUT_PATH, 'wb') as outfile:
-	outfile.write(('#ifndef ' + HEADER_GUARD_NAME + '\n#define ' + HEADER_GUARD_NAME + '\n').encode())
-	outfile.write(defs.encode())
-	outfile.write(('\n#endif // ' + HEADER_GUARD_NAME + '\n').encode())
+with io.open(OUTPUT_HEADER_PATH, 'w', newline='\n') as outfile:
+	outfile.write('#ifndef ' + HEADER_GUARD_NAME + '\n#define ' + HEADER_GUARD_NAME + '\n')
+	outfile.write(defs)
+	outfile.write('\n#endif // ' + HEADER_GUARD_NAME + '\n')
+
+with io.open(OUTPUT_JSON_PATH, 'w', newline='\n') as jsonfile:
+	json.dump(data, jsonfile, indent='\t')

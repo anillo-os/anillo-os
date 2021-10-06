@@ -11,30 +11,46 @@ SUPPORTED_ARCHS=(
 )
 
 #
-# text coloring utility functions
-#
-
-color-red() {
-	echo "$(tput setaf 1)""$@""$(tput sgr0)"
-}
-
-color-green() {
-	echo "$(tput setaf 2)""$@""$(tput sgr0)"
-}
-
-color-yellow() {
-	echo "$(tput setaf 3)""$@""$(tput sgr0)"
-}
-
-color-blue() {
-	echo "$(tput setaf 4)""$@""$(tput sgr0)"
-}
-
-#
 # silently returns true if the command exists and false otherwise
 #
 command-exists() {
 	command -v "$1" >/dev/null 2>&1
+}
+
+#
+# text coloring utility functions
+#
+
+color-red() {
+	if command-exists tput; then
+		echo "$(tput setaf 1)""$@""$(tput sgr0)"
+	else
+		echo "$@"
+	fi
+}
+
+color-green() {
+	if command-exists tput; then
+		echo "$(tput setaf 2)""$@""$(tput sgr0)"
+	else
+		echo "$@"
+	fi
+}
+
+color-yellow() {
+	if command-exists tput; then
+		echo "$(tput setaf 3)""$@""$(tput sgr0)"
+	else
+		echo "$@"
+	fi
+}
+
+color-blue() {
+	if command-exists tput; then
+		echo "$(tput setaf 4)""$@""$(tput sgr0)"
+	else
+		echo "$@"
+	fi
 }
 
 #
@@ -130,7 +146,15 @@ extname() {
 # (credit to https://stackoverflow.com/a/3373298/6620880)
 #
 normalize() {
-	python -c "import os,sys; print(os.path.abspath(sys.argv[1]))" "${1}"
+	python3 -c "import os,sys; print(os.path.abspath(sys.argv[1]))" "${1}"
+}
+
+superdo() {
+	if [ "$(id -u)" -eq 0 ]; then
+		"$@"
+	else
+		sudo "$@"
+	fi
 }
 
 #

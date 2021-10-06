@@ -43,6 +43,8 @@
 #include <ferro/core/serial.h>
 #include <ferro/core/config.h>
 #include <ferro/gdbstub/gdbstub.h>
+#include <ferro/core/vfs.h>
+#include <ferro/core/ramdisk.h>
 
 #include <libk/libk.h>
 
@@ -205,6 +207,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 	}
 };
 
+#if 0
 static void do_work1(void* data) {
 	for (size_t i = 0; i < 5; ++i) {
 		fconsole_logf("Doing some work in worker 1: %zu\n", i);
@@ -221,15 +224,25 @@ static void do_work2(void* data) {
 
 static void do_work3(void* data) {
 	fconsole_log("The third worker was called!\n");
-
-	facpi_reboot();
 };
+#endif
+
+static ferro_ramdisk_t* ramdisk = NULL;
 
 static void ferro_entry_threaded(void* data) {
 	fconsole_log("Entering threaded kernel startup\n");
 
 	fworkers_init();
 
+	fvfs_init();
+
+	if (ramdisk) {
+		ferro_ramdisk_init(ramdisk);
+	} else {
+		fpanic("No ramdisk found!");
+	}
+
+#if TEST_WORKERS
 	fwork_t* worker1;
 	fwork_t* worker2;
 
@@ -260,6 +273,83 @@ static void ferro_entry_threaded(void* data) {
 	if (fwork_schedule_new(do_work3, NULL, 1000000000ULL * 3, NULL) != ferr_ok) {
 		fpanic("Failed to schedule third worker");
 	}
+#endif
+
+#if TEST_VFS
+	fvfs_descriptor_t* desc;
+
+	fpanic_status(fvfs_open("/test1.txt", fvfs_descriptor_flag_read, &desc));
+	fconsole_log("Successfully opened descriptor for \"/test.txt\"!\n");
+
+	#define BUFFER_SIZE 10
+	#define ABSOLUTE_PATHS false
+	char path[BUFFER_SIZE];
+	size_t path_len = 0;
+	switch (fvfs_copy_path(desc, ABSOLUTE_PATHS, path, sizeof(path), &path_len)) {
+		case ferr_ok: {
+			fconsole_logf("Path is \"%.*s\"\n", (int)path_len, path);
+		} break;
+		case ferr_too_big: {
+			fconsole_log("Path was too big for buffer\n");
+		} break;
+		default: {
+			fpanic("fvfs_copy_path failed for unexpected reason");
+		} break;
+	}
+
+	fvfs_release(desc);
+
+	#define ARRAY_LENGTH 1
+
+	fvfs_path_t children[ARRAY_LENGTH];
+	size_t count = 0;
+	fvfs_list_children_context_t context;
+	fpanic_status(fvfs_open("/", fvfs_descriptor_flag_read, &desc));
+	fconsole_log("Succesfully opened descriptor for \"/\"!\n");
+
+	for (ferr_t status = fvfs_list_children_init(desc, children, sizeof(children) / sizeof(*children), ABSOLUTE_PATHS, &count, &context); status == ferr_ok; status = fvfs_list_children(desc, children, sizeof(children) / sizeof(*children), ABSOLUTE_PATHS, &count, &context)) {
+		fconsole_logf("Found %zu child%s\n", count, count == 1 ? "" : "ren");
+
+		for (size_t i = 0; i < count; ++i) {
+			fvfs_descriptor_t* child;
+			fvfs_node_info_t info;
+
+			fpanic_status(fvfs_open_rn(desc, children[i].path, children[i].length, fvfs_descriptor_flag_read, &child));
+
+			fpanic_status(fvfs_copy_info(child, &info));
+
+			fconsole_logf("Opened descriptor for child: %.*s (which is %s)\n", (int)children[i].length, children[i].path, info.type == fvfs_node_type_directory ? "a directory" : (info.type == fvfs_node_type_file ? "a file" : "unknown"));
+
+			fvfs_release(child);
+		}
+	}
+
+	fconsole_log("Finished iterating children\n");
+
+	fpanic_status(fvfs_list_children_finish(desc, children, count, &context));
+
+	fvfs_release(desc);
+
+	fpanic_status(fvfs_open("/subdir", fvfs_descriptor_flag_read, &desc));
+
+	fvfs_descriptor_t* desc2;
+
+	fpanic_status(fvfs_open_r(desc, "./.././test2.txt", fvfs_descriptor_flag_read, &desc2));
+
+	fconsole_logf("Successfully opened descriptor using relative path!\n");
+
+	char buf[5] = {0};
+	size_t offset = 0;
+	size_t read_count = 0;
+	while (fvfs_read(desc2, offset, buf, sizeof(buf) - 1, &read_count) == ferr_ok) {
+		fconsole_logf("Chunk: %.*s\n", (int)read_count, buf);
+		offset += read_count;
+	}
+
+	fvfs_release(desc2);
+
+	fvfs_release(desc);
+#endif
 };
 
 __attribute__((section(".text.ferro_entry")))
@@ -320,6 +410,8 @@ jump_here_for_virtual:;
 		} else if (curr->type == ferro_boot_data_type_config) {
 			config_data = curr->virtual_address;
 			config_data_length = curr->size;
+		} else if (curr->type == ferro_boot_data_type_ramdisk) {
+			ramdisk = curr->virtual_address;
 		}
 	}
 

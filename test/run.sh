@@ -201,83 +201,8 @@ setup-efi-images() {
 setup-efi-images || die-red "Failed to set up EFI firmware/variables"
 
 if [ "${BUILD_TOO}" -eq 1 ]; then
-	"${SOURCE_ROOT}/scripts/compile.sh" || command-failed
+	"${SOURCE_ROOT}/scripts/build-image.sh" -b || command-failed
 fi
-
-cleanup-disk() {
-	rm "${DISK_PATH}"
-}
-
-cleanup-disk-and-die() {
-	cleanup-disk
-	die-red "Failed to create disk"
-}
-
-create-disk() {
-	qemu-img create -f raw "${DISK_PATH}" 1G || return 1
-
-	sgdisk -o "${DISK_PATH}" || return 1
-
-	INFO="$(sgdisk -p "${DISK_PATH}")"
-	SECTOR_SIZE="$(echo "${INFO}" | sed -rn 's/Sector size \(logical\): ([0-9]+).*/\1/p')"
-	FIRST_SECTOR="$(echo "${INFO}" | sed -rn 's/First usable sector is ([0-9]+).*/\1/p')"
-	SECTOR_ALIGNMENT="$(echo "${INFO}" | sed -rn 's/Partitions will be aligned on ([0-9]+).*/\1/p')"
-
-	FIRST_ALIGNED_SECTOR="$(round-up ${FIRST_SECTOR} ${SECTOR_ALIGNMENT})"
-	EFI_SECTOR_COUNT="$(( (${DEFAULT_EFI_SIZE} * 1024 * 1024) / ${SECTOR_SIZE} ))"
-	LAST_EFI_SECTOR="$(( ${FIRST_ALIGNED_SECTOR} + ${EFI_SECTOR_COUNT} ))"
-
-	sgdisk -o -n 1:${FIRST_ALIGNED_SECTOR}:${LAST_EFI_SECTOR} -t 1:0700 "${DISK_PATH}" || return 1
-
-	LOOP_DEV=$(sudo losetup -f -P "${DISK_PATH}" --show)
-
-	cleanup-loop-dev() {
-		sudo losetup -d "${LOOP_DEV}" || command-failed
-	}
-
-	sudo mkfs.fat "${LOOP_DEV}p1" || (cleanup-loop-dev && return 1)
-
-	cleanup-loop-dev
-}
-
-if ! [ -f "${DISK_PATH}" ]; then
-	create-disk || cleanup-disk-and-die
-fi
-
-mkdir -p "${MOUNT_PATH}" || command-failed
-
-LOOP_DEV=$(sudo losetup -f -P "${DISK_PATH}" --show)
-
-cleanup-loop-dev() {
-	sudo losetup -d "${LOOP_DEV}" || command-failed
-}
-
-cleanup-loop-dev-and-die() {
-	cleanup-loop-dev
-	die-red "Failed to setup EFI"
-}
-
-sudo mount "${LOOP_DEV}p1" "${MOUNT_PATH}" -t vfat -o user,umask=0000,rw || cleanup-loop-dev-and-die
-
-cleanup-mount() {
-	sudo umount "${MOUNT_PATH}" || command-failed
-}
-
-cleanup-mount-and-die() {
-	cleanup-mount
-	die-red "Failed to setup EFI"
-}
-
-mkdir -p "${MOUNT_PATH}/EFI/anillo" || cleanup-mount-and-die
-mkdir -p "${MOUNT_PATH}/EFI/BOOT" || cleanup-mount-and-die
-
-cp "${SCRIPT_PATH}/startup.nsh" "${MOUNT_PATH}/startup.nsh" || cleanup-mount-and-die
-cp "${SCRIPT_PATH}/config.txt" "${MOUNT_PATH}/EFI/anillo/config.txt" || cleanup-mount-and-die
-cp "${EFI_BOOTSTRAP}" "${MOUNT_PATH}/EFI/anillo/ferro-bootstrap.efi" || cleanup-mount-and-die
-cp "${FERRO_KERNEL}" "${MOUNT_PATH}/EFI/anillo/ferro" || cleanup-mount-and-die
-
-cleanup-mount
-cleanup-loop-dev
 
 qemu-system-${ARCH} "${QEMU_ARGS[@]}"
 
