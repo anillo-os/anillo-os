@@ -388,6 +388,34 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 			};
 
 			printf_length_t length = printf_length_default;
+			size_t precision = SIZE_MAX;
+
+			if (code_point == '.') {
+				READ_NEXT;
+
+				if (code_point == '*') {
+					READ_NEXT;
+
+					precision = va_arg(args, int);
+				} else {
+					const char* num_start = format;
+					const char* num_end = num_start;
+
+					while (*num_end >= '0' && *num_end <= '9') {
+						++num_end;
+						++format;
+						--format_size;
+					}
+
+					READ_NEXT;
+
+					if (num_end != num_start) {
+						if (libk_string_to_integer_unsigned(num_start, num_end - num_start, NULL, 10, &precision) != ferr_ok) {
+							goto err_out;
+						}
+					}
+				}
+			}
 
 			if (code_point == 'h') {
 				READ_NEXT;
@@ -504,7 +532,7 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 
 				case 's': {
 					const char* value = va_arg(args, const char*);
-					fconsole_logn_locked(value, strlen(value));
+					fconsole_logn_locked(value, precision == SIZE_MAX ? strlen(value) : precision);
 				} break;
 
 				case 'p': {
@@ -518,7 +546,7 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 
 				default: {
 					// invalid format
-					return -1;
+					goto err_out;
 				} break;
 			}
 		} else {
