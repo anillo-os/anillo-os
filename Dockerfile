@@ -11,5 +11,20 @@ RUN echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https:
 RUN apt-get -y update
 RUN rm /usr/share/keyrings/kitware-archive-keyring.gpg
 RUN apt-get -y install kitware-archive-keyring
-RUN apt-get -y install build-essential python3 cmake clang lld llvm-dev qemu-utils gdisk dosfstools mtools git libfuse-dev libfdisk-dev ninja-build
+RUN apt-get -y install build-essential
+RUN apt-get -y install python3
+RUN apt-get -y install cmake
+RUN apt-get -y install clang
+RUN apt-get -y install lld
+RUN apt-get -y install llvm-dev
+RUN apt-get -y install qemu-utils
+RUN apt-get -y install gdisk
+RUN apt-get -y install dosfstools
+RUN apt-get -y install mtools
+RUN apt-get -y install git
+RUN apt-get -y install libfuse-dev
+RUN apt-get -y install libfdisk-dev
+RUN apt-get -y install ninja-build
+RUN apt-get -y install libc6-dev-i386
+RUN apt-get -y install fuse
 RUN cd /tmp && git clone https://github.com/braincorp/partfs.git && cd partfs && make && cp build/bin/partfs /usr/local/bin/ && cd / && rm -rf /tmp/partfs
