@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.14)
+cmake_minimum_required(VERSION 3.20)
 
 if (NOT DEFINED ANILLO_ARCH)
 	execute_process(
