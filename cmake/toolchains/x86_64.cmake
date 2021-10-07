@@ -1,0 +1,41 @@
+set(CMAKE_SYSTEM_NAME Anillo)
+set(CMAKE_SYSTEM_PROCESSOR x86_64)
+
+set(CMAKE_TRY_COMPILE_TARGET_TYPE STATIC_LIBRARY)
+
+set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
+set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
+set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
+
+find_program(CLANG_PATH clang)
+find_program(CLANGXX_PATH clang++)
+find_program(LLD_PATH ld.lld)
+find_program(LLVM_AR_PATH llvm-ar)
+find_program(LLVM_NM_PATH llvm-nm)
+find_program(LLVM_RANLIB_PATH llvm-ranlib)
+find_program(LLVM_SIZE_PATH llvm-size)
+find_program(LLVM_STRIP_PATH llvm-strip)
+find_program(LLVM_OBJCOPY_PATH llvm-objcopy)
+
+set(CMAKE_AR "${LLVM_AR_PATH}" CACHE INTERNAL "")
+set(CMAKE_ASM_COMPILER "${CLANG_PATH}" CACHE INTERNAL "")
+set(CMAKE_C_COMPILER "${CLANG_PATH}" CACHE INTERNAL "")
+set(CMAKE_CXX_COMPILER "${CLANGXX_PATH}" CACHE INTERNAL "")
+set(CMAKE_LINKER "${LLD_PATH}" CACHE INTERNAL "")
+set(CMAKE_OBJCOPY "${LLVM_OBJCOPY_PATH}" CACHE INTERNAL "")
+set(CMAKE_RANLIB "${LLVM_RANLIB_PATH}" CACHE INTERNAL "")
+set(CMAKE_SIZE "${LLVM_SIZE_PATH}" CACHE INTERNAL "")
+set(CMAKE_STRIP "${LLVM_STRIP_PATH}" CACHE INTERNAL "")
+
+set(CMAKE_EXE_LINKER_FLAGS_INIT "-Wl,-m,elf_x86_64 -fuse-ld=lld")
+
+# TODO: get rid of `-mno-implicit-float`
+set(CMAKE_C_FLAGS "-ffreestanding -fno-stack-protector -fno-stack-check -mno-red-zone -mno-implicit-float -nostdlib -target x86_64-unknown-none-elf" CACHE INTERNAL "")
+set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS}" CACHE INTERNAL "")
+set(CMAKE_ASM_FLAGS "-nostdlib -target x86_64-unknown-none-elf" CACHE INTERNAL "")
+
+set(CMAKE_C_FLAGS_DEBUG "-O0 -g" CACHE INTERNAL "")
+set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG" CACHE INTERNAL "")
+set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}" CACHE INTERNAL "")
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}" CACHE INTERNAL "")

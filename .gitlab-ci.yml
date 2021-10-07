@@ -7,7 +7,9 @@ build-x86_64:
   stage: build
   script:
     - |
-      ARCH=x86_64 ./scripts/build-image.sh -b
+      mkdir -p build/x86_64
+      cmake -S . -B build/x86_64 -G Ninja -DCMAKE_BUILD_TYPE=Release
+      cmake --build build/x86_64
   artifacts:
     paths:
       - build/x86_64/disk.img

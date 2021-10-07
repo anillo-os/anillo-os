@@ -7,26 +7,22 @@ import errno
 import sys
 import ctypes
 
-ARCH=os.environ.get('ARCH', 'x86_64')
 SCRIPT_DIR = os.path.dirname(__file__)
 SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..')
-KERNEL_SOURCE_ROOT = os.path.join(SOURCE_ROOT, 'kernel')
-BUILD_DIR = os.path.join(SOURCE_ROOT, 'build', ARCH)
-KERNEL_BUILD_DIR = os.path.join(BUILD_DIR, 'kernel')
-OFFSETS_JSON_PATH = os.path.join(KERNEL_BUILD_DIR, 'offsets.json')
-OUTPUT_RAMDISK_PATH = os.path.join(BUILD_DIR, 'ramdisk')
-INPUT_DIR_PATH = os.path.join(BUILD_DIR, 'ramdisksrc')
+
+sys.path.append(os.path.join(SOURCE_ROOT, 'scripts'))
+import anillo_util
+
+if len(sys.argv) != 4:
+	print('Usage: ' + sys.argv[0] + ' <input-dir> <offsets-json> <output-file>')
+	sys.exit(1)
+
+INPUT_DIR_PATH = sys.argv[1]
+OFFSETS_JSON_PATH = sys.argv[2]
+OUTPUT_RAMDISK_PATH = sys.argv[3]
 
 DIRECTORY_ENTRY_STRUCT = struct.Struct('= Q Q Q Q L 4x')
 SECTION_HEADER_STRUCT = struct.Struct('= H 6x Q Q')
-
-# from https://stackoverflow.com/a/600612/6620880
-def mkdir_p(path):
-	try:
-		os.makedirs(path)
-	except OSError as exc:
-		if not (exc.errno == errno.EEXIST and os.path.isdir(path)):
-			raise
 
 def pack_into_stream(structure, stream, *args):
 	stream.write(structure.pack(*args))
@@ -37,13 +33,10 @@ def pack_directory_entry(parent_index, name_offset, contents_offset, size, flags
 def pack_section_header(type, offset, length):
 	return SECTION_HEADER_STRUCT.pack(type, offset, length)
 
-def round_up_whole(number, multiple):
-	return (number + (multiple - 1)) & -multiple
-
 offsets = {}
 
-mkdir_p(os.path.dirname(OUTPUT_RAMDISK_PATH))
-mkdir_p(INPUT_DIR_PATH)
+anillo_util.mkdir_p(os.path.dirname(OUTPUT_RAMDISK_PATH))
+anillo_util.mkdir_p(INPUT_DIR_PATH)
 
 with open(OFFSETS_JSON_PATH, 'r') as offsets_file:
 	offsets = json.load(offsets_file)
@@ -95,7 +88,7 @@ for string in string_table:
 	ramdisk.write(string.encode() + b'\x00')
 
 # align the section to a multiple of 8
-ramdisk.seek(round_up_whole(ramdisk.tell(), 8))
+ramdisk.seek(anillo_util.round_up_to_multiple(ramdisk.tell(), 8))
 
 data_section_offset = ramdisk.tell() - SECTIONS_START
 data_section_absolute_offset = ramdisk.tell()
@@ -127,14 +120,14 @@ for root, dirs, files in os.walk(INPUT_DIR_PATH):
 				ramdisk.write(chunk)
 
 # align the section to a multiple of 8
-ramdisk.seek(round_up_whole(ramdisk.tell(), 8))
+ramdisk.seek(anillo_util.round_up_to_multiple(ramdisk.tell(), 8))
 
 dir_section_offset = ramdisk.tell() - SECTIONS_START
 
 ramdisk.write(dir_section)
 
 # align the section to a multiple of 8
-ramdisk.seek(round_up_whole(ramdisk.tell(), 8))
+ramdisk.seek(anillo_util.round_up_to_multiple(ramdisk.tell(), 8))
 
 # now go back and write the file size
 total_size = ramdisk.tell()

@@ -6,3 +6,5 @@ test/*.fd
 .vscode
 .ccls
 compile_commands.json
+cbuild
+__py*__

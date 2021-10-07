@@ -81,7 +81,7 @@
 
 #define FERRO_USED __attribute__((used))
 
-#define FERRO_IS_ALIGNED(number, alignment) (((number) & ((alignment) - 1)) == 0)
+#define FERRO_IS_ALIGNED(number, alignment) (((number) % (alignment)) == 0)
 
 /**
  * Mainly just a prettier name for `_Static_assert`.

@@ -47,7 +47,6 @@ if [ -z "${EFI_VARS_SOURCE_PATH}" ]; then
 fi
 
 DISK_PATH="${BUILD_DIR}/disk.img"
-MOUNT_PATH="${BUILD_DIR}/mnt"
 
 SERIAL=pty
 QEMU_ARGS=(
@@ -172,16 +171,8 @@ if [ "${DEBUG_SERIAL}" -eq 1 ]; then
 	)
 fi
 
-EFI_BOOTSTRAP="${BUILD_DIR}/kernel/src/bootstrap/uefi/ferro-bootstrap.efi"
-FERRO_KERNEL="${BUILD_DIR}/kernel/ferro"
-
 #
-# default EFI size in MiB
-#
-DEFAULT_EFI_SIZE=64
-
-#
-# this is where compilation and execution actually starts
+# this is where execution actually starts
 #
 
 mkdir -p "${BUILD_DIR}"
@@ -201,7 +192,11 @@ setup-efi-images() {
 setup-efi-images || die-red "Failed to set up EFI firmware/variables"
 
 if [ "${BUILD_TOO}" -eq 1 ]; then
-	"${SOURCE_ROOT}/scripts/build-image.sh" -b || command-failed
+	mkdir -p "${BUILD_DIR}"
+	if ! [ -f "${BUILD_DIR}/CMakeCache.txt" ]; then
+		cmake -B "${BUILD_DIR}" -S "${SOURCE_ROOT}" || command-failed
+	fi
+	cmake --build "${BUILD_DIR}" || command-failed
 fi
 
 qemu-system-${ARCH} "${QEMU_ARGS[@]}"

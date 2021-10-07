@@ -6,17 +6,31 @@ import subprocess
 import re
 import json
 import io
+import sys
+import tempfile
 
-ARCH=os.environ.get('ARCH', 'x86_64')
 SCRIPT_DIR = os.path.dirname(__file__)
 SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..', '..')
+
+sys.path.append(os.path.join(SOURCE_ROOT, 'scripts'))
+import anillo_util
+
+if len(sys.argv) != 4:
+	print('Usage: ' + sys.argv[0] + ' <output-header> <output-json> <output-depfile>')
+	sys.exit(1)
+
+OUTPUT_HEADER_PATH = sys.argv[1]
+OUTPUT_JSON_PATH = sys.argv[2]
+OUTPUT_DEPFILE_PATH = sys.argv[3]
+
+ARCH=os.environ.get('ARCH', 'x86_64')
 KERNEL_SOURCE_ROOT = os.path.join(SOURCE_ROOT, 'kernel')
-BUILD_DIR = os.path.join(SOURCE_ROOT, 'build', ARCH, 'kernel')
-OUTPUT_HEADER_PATH = os.path.join(BUILD_DIR, 'include', 'gen', 'ferro', 'offsets.h')
-OUTPUT_JSON_PATH = os.path.join(BUILD_DIR, 'offsets.json')
 HEADER_GUARD_NAME = '_GEN_FERRO_OFFSETS_H'
 
-OFFSETS_TMP_PATH = os.path.join(BUILD_DIR, 'offsets.c')
+temp_dir = tempfile.TemporaryDirectory()
+
+offsets_tmp_path = os.path.join(temp_dir.name, 'offsets.c')
+object_tmp_path = os.path.join(temp_dir.name, 'offsets.c.o')
 
 HEADERS_COMMON = [
 	'ferro/core/interrupts.h',
@@ -47,21 +61,13 @@ STRUCTS_PER_ARCH = {
 	'aarch64': [],
 }
 
-# from https://stackoverflow.com/a/600612/6620880
-def mkdir_p(path):
-	try:
-		os.makedirs(path)
-	except OSError as exc:
-		if not (exc.errno == errno.EEXIST and os.path.isdir(path)):
-			raise
-
 data = {}
 defs = ''
 tmp_index = 0
 
-mkdir_p(os.path.dirname(OFFSETS_TMP_PATH))
+anillo_util.mkdir_p(os.path.dirname(offsets_tmp_path))
 
-with io.open(OFFSETS_TMP_PATH, 'w', newline='\n') as tmpfile:
+with io.open(offsets_tmp_path, 'w', newline='\n') as tmpfile:
 	for header in HEADERS_COMMON + HEADERS_PER_ARCH[ARCH]:
 		tmpfile.write('#include <' + header + '>\n')
 
@@ -71,7 +77,16 @@ with io.open(OFFSETS_TMP_PATH, 'w', newline='\n') as tmpfile:
 		tmpfile.write('struct ' + struct + ' tmp' + str(tmp_index) + ';\n')
 		tmp_index = tmp_index + 1
 
-result = subprocess.run(['clang', '-Xclang', '-fdump-record-layouts', '-target', ARCH + '-unknown-none-elf', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), '-c', '-o', os.path.join(BUILD_DIR, 'offsets.c.o'), OFFSETS_TMP_PATH, '-emit-llvm'], stdout=subprocess.PIPE)
+headers_result = subprocess.run(['clang', '-target', ARCH + '-unknown-none-elf', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), offsets_tmp_path, '-M'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+
+headers_result.check_returncode()
+
+dep_headers = headers_result.stdout.decode().strip()
+
+with io.open(OUTPUT_DEPFILE_PATH, 'w', newline='\n') as outfile:
+	outfile.write(dep_headers)
+
+result = subprocess.run(['clang', '-Xclang', '-fdump-record-layouts', '-target', ARCH + '-unknown-none-elf', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), '-c', '-o', object_tmp_path, offsets_tmp_path, '-emit-llvm'], stdout=subprocess.PIPE)
 
 result.check_returncode()
 
@@ -130,7 +145,7 @@ for struct in data:
 	for member in data[struct]['layout']:
 		defs += '#define FOFFSET_' + struct + '_' + member + ' ' + data[struct]['layout'][member] + '\n'
 
-mkdir_p(os.path.dirname(OUTPUT_HEADER_PATH))
+anillo_util.mkdir_p(os.path.dirname(OUTPUT_HEADER_PATH))
 
 with io.open(OUTPUT_HEADER_PATH, 'w', newline='\n') as outfile:
 	outfile.write('#ifndef ' + HEADER_GUARD_NAME + '\n#define ' + HEADER_GUARD_NAME + '\n')
