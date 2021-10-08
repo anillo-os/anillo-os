@@ -41,7 +41,7 @@ add_custom_command(
 		"${CMAKE_CURRENT_BINARY_DIR}/offsets.json"
 		"${CMAKE_CURRENT_BINARY_DIR}/offsets.d"
 	COMMAND
-		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/calculate-offsets.py" "${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/offsets.h" "${CMAKE_CURRENT_BINARY_DIR}/offsets.json" "${CMAKE_CURRENT_BINARY_DIR}/offsets.d"
+		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/calculate-offsets.py" "${ANILLO_ARCH}" "${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/offsets.h" "${CMAKE_CURRENT_BINARY_DIR}/offsets.json" "${CMAKE_CURRENT_BINARY_DIR}/offsets.d"
 	MAIN_DEPENDENCY
 		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/calculate-offsets.py"
 	DEPFILE

@@ -15,15 +15,15 @@ SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..', '..')
 sys.path.append(os.path.join(SOURCE_ROOT, 'scripts'))
 import anillo_util
 
-if len(sys.argv) != 4:
-	print('Usage: ' + sys.argv[0] + ' <output-header> <output-json> <output-depfile>')
+if len(sys.argv) != 5:
+	print('Usage: ' + sys.argv[0] + ' <architecture> <output-header> <output-json> <output-depfile>')
 	sys.exit(1)
 
-OUTPUT_HEADER_PATH = sys.argv[1]
-OUTPUT_JSON_PATH = sys.argv[2]
-OUTPUT_DEPFILE_PATH = sys.argv[3]
+ARCH = sys.argv[1]
+OUTPUT_HEADER_PATH = sys.argv[2]
+OUTPUT_JSON_PATH = sys.argv[3]
+OUTPUT_DEPFILE_PATH = sys.argv[4]
 
-ARCH=os.environ.get('ARCH', 'x86_64')
 KERNEL_SOURCE_ROOT = os.path.join(SOURCE_ROOT, 'kernel')
 HEADER_GUARD_NAME = '_GEN_FERRO_OFFSETS_H'
 

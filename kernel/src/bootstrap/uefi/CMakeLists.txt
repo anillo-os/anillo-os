@@ -15,7 +15,11 @@ add_link_options(
 #
 # it's easier to just remove it here for the UEFI target rather than removing it from the toolchain file
 # because then we'd have to manually add it to all other targets
-string(REPLACE "-Wl,-m,elf_x86_64" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+if ("${ANILLO_ARCH}" STREQUAL "aarch64")
+	string(REPLACE "-Wl,-m,aarch64linux" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+elseif ("${ANILLO_ARCH}" STREQUAL "x86_64")
+	string(REPLACE "-Wl,-m,elf_x86_64" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
+endif()
 
 include_directories(
 	../../../include

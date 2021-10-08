@@ -109,7 +109,7 @@ add_custom_command(
 	OUTPUT
 		"${CMAKE_CURRENT_BINARY_DIR}/disk.img"
 	COMMAND
-		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-image.py" "$<TARGET_FILE:uefi-bootstrap>" "$<TARGET_FILE:ferro>" "${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/startup.nsh" "${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/config.txt" "${CMAKE_CURRENT_BINARY_DIR}/ramdisk" "${CMAKE_CURRENT_BINARY_DIR}/disk.img"
+		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-image.py" "${ANILLO_ARCH}" "$<TARGET_FILE:uefi-bootstrap>" "$<TARGET_FILE:ferro>" "${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/startup.nsh" "${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/config.txt" "${CMAKE_CURRENT_BINARY_DIR}/ramdisk" "${CMAKE_CURRENT_BINARY_DIR}/disk.img"
 	DEPENDS
 		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-image.py"
 		"$<TARGET_FILE:uefi-bootstrap>"

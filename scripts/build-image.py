@@ -13,16 +13,22 @@ SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..')
 sys.path.append(os.path.join(SOURCE_ROOT, 'scripts'))
 import anillo_util
 
-if len(sys.argv) != 7:
-	print('Usage: ' + sys.argv[0] + ' <uefi-bootstrap> <ferro-kernel> <uefi-startup-script> <config-file> <ramdisk> <output-image>')
+if len(sys.argv) != 8:
+	print('Usage: ' + sys.argv[0] + ' <architecture> <uefi-bootstrap> <ferro-kernel> <uefi-startup-script> <config-file> <ramdisk> <output-image>')
 	sys.exit(1)
 
-UEFI_BOOTSTRAP_PATH = sys.argv[1]
-KERNEL_PATH = sys.argv[2]
-UEFI_SCRIPT_PATH = sys.argv[3]
-CONFIG_PATH = sys.argv[4]
-RAMDISK_PATH = sys.argv[5]
-OUTPUT_IMAGE_PATH = sys.argv[6]
+ARCH = sys.argv[1]
+UEFI_BOOTSTRAP_PATH = sys.argv[2]
+KERNEL_PATH = sys.argv[3]
+UEFI_SCRIPT_PATH = sys.argv[4]
+CONFIG_PATH = sys.argv[5]
+RAMDISK_PATH = sys.argv[6]
+OUTPUT_IMAGE_PATH = sys.argv[7]
+
+ARCH_MAP = {
+	'x86_64': 'BOOTx64.efi',
+	'aarch64': 'BOOTaa64.efi',
+}
 
 EFI_SIZE_MB = 64
 DISK_SIZE_MB = 1024
@@ -76,7 +82,7 @@ fat_mkdir_p(efi_image_path, 'EFI/BOOT')
 fat_copy(efi_image_path, UEFI_SCRIPT_PATH, 'startup.nsh')
 fat_copy(efi_image_path, CONFIG_PATH, 'EFI/anillo/config.txt')
 fat_copy(efi_image_path, UEFI_BOOTSTRAP_PATH, 'EFI/anillo/ferro-bootstrap.efi')
-fat_copy(efi_image_path, UEFI_BOOTSTRAP_PATH, 'EFI/BOOT/BOOTx64.efi')
+fat_copy(efi_image_path, UEFI_BOOTSTRAP_PATH, 'EFI/BOOT/' + ARCH_MAP[ARCH])
 fat_copy(efi_image_path, KERNEL_PATH, 'EFI/anillo/ferro')
 fat_copy(efi_image_path, RAMDISK_PATH, 'EFI/anillo/ramdisk')
 
