@@ -154,6 +154,14 @@ FERRO_ALWAYS_INLINE uint64_t fpage_entry_disable_caching(uint64_t entry) {
 	return entry;
 };
 
+FERRO_ALWAYS_INLINE uintptr_t fpage_entry_address(uint64_t entry) {
+	return entry & (0xfffffffffULL << 12);
+};
+
+FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_active(uint64_t entry, bool active) {
+	return (entry & ~FARCH_PAGE_PRESENT_BIT) | (active ? FARCH_PAGE_PRESENT_BIT : 0);
+};
+
 /**
  * @}
  */

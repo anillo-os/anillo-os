@@ -350,6 +350,59 @@ static void ferro_entry_threaded(void* data) {
 
 	fvfs_release(desc);
 #endif
+
+	fpage_space_t space1;
+	fpage_space_t space2;
+	volatile uint8_t* virt1;
+	volatile uint8_t* virt2;
+
+	fpanic_status(fpage_space_init(&space1));
+	fconsole_log("Initialized space 1\n");
+
+	fpanic_status(fpage_space_init(&space2));
+	fconsole_log("Initialized space 2\n");
+
+	fpanic_status(fpage_space_allocate(&space1, 1, (void*)&virt1));
+	fconsole_logf("Allocate within space 1: %p\n", virt1);
+
+	fpanic_status(fpage_space_allocate(&space2, 1, (void*)&virt2));
+	fconsole_logf("Allocated within space 2: %p\n", virt2);
+
+	fpanic_status(fpage_space_swap(&space1));
+	fconsole_log("Switched to space 1\n");
+
+	*virt1 = 1;
+	fconsole_log("Wrote within space 1\n");
+
+	fpanic_status(fpage_space_swap(&space2));
+	fconsole_log("Switched to space 2\n");
+
+	*virt2 = 2;
+	fconsole_log("Wrote within space 2\n");
+
+	fpanic_status(fpage_space_swap(&space1));
+	fconsole_log("Switched to space 1\n");
+
+	fassert(*virt1 == 1);
+	fconsole_log("Read from space 1 correctly\n");
+
+	fpanic_status(fpage_space_swap(&space2));
+	fconsole_log("Switched to space 2\n");
+
+	fassert(*virt2 == 2);
+	fconsole_log("Read from space 2 correctly\n");
+
+	fpanic_status(fpage_space_free(&space1, (void*)virt1, 1));
+	fconsole_log("Freed back to space 1\n");
+
+	fpanic_status(fpage_space_free(&space2, (void*)virt2, 1));
+	fconsole_log("Freed back to space 2\n");
+
+	fpage_space_destroy(&space1);
+	fconsole_log("Destroyed space 1\n");
+
+	fpage_space_destroy(&space2);
+	fconsole_log("Destroyed space 2\n");
 };
 
 __attribute__((section(".text.ferro_entry")))

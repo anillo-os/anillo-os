@@ -33,6 +33,7 @@
 #include <ferro/platform.h>
 #include <ferro/error.h>
 #include <ferro/core/memory-regions.h>
+#include <ferro/core/locks.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -54,9 +55,11 @@ FERRO_DECLARATIONS_BEGIN;
 #define FPAGE_PAGE_SIZE            0x00001000ULL
 #define FPAGE_LARGE_PAGE_SIZE      0x00200000ULL
 #define FPAGE_VERY_LARGE_PAGE_SIZE 0x40000000ULL
+#define FPAGE_SUPER_LARGE_PAGE_SIZE 0x8000000000ULL
 
 #define FPAGE_LARGE_PAGE_COUNT      (FPAGE_LARGE_PAGE_SIZE / FPAGE_PAGE_SIZE)
 #define FPAGE_VERY_LARGE_PAGE_COUNT (FPAGE_VERY_LARGE_PAGE_SIZE / FPAGE_PAGE_SIZE)
+#define FPAGE_SUPER_LARGE_PAGE_COUNT (FPAGE_SUPER_LARGE_PAGE_SIZE / FPAGE_PAGE_SIZE)
 
 #define FPAGE_VIRT_L1_SHIFT 12
 #define FPAGE_VIRT_L2_SHIFT 21
@@ -69,9 +72,96 @@ FERRO_DECLARATIONS_BEGIN;
 #define FPAGE_VIRT_L3(x)     (((uintptr_t)(x) & (0x1ffULL << FPAGE_VIRT_L3_SHIFT)) >> FPAGE_VIRT_L3_SHIFT)
 #define FPAGE_VIRT_L4(x)     (((uintptr_t)(x) & (0x1ffULL << FPAGE_VIRT_L4_SHIFT)) >> FPAGE_VIRT_L4_SHIFT)
 
+#define FPAGE_VIRT_VERY_LARGE_OFFSET(x) ((uintptr_t)(x) & 0x000000003fffffffULL)
+#define FPAGE_VIRT_LARGE_OFFSET(x)      ((uintptr_t)(x) & 0x00000000001fffffULL)
+
 typedef struct fpage_table fpage_table_t;
 struct fpage_table {
 	uint64_t entries[512];
+};
+
+#define FPAGE_USER_MAX 0x7fffffffffff
+#define FPAGE_USER_L4_MAX FPAGE_VIRT_L4(FPAGE_USER_MAX)
+
+/**
+ * A structure representing a single page mapping.
+ *
+ * @note This structure only holds information about the mapping's virtual memory.
+ *       It says nothing about how it's physically allocated.
+ *
+ *       To avoid duplicating information and wasting memory, physical memory information
+ *       is stored directly into a page table and each process has its own page table(s).
+ *       The root page table is shared between all processes (we don't take Meltdown into consideration; at least not yet)
+ *       and each process has one or more L3 tables at userspace addresses (although, for now, they can only have 1 L3 table).
+ */
+FERRO_STRUCT(fpage_mapping) {
+	fpage_mapping_t** prev;
+	fpage_mapping_t* next;
+
+	/**
+	 * The virtual address at which this mapping starts.
+	 */
+	void* virtual_start;
+
+	/**
+	 * How many pages are in this mapping.
+	 */
+	size_t page_count;
+};
+
+// free blocks are doubly-linked list nodes
+FERRO_STRUCT(fpage_free_block) {
+	fpage_free_block_t** prev;
+	fpage_free_block_t* next;
+};
+
+#define FPAGE_MAX_ORDER 32
+
+FERRO_STRUCT(fpage_region_header) {
+	fpage_region_header_t** prev;
+	fpage_region_header_t* next;
+	size_t page_count;
+	void* start;
+	fpage_free_block_t* buckets[FPAGE_MAX_ORDER];
+
+	// this lock protects the region and all of its blocks from reads and writes (for the bookkeeping info; not the actual content itself, obviously)
+	flock_spin_intsafe_t lock;
+
+	// if a bit is 0, the block corresponding to that bit is free.
+	// if a bit is 1, the block corresponding to that bit is in use.
+	uint8_t bitmap[];
+};
+
+/**
+ * A structure representing a virtual address space.
+ */
+FERRO_STRUCT(fpage_space) {
+	/**
+	 * The physical address of the L3 table containing all the mappings for this address space.
+	 *
+	 * @todo We might need more than 512GB of memory in an address space, so we should
+	 *       be able to save more than one L3 table.
+	 */
+	fpage_table_t* l3_table;
+
+	/**
+	 * The L4 index where the L3 table should be found at.
+	 */
+	uint16_t l4_index;
+
+	/**
+	 * The head of the list of page mappings in this address space.
+	 */
+	fpage_mapping_t* head;
+
+	flock_spin_intsafe_t regions_head_lock;
+
+	/**
+	 * The head of the list of buddy allocator regions for this address space.
+	 */
+	fpage_region_header_t* regions_head;
+
+	bool active;
 };
 
 extern char kernel_base_virtual;
@@ -153,6 +243,88 @@ FERRO_WUR ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_add
  */
 FERRO_WUR ferr_t fpage_free_kernel(void* virtual_address, size_t page_count);
 
+/**
+ * Maps the given contiguous physical region of the given size to the next available contiguous virtual region in the given address space.
+ *
+ * @param                    space The address space to map the memory in.
+ * @param         physical_address Starting address of the physical region to map. If this is not page-aligned, it will be rounded down to the nearest page-aligned address.
+ * @param               page_count Number of pages to map for the region.
+ * @param[out] out_virtual_address Out-pointer to the resulting mapped virtual address.
+ * @param                    flags Optional set of flags to modify how the page(s) is/are mapped.
+ *
+ * @note If @p physical_address is not page-aligned, it will automatically be rounded down to the nearest page-aligned address.
+ *       In this case, the pointer written to @p out_virtual_address will ALSO be page-aligned. Therefore, you must ensure that you add any necessary offset to the result yourself.
+ *
+ * Return values:
+ * @retval ferr_ok                The address was successfully mapped. The resulting virtual address is written to @p out_virtual_address.
+ * @retval ferr_invalid_argument  One or more of the following: 1) @p physical_address was an invalid address (e.g. NULL or unsupported on the current machine), 2) @p page_count was an invalid size (e.g. `0` or too large), 3) @p out_virtual_address was `NULL`.
+ * @retval ferr_temporary_outage  The system did not have enough memory resources to map the given address.
+ */
+FERRO_WUR ferr_t fpage_space_map_any(fpage_space_t* space, void* physical_address, size_t page_count, void** out_virtual_address, fpage_page_flags_t flags);
+
+/**
+ * Unmaps the virtual region of the given size identified by the given address.
+ *
+ * @param space           The address space to unmap the memory from.
+ * @param virtual_address Starting address of the virtual region to unmap. If this is not page-aligned, it will be rounded down to the nearest page-aligned address.
+ * @param page_count      Number of pages to unmap from the region.
+ *
+ * Return values:
+ * @retval ferr_ok                The address was successfully unmapped.
+ * @retval ferr_invalid_argument  One or more of the following: 1) @p virtual_address was an invalid address (e.g. `NULL` or unsupported on the current machine), 2) @p page_count was an invalid size (e.g. `0` or too large).
+ */
+FERRO_WUR ferr_t fpage_space_unmap(fpage_space_t* space, void* virtual_address, size_t page_count);
+
+/**
+ * Maps the next available physical region(s) of the given size to the next available contiguous virtual region in the given address space.
+ *
+ * @param                    space The address space to allocate the memory in.
+ * @param               page_count Number of pages to allocate for the region.
+ * @param[out] out_virtual_address Out-pointer to the resulting mapped virtual address.
+ *
+ * Return values:
+ * @retval ferr_ok                The address was successfully mapped. The resulting virtual address is written to @p out_virtual_address.
+ * @retval ferr_invalid_argument  One or more of the following: 1) @p page_count was an invalid size (e.g. `0` or too large), 2) @p out_virtual_address was `NULL`.
+ * @retval ferr_temporary_outage  The system did not have enough memory resources to map the given address.
+ *
+ * @note The resulting region *cannot* be freed using fpage_space_unmap(). It *must* be freed using fpage_space_free().
+ *       This is because fpage_space_unmap() only unmaps the virtual memory, whereas fpage_space_free() both unmaps the virtual memory and frees the physical memory.
+ */
+FERRO_WUR ferr_t fpage_space_allocate(fpage_space_t* space, size_t page_count, void** out_virtual_address);
+
+/**
+ * Frees the region of the given size identified by the given address previously allocated with fpage_space_allocate().
+ *
+ * @param space           The address space to free the memory from.
+ * @param virtual_address Starting address of the virtual region to free. If this is not page-aligned, it will be rounded down to the nearest page-aligned address.
+ * @param page_count      Number of pages to free from the region.
+ *
+ * Return values:
+ * @retval ferr_ok                The address was successfully unmapped.
+ * @retval ferr_invalid_argument  One or more of the following: 1) @p virtual_address was an invalid address (e.g. `NULL` or unsupported on the current machine), 2) @p page_count was an invalid size (e.g. `0` or too large).
+ */
+FERRO_WUR ferr_t fpage_space_free(fpage_space_t* space, void* virtual_address, size_t page_count);
+
+/**
+ * Initializes an address space so it can be used.
+ */
+FERRO_WUR ferr_t fpage_space_init(fpage_space_t* space);
+
+/**
+ * Destroys an address space and frees all resources held by it.
+ */
+void fpage_space_destroy(fpage_space_t* space);
+
+/**
+ * Deactivates the current address space (if any) and activates the given address space.
+ */
+FERRO_WUR ferr_t fpage_space_swap(fpage_space_t* space);
+
+/**
+ * Retrieves the current address space.
+ */
+fpage_space_t* fpage_space_current(void);
+
 FERRO_ALWAYS_INLINE bool fpage_is_page_aligned(uintptr_t address) {
 	return (address & (FPAGE_PAGE_SIZE - 1)) == 0;
 };
@@ -163,6 +335,10 @@ FERRO_ALWAYS_INLINE bool fpage_is_large_page_aligned(uintptr_t address) {
 
 FERRO_ALWAYS_INLINE bool fpage_is_very_large_page_aligned(uintptr_t address) {
 	return (address & (FPAGE_VERY_LARGE_PAGE_SIZE - 1)) == 0;
+};
+
+FERRO_ALWAYS_INLINE bool fpage_is_super_large_page_aligned(uintptr_t address) {
+	return (address & (FPAGE_SUPER_LARGE_PAGE_SIZE - 1)) == 0;
 };
 
 /**
@@ -270,11 +446,6 @@ uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address);
 FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value);
 
 /**
- * Returns an entry value that is exactly the same in almost all respects, except that it will be marked as uncacheable.
- */
-FERRO_ALWAYS_INLINE uint64_t fpage_entry_disable_caching(uint64_t entry_value);
-
-/**
  * Invalidates the TLB entry/entries for the given virtual address.
  */
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address);
@@ -298,6 +469,16 @@ FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_range(void* start, void* end);
  * Creates a modified page table entry from the given entry, disabling caching for that page.
  */
 FERRO_ALWAYS_INLINE uint64_t fpage_entry_disable_caching(uint64_t entry);
+
+/**
+ * Returns the address associated with the given entry.
+ */
+FERRO_ALWAYS_INLINE uintptr_t fpage_entry_address(uint64_t entry);
+
+/**
+ * Creates a modified entry from the given entry, marking it either as active or inactive (depending on @p active).
+ */
+FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_active(uint64_t entry, bool active);
 
 /**
  * @}
