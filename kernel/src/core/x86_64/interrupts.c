@@ -767,12 +767,12 @@ void fint_init(void) {
 	);
 
 	// allocate a stack for generic interrupt handlers
-	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &generic_interrupt_stack_bottom) != ferr_ok) {
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &generic_interrupt_stack_bottom, 0) != ferr_ok) {
 		fpanic("failed to allocate stack for generic interrupt handlers");
 	}
 
 	// allocate a stack for the double-fault handler
-	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &double_fault_stack_bottom) != ferr_ok) {
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &double_fault_stack_bottom, 0) != ferr_ok) {
 		fpanic("failed to allocate stack for double fault handler");
 	}
 

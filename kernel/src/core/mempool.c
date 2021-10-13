@@ -517,7 +517,7 @@ try_order:
 	leaf_count = leaf_count_of_order(region_order);
 	region_size = region_size_for_leaf_count(leaf_count, &extra_bookkeeping_page_count);
 
-	if (fpage_allocate_kernel(fpage_round_up_page(region_size) / FPAGE_PAGE_SIZE, (void**)&header) != ferr_ok) {
+	if (fpage_allocate_kernel(fpage_round_up_page(region_size) / FPAGE_PAGE_SIZE, (void**)&header, 0) != ferr_ok) {
 		// can't go lower our minimum order
 		if (region_order == min_order) {
 			return NULL;

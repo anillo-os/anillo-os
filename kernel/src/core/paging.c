@@ -673,10 +673,11 @@ static void break_entry(size_t levels, size_t l4_index, size_t l3_index, size_t 
 };
 
 // NOTE: this function ***WILL*** overwrite existing entries!
-static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_count, fpage_page_flags_t flags) {
+static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_count, fpage_flags_t flags) {
 	uintptr_t physical_frame = (uintptr_t)phys_frame;
 	uintptr_t virtual_frame = (uintptr_t)virt_frame;
-	bool no_cache = flags & fpage_page_flag_no_cache;
+	bool no_cache = (flags & fpage_flag_no_cache) != 0;
+	bool unprivileged = (flags & fpage_flag_unprivileged) != 0;
 
 	while (page_count > 0) {
 		size_t l4_index = FPAGE_VIRT_L4(virtual_frame);
@@ -705,6 +706,9 @@ static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_coun
 			l3->entries[l3_index] = fpage_very_large_page_entry(physical_frame, true);
 			if (no_cache) {
 				l3->entries[l3_index] = fpage_entry_disable_caching(l3->entries[l3_index]);
+			}
+			if (unprivileged) {
+				l3->entries[l3_index] = fpage_entry_mark_privileged(l3->entries[l3_index], false);
 			}
 			fpage_synchronize_after_table_modification();
 
@@ -745,6 +749,9 @@ static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_coun
 			if (no_cache) {
 				l2->entries[l2_index] = fpage_entry_disable_caching(l2->entries[l2_index]);
 			}
+			if (unprivileged) {
+				l2->entries[l2_index] = fpage_entry_mark_privileged(l2->entries[l2_index], false);
+			}
 			fpage_synchronize_after_table_modification();
 
 			page_count -= FPAGE_LARGE_PAGE_COUNT;
@@ -772,6 +779,9 @@ static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_coun
 		if (no_cache) {
 			l1->entries[l1_index] = fpage_entry_disable_caching(l1->entries[l1_index]);
 		}
+		if (unprivileged) {
+			l1->entries[l1_index] = fpage_entry_mark_privileged(l1->entries[l1_index], false);
+		}
 		fpage_synchronize_after_table_modification();
 
 		page_count -= 1;
@@ -781,10 +791,11 @@ static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_coun
 };
 
 // NOTE: this function ***WILL*** overwrite existing entries!
-static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* virt_frame, size_t page_count, fpage_page_flags_t flags) {
+static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* virt_frame, size_t page_count, fpage_flags_t flags) {
 	uintptr_t physical_frame = (uintptr_t)phys_frame;
 	uintptr_t virtual_frame = (uintptr_t)virt_frame;
-	bool no_cache = flags & fpage_page_flag_no_cache;
+	bool no_cache = (flags & fpage_flag_no_cache) != 0;
+	bool unprivileged = (flags & fpage_flag_unprivileged) != 0;
 
 	while (page_count > 0) {
 		size_t l4_index = FPAGE_VIRT_L4(virtual_frame);
@@ -819,6 +830,9 @@ static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* 
 			table->entries[l3_index] = fpage_very_large_page_entry(physical_frame, true);
 			if (no_cache) {
 				table->entries[l3_index] = fpage_entry_disable_caching(table->entries[l3_index]);
+			}
+			if (unprivileged) {
+				table->entries[l3_index] = fpage_entry_mark_privileged(table->entries[l3_index], false);
 			}
 			fpage_synchronize_after_table_modification();
 
@@ -864,6 +878,9 @@ static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* 
 			if (no_cache) {
 				table->entries[l2_index] = fpage_entry_disable_caching(table->entries[l2_index]);
 			}
+			if (unprivileged) {
+				table->entries[l2_index] = fpage_entry_mark_privileged(table->entries[l2_index], false);
+			}
 			fpage_synchronize_after_table_modification();
 
 			page_count -= FPAGE_LARGE_PAGE_COUNT;
@@ -896,6 +913,9 @@ static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* 
 		table->entries[l1_index] = fpage_page_entry(physical_frame, true);
 		if (no_cache) {
 			table->entries[l1_index] = fpage_entry_disable_caching(table->entries[l1_index]);
+		}
+		if (unprivileged) {
+			table->entries[l1_index] = fpage_entry_mark_privileged(table->entries[l1_index], false);
 		}
 		fpage_synchronize_after_table_modification();
 
@@ -2139,7 +2159,7 @@ static void fpage_break_mapping(void* address, size_t page_count) {
 	fpage_space_flush_mapping_internal(NULL, address, page_count, true, true);
 };
 
-ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address, fpage_page_flags_t flags) {
+ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address, fpage_flags_t flags) {
 	void* virt = NULL;
 
 	if (physical_address == NULL || page_count == 0 || page_count == SIZE_MAX || out_virtual_address == NULL) {
@@ -2171,7 +2191,7 @@ ferr_t fpage_unmap_kernel(void* virtual_address, size_t page_count) {
 	return ferr_ok;
 };
 
-ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address) {
+ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address, fpage_flags_t flags) {
 	void* virt = NULL;
 
 	if (page_count == 0 || page_count == SIZE_MAX || out_virtual_address == NULL) {
@@ -2194,7 +2214,7 @@ ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address) {
 			return ferr_temporary_outage;
 		}
 
-		map_frame_fixed(frame, (void*)((uintptr_t)virt + (i * FPAGE_PAGE_SIZE)), 1, 0);
+		map_frame_fixed(frame, (void*)((uintptr_t)virt + (i * FPAGE_PAGE_SIZE)), 1, flags);
 	}
 
 	*out_virtual_address = virt;
@@ -2395,7 +2415,7 @@ fpage_space_t* fpage_space_current(void) {
 	return space;
 };
 
-ferr_t fpage_space_map_any(fpage_space_t* space, void* physical_address, size_t page_count, void** out_virtual_address, fpage_page_flags_t flags) {
+ferr_t fpage_space_map_any(fpage_space_t* space, void* physical_address, size_t page_count, void** out_virtual_address, fpage_flags_t flags) {
 	void* virt = NULL;
 
 	if (physical_address == NULL || page_count == 0 || page_count == SIZE_MAX || out_virtual_address == NULL) {
@@ -2427,7 +2447,7 @@ ferr_t fpage_space_unmap(fpage_space_t* space, void* virtual_address, size_t pag
 	return ferr_ok;
 };
 
-ferr_t fpage_space_allocate(fpage_space_t* space, size_t page_count, void** out_virtual_address) {
+ferr_t fpage_space_allocate(fpage_space_t* space, size_t page_count, void** out_virtual_address, fpage_flags_t flags) {
 	void* virt = NULL;
 
 	if (page_count == 0 || page_count == SIZE_MAX || out_virtual_address == NULL) {
@@ -2450,7 +2470,7 @@ ferr_t fpage_space_allocate(fpage_space_t* space, size_t page_count, void** out_
 			return ferr_temporary_outage;
 		}
 
-		space_map_frame_fixed(space, frame, (void*)((uintptr_t)virt + (i * FPAGE_PAGE_SIZE)), 1, 0);
+		space_map_frame_fixed(space, frame, (void*)((uintptr_t)virt + (i * FPAGE_PAGE_SIZE)), 1, flags);
 	}
 
 	*out_virtual_address = virt;

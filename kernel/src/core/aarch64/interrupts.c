@@ -239,7 +239,7 @@ void fint_init(void) {
 	__asm__ volatile("msr vbar_el1, %0" :: "r" (&fint_ivt));
 
 	// allocate a stack for exceptions
-	if (fpage_allocate_kernel(fpage_round_up_to_page_count(EXCEPTION_STACK_SIZE), &exception_stack) != ferr_ok) {
+	if (fpage_allocate_kernel(fpage_round_up_to_page_count(EXCEPTION_STACK_SIZE), &exception_stack, 0) != ferr_ok) {
 		fpanic("Failed to allocate exception stack");
 	}
 

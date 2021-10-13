@@ -555,7 +555,7 @@ void farch_apic_init(void) {
 				farch_ioapic_node_t* ioapic_node = &ioapic_nodes[ioapic_node_index++];
 				uint32_t version_value;
 
-				if (fpage_map_kernel_any((void*)(uintptr_t)ioapic_node_info->address, sizeof(farch_ioapic_node_mmio_t), (void*)&ioapic_node->mmio, fpage_page_flag_no_cache) != ferr_ok) {
+				if (fpage_map_kernel_any((void*)(uintptr_t)ioapic_node_info->address, sizeof(farch_ioapic_node_mmio_t), (void*)&ioapic_node->mmio, fpage_flag_no_cache) != ferr_ok) {
 					fpanic("Failed to map IOAPIC node register space");
 				}
 
@@ -572,7 +572,7 @@ void farch_apic_init(void) {
 		offset += header->length;
 	}
 
-	if (fpage_map_kernel_any((void*)lapic_address, 1, (void**)&lapic, fpage_page_flag_no_cache) != ferr_ok) {
+	if (fpage_map_kernel_any((void*)lapic_address, 1, (void**)&lapic, fpage_flag_no_cache) != ferr_ok) {
 		fpanic("failed to map LAPIC block");
 	}
 

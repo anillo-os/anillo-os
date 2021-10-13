@@ -162,6 +162,10 @@ FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_active(uint64_t entry, bool active
 	return (entry & ~FARCH_PAGE_PRESENT_BIT) | (active ? FARCH_PAGE_PRESENT_BIT : 0);
 };
 
+FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_privileged(uint64_t entry, bool privileged) {
+	return (entry & ~FARCH_PAGE_ALLOW_UNPRIVILEGED_ACCESS_BIT) | (privileged ? 0 : FARCH_PAGE_ALLOW_UNPRIVILEGED_ACCESS_BIT);
+};
+
 /**
  * @}
  */

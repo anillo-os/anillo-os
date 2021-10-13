@@ -248,7 +248,7 @@ ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_ba
 	}
 
 	if (!stack_base) {
-		if (fpage_allocate_kernel(fpage_round_up_to_page_count(stack_size), &stack_base) != ferr_ok) {
+		if (fpage_allocate_kernel(fpage_round_up_to_page_count(stack_size), &stack_base, 0) != ferr_ok) {
 			return ferr_temporary_outage;
 		}
 

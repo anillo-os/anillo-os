@@ -89,7 +89,7 @@ ferr_t facpi_register_table(facpi_sdt_header_t* table) {
 	return ferr_ok;
 };
 
-static ferr_t map_with_offset(void* address, size_t page_count, void** out_pointer, fpage_page_flags_t flags) {
+static ferr_t map_with_offset(void* address, size_t page_count, void** out_pointer, fpage_flags_t flags) {
 	uintptr_t page_aligned = fpage_round_down_page((uintptr_t)address);
 	ferr_t status = fpage_map_kernel_any((void*)page_aligned, page_count, out_pointer, flags);
 

@@ -169,9 +169,16 @@ extern char kernel_base_physical;
 extern char kernel_bss_start;
 extern char kernel_bss_end;
 
-FERRO_OPTIONS(uint64_t, fpage_page_flags) {
-	// Disables caching for the page(s).
-	fpage_page_flag_no_cache = 1 << 0,
+FERRO_OPTIONS(uint64_t, fpage_flags) {
+	/**
+	 * Disables caching for the page(s).
+	 */
+	fpage_flag_no_cache       = 1 << 0,
+
+	/**
+	 * Allows unprivileged (i.e. userspace) access to the page(s).
+	 */
+	fpage_flag_unprivileged = 1 << 1,
 };
 
 /**
@@ -201,7 +208,7 @@ void fpage_init(size_t next_l2, fpage_table_t* root_table, ferro_memory_region_t
  * @retval ferr_invalid_argument  One or more of the following: 1) @p physical_address was an invalid address (e.g. NULL or unsupported on the current machine), 2) @p page_count was an invalid size (e.g. `0` or too large), 3) @p out_virtual_address was `NULL`.
  * @retval ferr_temporary_outage  The system did not have enough memory resources to map the given address.
  */
-FERRO_WUR ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address, fpage_page_flags_t flags);
+FERRO_WUR ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address, fpage_flags_t flags);
 
 /**
  * Unmaps the virtual region of the given size identified by the given address.
@@ -220,6 +227,7 @@ FERRO_WUR ferr_t fpage_unmap_kernel(void* virtual_address, size_t page_count);
  *
  * @param               page_count Number of pages to allocate for the region.
  * @param[out] out_virtual_address Out-pointer to the resulting mapped virtual address.
+ * @param                    flags Optional set of flags to modify how the page(s) is/are mapped.
  *
  * Return values:
  * @retval ferr_ok                The address was successfully mapped. The resulting virtual address is written to @p out_virtual_address.
@@ -229,7 +237,7 @@ FERRO_WUR ferr_t fpage_unmap_kernel(void* virtual_address, size_t page_count);
  * @note The resulting region *cannot* be freed using fpage_unmap_kernel(). It *must* be freed using fpage_free_kernel().
  *       This is because fpage_unmap_kernel() only unmaps the virtual memory, whereas fpage_free_kernel() both unmaps the virtual memory and frees the physical memory.
  */
-FERRO_WUR ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address);
+FERRO_WUR ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address, fpage_flags_t flags);
 
 /**
  * Frees the region of the given size identified by the given address previously allocated with fpage_allocate_kernel().
@@ -260,7 +268,7 @@ FERRO_WUR ferr_t fpage_free_kernel(void* virtual_address, size_t page_count);
  * @retval ferr_invalid_argument  One or more of the following: 1) @p physical_address was an invalid address (e.g. NULL or unsupported on the current machine), 2) @p page_count was an invalid size (e.g. `0` or too large), 3) @p out_virtual_address was `NULL`.
  * @retval ferr_temporary_outage  The system did not have enough memory resources to map the given address.
  */
-FERRO_WUR ferr_t fpage_space_map_any(fpage_space_t* space, void* physical_address, size_t page_count, void** out_virtual_address, fpage_page_flags_t flags);
+FERRO_WUR ferr_t fpage_space_map_any(fpage_space_t* space, void* physical_address, size_t page_count, void** out_virtual_address, fpage_flags_t flags);
 
 /**
  * Unmaps the virtual region of the given size identified by the given address.
@@ -281,6 +289,7 @@ FERRO_WUR ferr_t fpage_space_unmap(fpage_space_t* space, void* virtual_address, 
  * @param                    space The address space to allocate the memory in.
  * @param               page_count Number of pages to allocate for the region.
  * @param[out] out_virtual_address Out-pointer to the resulting mapped virtual address.
+ * @param                    flags Optional set of flags to modify how the page(s) is/are mapped.
  *
  * Return values:
  * @retval ferr_ok                The address was successfully mapped. The resulting virtual address is written to @p out_virtual_address.
@@ -290,7 +299,7 @@ FERRO_WUR ferr_t fpage_space_unmap(fpage_space_t* space, void* virtual_address, 
  * @note The resulting region *cannot* be freed using fpage_space_unmap(). It *must* be freed using fpage_space_free().
  *       This is because fpage_space_unmap() only unmaps the virtual memory, whereas fpage_space_free() both unmaps the virtual memory and frees the physical memory.
  */
-FERRO_WUR ferr_t fpage_space_allocate(fpage_space_t* space, size_t page_count, void** out_virtual_address);
+FERRO_WUR ferr_t fpage_space_allocate(fpage_space_t* space, size_t page_count, void** out_virtual_address, fpage_flags_t flags);
 
 /**
  * Frees the region of the given size identified by the given address previously allocated with fpage_space_allocate().
@@ -479,6 +488,11 @@ FERRO_ALWAYS_INLINE uintptr_t fpage_entry_address(uint64_t entry);
  * Creates a modified entry from the given entry, marking it either as active or inactive (depending on @p active).
  */
 FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_active(uint64_t entry, bool active);
+
+/**
+ * Creates a modified entry from the given entry, marking it either as privileged or unprivileged (depending on @p privileged).
+ */
+FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_privileged(uint64_t entry, bool privileged);
 
 /**
  * @}

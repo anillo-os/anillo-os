@@ -362,10 +362,10 @@ static void ferro_entry_threaded(void* data) {
 	fpanic_status(fpage_space_init(&space2));
 	fconsole_log("Initialized space 2\n");
 
-	fpanic_status(fpage_space_allocate(&space1, 1, (void*)&virt1));
+	fpanic_status(fpage_space_allocate(&space1, 1, (void*)&virt1, 0));
 	fconsole_logf("Allocate within space 1: %p\n", virt1);
 
-	fpanic_status(fpage_space_allocate(&space2, 1, (void*)&virt2));
+	fpanic_status(fpage_space_allocate(&space2, 1, (void*)&virt2, 0));
 	fconsole_logf("Allocated within space 2: %p\n", virt2);
 
 	fpanic_status(fpage_space_swap(&space1));
