@@ -37,7 +37,7 @@ class SyscallParameter:
 		self.name = name
 
 	def __str__(self) -> str:
-		return f'{self.name}: {self.type} ({self.user_type})'
+		return f'{self.name}: {self.type} ({syscall_type_to_c_type[self.type]})'
 
 	def __repr__(self) -> str:
 		return self.__str__()
@@ -71,5 +71,10 @@ class Syscall:
 
 def sort_syscalls() -> None:
 	syscalls.sort(key=lambda x: x.number, reverse=False)
+
+def validate_syscalls() -> None:
+	for syscall in syscalls:
+		if len(syscall.parameters) > 6:
+			raise RuntimeError(f"Too many parameters for syscall (maximum of 6 allowed): {syscall}")
 
 syscalls: List[Syscall] = []

@@ -39,6 +39,7 @@ syscalls_module = importlib.import_module(ARCH)
 sys.path.pop()
 
 syscalls_module.sort_syscalls()
+syscalls_module.validate_syscalls()
 
 anillo_util.mkdir_p(os.path.dirname(OUTPUT_INDEX_PATH))
 anillo_util.mkdir_p(os.path.dirname(OUTPUT_HANDLER_DECLARATIONS_PATH))
