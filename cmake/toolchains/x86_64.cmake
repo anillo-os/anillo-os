@@ -29,9 +29,10 @@ set(CMAKE_SIZE "${LLVM_SIZE_PATH}" CACHE INTERNAL "")
 set(CMAKE_STRIP "${LLVM_STRIP_PATH}" CACHE INTERNAL "")
 
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-Wl,-m,elf_x86_64 -fuse-ld=lld")
+set(CMAKE_SHARED_LINKER_FLAGS_INIT "-Wl,-m,elf_x86_64 -fuse-ld=lld")
 
 # TODO: get rid of `-mno-implicit-float`
-set(CMAKE_C_FLAGS "-ffreestanding -fno-stack-protector -fno-stack-check -mno-red-zone -mno-implicit-float -nostdlib -target x86_64-unknown-none-elf" CACHE INTERNAL "")
+set(CMAKE_C_FLAGS "-ffreestanding -mno-implicit-float -nostdlib -target x86_64-unknown-none-elf" CACHE INTERNAL "")
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS}" CACHE INTERNAL "")
 set(CMAKE_ASM_FLAGS "-nostdlib -target x86_64-unknown-none-elf" CACHE INTERNAL "")
 

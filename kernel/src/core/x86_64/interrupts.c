@@ -29,8 +29,9 @@
 #include <ferro/core/paging.h>
 #include <ferro/core/console.h>
 #include <ferro/core/locks.h>
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 #include <ferro/core/threads.private.h>
+#include <ferro/core/per-cpu.private.h>
 
 #include <stddef.h>
 
@@ -51,10 +52,15 @@ FERRO_OPTIONS(uint64_t, fint_gdt_flags) {
 	fint_gdt_flag_writable     = 1ULL << 41,
 	fint_gdt_flag_executable   = 1ULL << 43,
 	fint_gdt_flag_user_segment = 1ULL << 44,
+	fint_gdt_flag_dpl_ring_3   = 3ULL << 45,
 	fint_gdt_flag_present      = 1ULL << 47,
 	fint_gdt_flag_long         = 1ULL << 53,
 
 	fint_gdt_flags_common      = fint_gdt_flag_accessed | fint_gdt_flag_writable | fint_gdt_flag_present | fint_gdt_flag_user_segment,
+
+	// just to shut clang up
+	fint_gdt_flag_dpl_ring_3_hi = 1ULL << 46,
+	fint_gdt_flag_dpl_ring_3_lo = 1ULL << 45,
 };
 
 FERRO_PACKED_STRUCT(fint_gdt) {
@@ -227,6 +233,12 @@ static fint_gdt_t gdt = {
 		// needs to be initialized with the pointer value in fint_init()
 		fint_gdt_flag_accessed | fint_gdt_flag_executable | fint_gdt_flag_present | ((sizeof(fint_tss_t) - 1ULL) & 0xffffULL),
 		0,
+
+		// user data segment
+		fint_gdt_flags_common | fint_gdt_flag_dpl_ring_3,
+
+		// user code segment
+		fint_gdt_flags_common | fint_gdt_flag_long | fint_gdt_flag_executable | fint_gdt_flag_dpl_ring_3,
 	},
 };
 
@@ -264,7 +276,10 @@ static void print_frame(const fint_frame_t* frame) {
 		"r9=%lu; r10=%lu\n"
 		"r11=%lu; r12=%lu\n"
 		"r13=%lu; r14=%lu\n"
-		"r15=%lu\n"
+		"r15=%lu; rflags=%lu\n"
+		"cs=%lu; ss=%lu\n"
+		"ds=%u; es=%u\n"
+		"fs=%u; gs=%u\n"
 		,
 		(void*)((uintptr_t)frame->core.rip - 1), frame->core.rsp,
 		frame->saved_registers.rax, frame->saved_registers.rcx,
@@ -274,8 +289,65 @@ static void print_frame(const fint_frame_t* frame) {
 		frame->saved_registers.r9, frame->saved_registers.r10,
 		frame->saved_registers.r11, frame->saved_registers.r12,
 		frame->saved_registers.r13, frame->saved_registers.r14,
-		frame->saved_registers.r15
+		frame->saved_registers.r15, frame->core.rflags,
+		frame->core.cs, frame->core.ss,
+		frame->saved_registers.ds, frame->saved_registers.es,
+		frame->saved_registers.fs, frame->saved_registers.gs
 	);
+};
+
+FERRO_OPTIONS(uint64_t, farch_int_page_fault_code_flags) {
+	farch_int_page_fault_code_flag_protection        = 1ULL << 0,
+	farch_int_page_fault_code_flag_write             = 1ULL << 1,
+	farch_int_page_fault_code_flag_user              = 1ULL << 2,
+	farch_int_page_fault_code_flag_reserved          = 1ULL << 3,
+	farch_int_page_fault_code_flag_instruction_fetch = 1ULL << 4,
+
+	farch_int_page_fault_code_flags_all = farch_int_page_fault_code_flag_protection        |
+	                                      farch_int_page_fault_code_flag_write             |
+	                                      farch_int_page_fault_code_flag_user              |
+	                                      farch_int_page_fault_code_flag_reserved          |
+	                                      farch_int_page_fault_code_flag_instruction_fetch
+};
+
+static void print_page_fault_code(uint64_t page_fault_code) {
+	bool is_first = true;
+
+	for (uint8_t bit = 0; bit < 64; ++bit) {
+		const char* message = NULL;
+		bool set = (page_fault_code & (1ULL << bit)) != 0;
+
+		if ((farch_int_page_fault_code_flags_all & (1ULL << bit)) == 0) {
+			continue;
+		}
+
+		switch (bit) {
+			case 0:
+				message = set ? "protection violation" : "missing page";
+				break;
+			case 1:
+				message = set ? "caused by write" : "caused by read";
+				break;
+			case 2:
+				message = set ? "occurred in userspace" : "occurred in kernel-space";
+				break;
+			case 3:
+				message = set ? "invalid page descriptor (reserved bit set)" : NULL;
+				break;
+			case 4:
+				message = set ? "caused by instruction fetch" : NULL;
+				break;
+		}
+
+		if (message) {
+			if (is_first) {
+				is_first = false;
+			} else {
+				fconsole_log(" | ");
+			}
+			fconsole_log(message);
+		}
+	}
 };
 
 #define INTERRUPT_HANDLER(name) \
@@ -383,8 +455,23 @@ INTERRUPT_HANDLER(page_fault) {
 	__asm__ volatile("mov %%cr2, %0" : "=r" (faulting_address));
 
 	fconsole_logf("page fault; code=%lu; faulting address=%p; frame:\n", frame->code, (void*)faulting_address);
+	fconsole_log("page fault code description: ");
+	print_page_fault_code(frame->code);
+	fconsole_log("\n");
 	print_frame(frame);
 	fpanic("page fault");
+
+	fint_handler_common_end(&data, frame, true);
+};
+
+INTERRUPT_HANDLER(invalid_opcode) {
+	fint_handler_common_data_t data;
+
+	fint_handler_common_begin(&data, frame, true);
+
+	fconsole_logf("invalid opcode; frame:\n");
+	print_frame(frame);
+	fpanic("invalid opcode");
 
 	fint_handler_common_end(&data, frame, true);
 };
@@ -648,14 +735,8 @@ jump_here_for_cs_reload:;
 		"mov %0, %%ss\n"
 		"mov %0, %%ds\n"
 		"mov %0, %%es\n"
-
-		// load (temporarily) unused segment registers with null
-		// these are used later by the per-CPU data subsystem, but for now, nobody uses them
-		"movw %1, %%fs\n"
-		"movw %1, %%gs\n"
 		::
-		"r" ((uint64_t)(ds * 8)),
-		"r" (0)
+		"r" ((uint64_t)(ds * 8))
 		:
 		"memory"
 	);
@@ -783,7 +864,7 @@ void fint_init(void) {
 	// initialize the idt with missing entries (they still require certain bits to be 1)
 	fint_make_idt_entry(&missing_entry, NULL, 0, 0, false, 0);
 	missing_entry.options &= ~fint_idt_entry_option_present;
-	memclone(&idt, &missing_entry, sizeof(missing_entry), sizeof(idt) / sizeof(missing_entry));
+	simple_memclone(&idt, &missing_entry, sizeof(missing_entry), sizeof(idt) / sizeof(missing_entry));
 
 	// initialize the desired idt entries with actual values
 	fint_make_idt_entry(&idt.debug, farch_int_wrapper_debug, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
@@ -791,6 +872,7 @@ void fint_init(void) {
 	fint_make_idt_entry(&idt.double_fault, farch_int_wrapper_double_fault, farch_int_gdt_index_code, fint_ist_index_double_fault + 1, false, 0);
 	fint_make_idt_entry(&idt.general_protection_fault, farch_int_wrapper_general_protection, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
 	fint_make_idt_entry(&idt.page_fault, farch_int_wrapper_page_fault, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.invalid_opcode, farch_int_wrapper_invalid_opcode, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
 
 	// initialize the array of miscellaneous interrupts
 	#define DEFINE_INTERRUPT(number) \
@@ -1045,7 +1127,7 @@ void fint_init(void) {
 FERRO_NO_RETURN void facpi_reboot_early(void) {
 	// the idea here is to corrupt the IDT and the processor should triple-fault
 	fint_disable();
-	memset(&idt, 0, sizeof(idt));
+	simple_memset(&idt, 0, sizeof(idt));
 
 	// now trigger an interrupt, which should make us triple-fault
 	__asm__ volatile("int3" ::: );

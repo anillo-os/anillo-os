@@ -3,6 +3,11 @@ project(uefi-bootstrap)
 add_compile_options(
 	-target ${ANILLO_ARCH}-unknown-windows
 	-fshort-wchar
+
+	-fno-stack-protector
+	-fno-stack-check
+	-mno-red-zone
+	-mno-implicit-float
 )
 
 add_link_options(
@@ -23,15 +28,20 @@ endif()
 
 include_directories(
 	../../../include
+	../../../kernel-include
+	../../../../libsimple/include
 
-	# TODO
-	"${CMAKE_SOURCE_DIR}/build/x86_64/kernel/include"
+	"${CMAKE_BINARY_DIR}/kernel/include"
 )
 
 add_executable(uefi-bootstrap
 	main.c
 	wrappers.c
-	../../libk/libk.c
+	../../../../libsimple/src/libsimple.c
+)
+
+target_compile_definitions(uefi-bootstrap PRIVATE
+	LIBSIMPLE_COMPAT=1
 )
 
 set_target_properties(uefi-bootstrap PROPERTIES

@@ -27,7 +27,7 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/mempool.h>
 
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 FERRO_STRUCT(ferro_ramdisk_node_descriptor) {
 	fvfs_descriptor_t descriptor;
@@ -116,7 +116,7 @@ static ferro_ramdisk_directory_entry_t* entry_for_path(const char* path, size_t 
 			ferro_ramdisk_directory_entry_t* child = &directory_children(curr_entry)[i];
 			const char* child_name = entry_name(child);
 
-			if (strlen(child_name) != component.length || strncmp(component.component, child_name, component.length) != 0) {
+			if (simple_strlen(child_name) != component.length || simple_strncmp(component.component, child_name, component.length) != 0) {
 				continue;
 			}
 
@@ -196,7 +196,7 @@ static ferr_t vfs_ramdisk_open(void* context, fvfs_mount_t* mount, const char* p
 		goto out;
 	}
 
-	status = fvfs_descriptor_init(&desc->descriptor, mount, path, path_length, flags);
+	status = fvfs_descriptor_init(&desc->descriptor, mount, flags);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -263,7 +263,7 @@ static ferr_t vfs_ramdisk_list_children_init(void* context, fvfs_descriptor_t* d
 			char* string_pos;
 			while (curr && entry_name(curr)) {
 				// `+1` for the slash
-				length += strlen(entry_name(curr)) + 1;
+				length += simple_strlen(entry_name(curr)) + 1;
 				curr = entry_parent(curr);
 			}
 			if (fmempool_allocate(length, NULL, (void*)&string) != ferr_ok) {
@@ -278,16 +278,16 @@ static ferr_t vfs_ramdisk_list_children_init(void* context, fvfs_descriptor_t* d
 			string_pos = string + length;
 			curr = child;
 			while (curr && entry_name(curr)) {
-				size_t len = strlen(entry_name(curr));
+				size_t len = simple_strlen(entry_name(curr));
 				string_pos -= len;
-				memcpy(string_pos, entry_name(curr), len);
+				simple_memcpy(string_pos, entry_name(curr), len);
 				string_pos -= 1;
 				string_pos[0] = '/';
 				curr = entry_parent(curr);
 			}
 		} else {
 			out_child_array[i].path = entry_name(child);
-			out_child_array[i].length = strlen(out_child_array[i].path);
+			out_child_array[i].length = simple_strlen(out_child_array[i].path);
 		}
 		++(*out_listed_count);
 	}
@@ -343,7 +343,7 @@ static ferr_t vfs_ramdisk_list_children(void* context, fvfs_descriptor_t* descri
 			char* string_pos;
 			while (curr && entry_name(curr)) {
 				// `+1` for the slash
-				length += strlen(entry_name(curr)) + 1;
+				length += simple_strlen(entry_name(curr)) + 1;
 				curr = entry_parent(curr);
 			}
 			if (fmempool_allocate(length, NULL, (void*)&string) != ferr_ok) {
@@ -358,16 +358,16 @@ static ferr_t vfs_ramdisk_list_children(void* context, fvfs_descriptor_t* descri
 			string_pos = string + length;
 			curr = child;
 			while (curr && entry_name(curr)) {
-				size_t len = strlen(entry_name(curr));
+				size_t len = simple_strlen(entry_name(curr));
 				string_pos -= len;
-				memcpy(string_pos, entry_name(curr), len);
+				simple_memcpy(string_pos, entry_name(curr), len);
 				string_pos -= 1;
 				string_pos[0] = '/';
 				curr = entry_parent(curr);
 			}
 		} else {
 			in_out_child_array[i].path = entry_name(child);
-			in_out_child_array[i].length = strlen(in_out_child_array[i].path);
+			in_out_child_array[i].length = simple_strlen(in_out_child_array[i].path);
 		}
 		++(*in_out_listed_count);
 	}
@@ -410,11 +410,11 @@ static ferr_t vfs_ramdisk_copy_path(void* context, fvfs_descriptor_t* descriptor
 	if (absolute) {
 		while (curr && entry_name(curr)) {
 			// `+1` for the slash
-			length += strlen(entry_name(curr)) + 1;
+			length += simple_strlen(entry_name(curr)) + 1;
 			curr = entry_parent(curr);
 		}
 	} else {
-		length = strlen(entry_name(curr));
+		length = simple_strlen(entry_name(curr));
 	}
 
 	*out_length = length;
@@ -429,15 +429,15 @@ static ferr_t vfs_ramdisk_copy_path(void* context, fvfs_descriptor_t* descriptor
 		curr = desc->entry;
 
 		while (curr && entry_name(curr)) {
-			size_t len = strlen(entry_name(curr));
+			size_t len = simple_strlen(entry_name(curr));
 			string_pos -= len;
-			memcpy(string_pos, entry_name(curr), len);
+			simple_memcpy(string_pos, entry_name(curr), len);
 			string_pos -= 1;
 			string_pos[0] = '/';
 			curr = entry_parent(curr);
 		}
 	} else {
-		memcpy(out_path_buffer, entry_name(curr), length);
+		simple_memcpy(out_path_buffer, entry_name(curr), length);
 	}
 
 	if (path_buffer_size >= length + 1) {
@@ -457,6 +457,7 @@ static ferr_t vfs_ramdisk_copy_info(void* context, fvfs_descriptor_t* descriptor
 
 static ferr_t vfs_ramdisk_read(void* context, fvfs_descriptor_t* descriptor, size_t offset, void* buffer, size_t buffer_size, size_t* out_read_count) {
 	ferro_ramdisk_node_descriptor_t* desc = (void*)descriptor;
+	size_t read_count = 0;
 
 	if ((!buffer && buffer_size > 0) || entry_is_directory(desc->entry)) {
 		return ferr_invalid_argument;
@@ -466,9 +467,13 @@ static ferr_t vfs_ramdisk_read(void* context, fvfs_descriptor_t* descriptor, siz
 		return ferr_permanent_outage;
 	}
 
-	*out_read_count = min(desc->entry->size - offset, buffer_size);
+	read_count = simple_min(desc->entry->size - offset, buffer_size);;
 
-	memcpy(buffer, file_contents(desc->entry) + offset, *out_read_count);
+	simple_memcpy(buffer, file_contents(desc->entry) + offset, read_count);
+
+	if (out_read_count) {
+		*out_read_count = read_count;
+	}
 
 	return ferr_ok;
 };

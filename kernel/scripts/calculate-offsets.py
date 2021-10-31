@@ -37,6 +37,8 @@ HEADERS_COMMON = [
 	'ferro/core/threads.h',
 	'ferro/platform.h',
 	'ferro/core/ramdisk.h',
+	'ferro/core/threads.private.h',
+	'ferro/userspace/threads.h',
 ]
 
 HEADERS_PER_ARCH = {
@@ -52,11 +54,18 @@ STRUCTS_COMMON = [
 	'ferro_ramdisk_header',
 	'ferro_ramdisk_section_header',
 	'ferro_ramdisk_directory_entry',
+
+	'fthread_private',
+	'fthread_hook',
+
+	'futhread_data',
 ]
 
 STRUCTS_PER_ARCH = {
 	'x86_64': [
 		'farch_int_frame_core',
+		'farch_int_frame_with_code',
+		'farch_per_cpu_data',
 	],
 	'aarch64': [],
 }
@@ -77,7 +86,7 @@ with io.open(offsets_tmp_path, 'w', newline='\n') as tmpfile:
 		tmpfile.write('struct ' + struct + ' tmp' + str(tmp_index) + ';\n')
 		tmp_index = tmp_index + 1
 
-headers_result = subprocess.run(['clang', '-target', ARCH + '-unknown-none-elf', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), offsets_tmp_path, '-M'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+headers_result = subprocess.run(['clang', '-ffreestanding', '-nostdlib', '-target', ARCH + '-unknown-none-elf', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), '-I', os.path.join(KERNEL_SOURCE_ROOT, 'kernel-include'), offsets_tmp_path, '-M'], stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
 
 headers_result.check_returncode()
 
@@ -86,7 +95,7 @@ dep_headers = headers_result.stdout.decode().strip()
 with io.open(OUTPUT_DEPFILE_PATH, 'w', newline='\n') as outfile:
 	outfile.write(dep_headers)
 
-result = subprocess.run(['clang', '-Xclang', '-fdump-record-layouts', '-target', ARCH + '-unknown-none-elf', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), '-c', '-o', object_tmp_path, offsets_tmp_path, '-emit-llvm'], stdout=subprocess.PIPE)
+result = subprocess.run(['clang', '-Xclang', '-fdump-record-layouts', '-ffreestanding', '-nostdlib', '-target', ARCH + '-unknown-none-elf', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), '-I', os.path.join(KERNEL_SOURCE_ROOT, 'kernel-include'), '-c', '-o', object_tmp_path, offsets_tmp_path, '-emit-llvm'], stdout=subprocess.PIPE)
 
 result.check_returncode()
 

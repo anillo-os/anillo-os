@@ -25,7 +25,7 @@
 #include <ferro/core/framebuffer.h>
 #include <ferro/core/locks.h>
 #include <ferro/bits.h>
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 #define round_up_div(value, multiple) ({ \
 		__typeof__(value) _value = (value); \
@@ -205,7 +205,7 @@ ferr_t ferro_fb_set_area_clone(const ferro_fb_pixel_t* pixel, const ferro_fb_rec
 
 	flock_spin_intsafe_lock(&fb_lock);
 	for (size_t i = 0; i < height; ++i) {
-		memclone(framebuffer + base_index + (fb_info->scan_line_size * i), pixelbuf, bytes_per_pixel, width);
+		simple_memclone(framebuffer + base_index + (fb_info->scan_line_size * i), pixelbuf, bytes_per_pixel, width);
 	}
 	flock_spin_intsafe_unlock(&fb_lock);
 
@@ -234,7 +234,7 @@ ferr_t ferro_fb_move(const ferro_fb_rect_t* old_area, const ferro_fb_rect_t* new
 		// start at the bottom
 		flock_spin_intsafe_lock(&fb_lock);
 		for (size_t i = height; i > 0; --i) {
-			memmove(framebuffer + new_base_index + (fb_info->scan_line_size * (i - 1)), framebuffer + old_base_index + (fb_info->scan_line_size * (i - 1)), width * bytes_per_pixel);
+			simple_memmove(framebuffer + new_base_index + (fb_info->scan_line_size * (i - 1)), framebuffer + old_base_index + (fb_info->scan_line_size * (i - 1)), width * bytes_per_pixel);
 		}
 		flock_spin_intsafe_unlock(&fb_lock);
 	} else if (comparison > 0) {
@@ -242,7 +242,7 @@ ferr_t ferro_fb_move(const ferro_fb_rect_t* old_area, const ferro_fb_rect_t* new
 		// start at the top
 		flock_spin_intsafe_lock(&fb_lock);
 		for (size_t i = 0; i < height; ++i) {
-			memmove(framebuffer + new_base_index + (fb_info->scan_line_size * i), framebuffer + old_base_index + (fb_info->scan_line_size * i), width * bytes_per_pixel);
+			simple_memmove(framebuffer + new_base_index + (fb_info->scan_line_size * i), framebuffer + old_base_index + (fb_info->scan_line_size * i), width * bytes_per_pixel);
 		}
 		flock_spin_intsafe_unlock(&fb_lock);
 	}

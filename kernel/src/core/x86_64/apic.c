@@ -566,6 +566,8 @@ void farch_apic_init(void) {
 				ioapic_node->redirection_entry_count = ((version_value >> 16) & 0xff) + 1;
 
 				ioapic_node->gsi_base = ioapic_node_info->gsi_base;
+
+				fconsole_logf("IOAPIC node found: id=%u; version=%u; GSI base=%u; GSI count=%u\n", ioapic_node->id, ioapic_node->version, ioapic_node->gsi_base, ioapic_node->redirection_entry_count);
 			} break;
 		}
 

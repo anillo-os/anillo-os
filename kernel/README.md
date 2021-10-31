@@ -6,4 +6,4 @@ Anillo OS's microkernel
 
 `core` contains the actual core of the kernel.
 
-`libk` implements a minimalistic library for kernel-space utilities similar to what libc provides (e.g. `memcpy`, `memcmp`, `strlen`, etc.).
+`libk` implements a minimalistic library for kernel-space utilities similar to what libc provides (e.g. `simple_memcpy`, `simple_memcmp`, `simple_strlen`, etc.).

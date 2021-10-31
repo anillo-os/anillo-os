@@ -35,6 +35,8 @@ endif()
 
 project(anillo-os)
 
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_to_ramdisk.cmake)
+
 set(COMPILER_RT_FLAGS "-ffreestanding -D__ELF__=1")
 set(COMPILER_RT_LDFLAGS "-fuse-ld=lld -nostdlib -ffreestanding")
 
@@ -85,25 +87,78 @@ add_library(compiler-rt-builtins STATIC IMPORTED GLOBAL)
 set_target_properties(compiler-rt-builtins PROPERTIES
 	IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_ARCH}-unknown-none-elf/libclang_rt.builtins.a"
 )
+add_dependencies(compiler-rt-builtins compiler-rt)
 
-add_subdirectory(kernel)
-add_subdirectory(kernel/src/bootstrap/uefi)
+include_directories(
+	"${CMAKE_CURRENT_BINARY_DIR}/include"
+)
 
 add_custom_command(
 	OUTPUT
-		"${CMAKE_CURRENT_BINARY_DIR}/ramdisk"
+		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/userspace/syscall-index.h"
+		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/userspace/syscall-handlers.h"
+		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/userspace/syscall-table.h"
+		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/libsyscall/syscall-wrappers.h"
+		"${CMAKE_CURRENT_BINARY_DIR}/src/gen/libsyscall/syscall-wrappers.c"
 	COMMAND
-		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py" "${CMAKE_CURRENT_BINARY_DIR}/ramdisksrc" "${OFFSETS_JSON_PATH}" "${CMAKE_CURRENT_BINARY_DIR}/ramdisk"
+		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate-syscalls.py" "${ANILLO_ARCH}" "gen/ferro/userspace/syscall-index.h" "gen/ferro/userspace/syscall-handlers.h" "gen/libsyscall/syscall-wrappers.h" "${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/userspace/syscall-index.h" "${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/userspace/syscall-handlers.h" "${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/userspace/syscall-table.h" "${CMAKE_CURRENT_BINARY_DIR}/include/gen/libsyscall/syscall-wrappers.h" "${CMAKE_CURRENT_BINARY_DIR}/src/gen/libsyscall/syscall-wrappers.c"
+	MAIN_DEPENDENCY
+		"${CMAKE_CURRENT_SOURCE_DIR}/resources/syscalls/${ANILLO_ARCH}.py"
+	DEPENDS
+		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/generate-syscalls.py"
+		"${CMAKE_CURRENT_SOURCE_DIR}/resources/syscalls/syscall.py"
+		"${CMAKE_CURRENT_SOURCE_DIR}/resources/syscalls/common.py"
+)
+
+add_custom_target(generate_syscalls
+	DEPENDS
+		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/userspace/syscall-index.h"
+		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/userspace/syscall-handlers.h"
+		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/userspace/syscall-table.h"
+		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/libsyscall/syscall-wrappers.h"
+		"${CMAKE_CURRENT_BINARY_DIR}/src/gen/libsyscall/syscall-wrappers.c"
+)
+
+add_custom_command(
+	OUTPUT
+		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/offsets.h"
+		"${CMAKE_CURRENT_BINARY_DIR}/offsets.json"
+		"${CMAKE_CURRENT_BINARY_DIR}/offsets.d"
+	COMMAND
+		"${CMAKE_CURRENT_SOURCE_DIR}/kernel/scripts/calculate-offsets.py" "${ANILLO_ARCH}" "${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/offsets.h" "${CMAKE_CURRENT_BINARY_DIR}/offsets.json" "${CMAKE_CURRENT_BINARY_DIR}/offsets.d"
+	MAIN_DEPENDENCY
+		"${CMAKE_CURRENT_SOURCE_DIR}/kernel/scripts/calculate-offsets.py"
+	DEPFILE
+		"${CMAKE_CURRENT_BINARY_DIR}/offsets.d"
+)
+
+set(OFFSETS_JSON_PATH "${CMAKE_CURRENT_BINARY_DIR}/offsets.json")
+
+add_custom_target(generate_offsets_header
+	DEPENDS
+		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/offsets.h"
+)
+
+add_custom_target(generate_ramdisk
+	ALL
+	COMMAND
+		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py" "${CMAKE_CURRENT_BINARY_DIR}/ramdisksrc" "${OFFSETS_JSON_PATH}" "${CMAKE_BINARY_DIR}/ramdisk"
+	BYPRODUCTS
+		"${CMAKE_BINARY_DIR}/ramdisk"
 	DEPENDS
 		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py"
 		"${OFFSETS_JSON_PATH}"
 )
 
-add_custom_target(generate_ramdisk
-	ALL
-	DEPENDS
-		"${CMAKE_CURRENT_BINARY_DIR}/ramdisk"
-)
+add_subdirectory(kernel)
+add_subdirectory(kernel/src/bootstrap/uefi)
+add_subdirectory(libsyscall)
+add_subdirectory(sysman)
+add_subdirectory(dylink)
+add_subdirectory(libc)
+add_subdirectory(libsys)
+add_subdirectory(libsimple)
+add_subdirectory(libelf)
 
 add_custom_command(
 	OUTPUT
@@ -116,7 +171,7 @@ add_custom_command(
 		"$<TARGET_FILE:ferro>"
 		"${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/startup.nsh"
 		"${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/config.txt"
-		"${CMAKE_CURRENT_BINARY_DIR}/ramdisk"
+		generate_ramdisk
 )
 
 add_custom_target(generate_image

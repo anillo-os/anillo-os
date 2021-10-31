@@ -23,7 +23,7 @@
  */
 
 #include <ferro/core/threads.private.h>
-#include <ferro/core/aarch64/per-cpu.h>
+#include <ferro/core/per-cpu.private.h>
 
 void farch_threads_runner(void);
 

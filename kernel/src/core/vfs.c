@@ -28,7 +28,7 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/locks.h>
 
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 FERRO_STRUCT(fvfs_mount) {
 	void* context;
@@ -78,7 +78,7 @@ static fvfs_mount_t* fvfs_mount_new(const char* path, size_t path_length, const 
 			++pos;
 			++result->path_length;
 		}
-		memcpy(pos, component.component, component.length);
+		simple_memcpy(pos, component.component, component.length);
 		pos += component.length;
 		result->path_length += component.length;
 	}
@@ -139,7 +139,7 @@ static fvfs_mount_t* fvfs_mount_open_for_path(const char* path, size_t path_leng
 		for (; mount_status == ferr_ok && input_status == ferr_ok; (mount_status = fvfs_path_component_next(&mount_component)), (input_status = fvfs_path_component_next(&input_component))) {
 			if (!(
 				mount_component.length == input_component.length &&
-				strncmp(mount_component.component, input_component.component, mount_component.length) == 0
+				simple_strncmp(mount_component.component, input_component.component, mount_component.length) == 0
 			)) {
 				mount_status = ferr_cancelled;
 				input_status = ferr_cancelled;
@@ -181,21 +181,11 @@ static fvfs_mount_t* fvfs_mount_open_for_path(const char* path, size_t path_leng
 
 void fvfs_init(void) {};
 
-ferr_t fvfs_descriptor_init(fvfs_descriptor_t* descriptor, fvfs_mount_t* mount, const char* path, size_t path_length, fvfs_descriptor_flags_t flags) {
-	if (!path || !descriptor) {
+ferr_t fvfs_descriptor_init(fvfs_descriptor_t* descriptor, fvfs_mount_t* mount, fvfs_descriptor_flags_t flags) {
+	if (!descriptor) {
 		return ferr_invalid_argument;
 	}
 
-	char* copy = NULL;
-
-	if (fmempool_allocate(sizeof(char) * path_length, NULL, (void*)&copy) != ferr_ok) {
-		return ferr_temporary_outage;
-	}
-
-	memcpy(copy, path, sizeof(char) * path_length);
-
-	descriptor->path = copy;
-	descriptor->path_length = path_length;
 	descriptor->flags = flags;
 	descriptor->reference_count = 1;
 	descriptor->mount = mount;
@@ -204,8 +194,8 @@ ferr_t fvfs_descriptor_init(fvfs_descriptor_t* descriptor, fvfs_mount_t* mount, 
 };
 
 void fvfs_descriptor_destroy(fvfs_descriptor_t* descriptor) {
-	if (fmempool_free(descriptor->path) != ferr_ok) {
-		fpanic("Failed to free descriptor path");
+	if ((descriptor->flags & fvfs_descriptor_private_flag_mempool_free_on_destroy) != 0) {
+		fpanic_status(fmempool_free(descriptor));
 	}
 };
 
@@ -234,21 +224,29 @@ ferr_t fvfs_open_n(const char* path, size_t path_length, fvfs_descriptor_flags_t
 };
 
 ferr_t fvfs_open(const char* path, fvfs_descriptor_flags_t flags, fvfs_descriptor_t** out_descriptor) {
-	return fvfs_open_n(path, path ? strlen(path) : 0, flags, out_descriptor);
+	return fvfs_open_n(path, path ? simple_strlen(path) : 0, flags, out_descriptor);
 };
 
 ferr_t fvfs_retain(fvfs_descriptor_t* descriptor) {
-	if (__atomic_fetch_add(&descriptor->reference_count, 1, __ATOMIC_RELAXED) == 0) {
-		return ferr_permanent_outage;
-	}
+	uint64_t old_value = __atomic_load_n(&descriptor->reference_count, __ATOMIC_RELAXED);
+
+	do {
+		if (old_value == 0) {
+			return ferr_permanent_outage;
+		}
+	} while (!__atomic_compare_exchange_n(&descriptor->reference_count, &old_value, old_value + 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
 
 	return ferr_ok;
 };
 
 void fvfs_release(fvfs_descriptor_t* descriptor) {
-	if (__atomic_sub_fetch(&descriptor->reference_count, 1, __ATOMIC_ACQ_REL) != 0) {
-		return;
-	}
+	uint64_t old_value = __atomic_load_n(&descriptor->reference_count, __ATOMIC_RELAXED);
+
+	do {
+		if (old_value != 0) {
+			return;
+		}
+	} while (!__atomic_compare_exchange_n(&descriptor->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
 
 	descriptor->mount->backend->close(descriptor->mount->context, descriptor);
 };
@@ -258,7 +256,7 @@ bool fvfs_path_is_absolute_n(const char* path, size_t path_length) {
 };
 
 bool fvfs_path_is_absolute(const char* path) {
-	return fvfs_path_is_absolute_n(path, path ? strlen(path) : 0);
+	return fvfs_path_is_absolute_n(path, path ? simple_strlen(path) : 0);
 };
 
 ferr_t fvfs_path_component_first_n(const char* path, size_t path_length, fvfs_path_component_t* out_component) {
@@ -279,7 +277,7 @@ ferr_t fvfs_path_component_first_n(const char* path, size_t path_length, fvfs_pa
 		return ferr_permanent_outage;
 	}
 
-	next_slash = strnchr(first_component, '/', first_component_length);
+	next_slash = simple_strnchr(first_component, '/', first_component_length);
 
 	if (next_slash) {
 		first_component_length = next_slash - first_component;
@@ -294,7 +292,7 @@ ferr_t fvfs_path_component_first_n(const char* path, size_t path_length, fvfs_pa
 };
 
 ferr_t fvfs_path_component_first(const char* path, fvfs_path_component_t* out_component) {
-	return fvfs_path_component_first_n(path, path ? strlen(path) : 0, out_component);
+	return fvfs_path_component_first_n(path, path ? simple_strlen(path) : 0, out_component);
 };
 
 ferr_t fvfs_path_component_next(fvfs_path_component_t* in_out_component) {
@@ -318,7 +316,7 @@ ferr_t fvfs_path_component_next(fvfs_path_component_t* in_out_component) {
 		return ferr_permanent_outage;
 	}
 
-	next_slash = strnchr(next_component, '/', next_component_length);
+	next_slash = simple_strnchr(next_component, '/', next_component_length);
 
 	if (next_slash) {
 		next_component_length = next_slash - next_component;
@@ -453,7 +451,7 @@ ferr_t fvfs_copy_path(fvfs_descriptor_t* descriptor, bool absolute, char* out_pa
 		*out_length += descriptor->mount->path_length;
 
 		if (status == ferr_ok) {
-			memcpy(out_path_buffer, descriptor->mount->path, descriptor->mount->path_length);
+			simple_memcpy(out_path_buffer, descriptor->mount->path, descriptor->mount->path_length);
 		}
 	}
 
@@ -531,7 +529,7 @@ ferr_t fvfs_open_rn(fvfs_descriptor_t* base_descriptor, const char* path, size_t
 		}
 
 		if (component.length == 2 && component.component[0] == '.' && component.component[1] == '.') {
-			char* new_end = strrnchr(abs_path, '/', abs_path_end - abs_path);
+			char* new_end = simple_strrnchr(abs_path, '/', abs_path_end - abs_path);
 
 			if (!new_end) {
 				new_end = abs_path;
@@ -544,7 +542,7 @@ ferr_t fvfs_open_rn(fvfs_descriptor_t* base_descriptor, const char* path, size_t
 		abs_path_end[0] = '/';
 		++abs_path_end;
 
-		memcpy(abs_path_end, component.component, component.length);
+		simple_memcpy(abs_path_end, component.component, component.length);
 		abs_path_end += component.length;
 	}
 
@@ -556,7 +554,7 @@ ferr_t fvfs_open_rn(fvfs_descriptor_t* base_descriptor, const char* path, size_t
 };
 
 ferr_t fvfs_open_r(fvfs_descriptor_t* base_descriptor, const char* path, fvfs_descriptor_flags_t flags, fvfs_descriptor_t** out_descriptor) {
-	return fvfs_open_rn(base_descriptor, path, path ? strlen(path) : 0, flags, out_descriptor);
+	return fvfs_open_rn(base_descriptor, path, path ? simple_strlen(path) : 0, flags, out_descriptor);
 };
 
 ferr_t fvfs_read(fvfs_descriptor_t* descriptor, size_t offset, void* buffer, size_t buffer_size, size_t* out_read_count) {
@@ -569,4 +567,84 @@ ferr_t fvfs_read(fvfs_descriptor_t* descriptor, size_t offset, void* buffer, siz
 	}
 
 	return descriptor->mount->backend->read(descriptor->mount->context, descriptor, offset, buffer, buffer_size, out_read_count);
+};
+
+ferr_t fvfs_write(fvfs_descriptor_t* descriptor, size_t offset, const void* buffer, size_t buffer_size, size_t* out_written_count) {
+	if (!descriptor) {
+		return ferr_invalid_argument;
+	}
+
+	if (!descriptor->mount->backend->write) {
+		return ferr_unsupported;
+	}
+
+	return descriptor->mount->backend->write(descriptor->mount->context, descriptor, offset, buffer, buffer_size, out_written_count);
+};
+
+FERRO_STRUCT(fvfs_anonymous_descriptor) {
+	fvfs_descriptor_t descriptor;
+	fvfs_backend_t backend;
+	fvfs_backend_close_f real_close;
+	fvfs_mount_t mount;
+};
+
+static ferr_t anonymous_descriptor_close(void* context, fvfs_descriptor_t* descriptor) {
+	ferr_t status = ferr_ok;
+	fvfs_anonymous_descriptor_t* anon = (void*)descriptor;
+
+	if (anon->real_close) {
+		status = anon->real_close(context, descriptor);
+	}
+
+	// we've set the 'mempool-free-on-destroy' flag, so this should take care of freeing the memory for us as well
+	fvfs_descriptor_destroy(descriptor);
+
+	return status;
+};
+
+ferr_t fvfs_open_anonymous(const char* name, size_t name_length, const fvfs_backend_t* backend, void* context, fvfs_descriptor_t** out_descriptor) {
+	ferr_t status = ferr_ok;
+	fvfs_anonymous_descriptor_t* anon = NULL;
+
+	if (!backend || !out_descriptor) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (name_length == SIZE_MAX) {
+		name_length = simple_strlen(name);
+	}
+
+	if (fmempool_allocate(sizeof(fvfs_anonymous_descriptor_t) + name_length, NULL, (void*)&anon) != ferr_ok) {
+		status = ferr_temporary_outage;
+		goto out;
+	}
+
+	status = fvfs_descriptor_init(&anon->descriptor, &anon->mount, fvfs_descriptor_private_flag_mempool_free_on_destroy);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	anon->real_close = backend->close;
+
+	simple_memcpy(&anon->backend, backend, sizeof(fvfs_backend_t));
+
+	anon->backend.close = anonymous_descriptor_close;
+
+	anon->mount.context = context;
+	anon->mount.open_descriptor_count = 0;
+	anon->mount.backend = &anon->backend;
+
+	anon->mount.path_length = name_length;
+	simple_memcpy(&anon->mount.path[0], name, name_length);
+
+out:
+	if (status == ferr_ok) {
+		*out_descriptor = (void*)anon;
+	} else {
+		if (anon) {
+			fpanic_status(fmempool_free(anon));
+		}
+	}
+	return status;
 };

@@ -30,7 +30,7 @@
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/locks.h>
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 #include <gen/ferro/font.h>
 
@@ -191,7 +191,7 @@ void fconsole_init_serial(fserial_t* serial) {
 		serial_port = serial;
 
 		// initialize the serial port console
-		for (size_t i = 0; i < strlen(serial_init_sequence); ++i) {
+		for (size_t i = 0; i < simple_strlen(serial_init_sequence); ++i) {
 			fserial_write(serial_port, true, serial_init_sequence[i]);
 		}
 	}
@@ -285,7 +285,7 @@ ferr_t fconsole_logn(const char* string, size_t size) {
 };
 
 ferr_t fconsole_log(const char* string) {
-	return fconsole_logn(string, strlen(string));
+	return fconsole_logn(string, simple_strlen(string));
 };
 
 // 32 characters is enough for all three of these variations
@@ -410,7 +410,7 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 					READ_NEXT;
 
 					if (num_end != num_start) {
-						if (libk_string_to_integer_unsigned(num_start, num_end - num_start, NULL, 10, &precision) != ferr_ok) {
+						if (simple_string_to_integer_unsigned(num_start, num_end - num_start, NULL, 10, &precision) != ferr_ok) {
 							goto err_out;
 						}
 					}
@@ -532,7 +532,7 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 
 				case 's': {
 					const char* value = va_arg(args, const char*);
-					fconsole_logn_locked(value, precision == SIZE_MAX ? strlen(value) : precision);
+					fconsole_logn_locked(value, precision == SIZE_MAX ? simple_strlen(value) : precision);
 				} break;
 
 				case 'p': {
@@ -576,7 +576,7 @@ ferr_t fconsole_lognf(const char* format, size_t format_size, ...) {
 };
 
 ferr_t fconsole_logfv(const char* format, va_list args) {
-	return fconsole_lognfv(format, strlen(format), args);
+	return fconsole_lognfv(format, simple_strlen(format), args);
 };
 
 ferr_t fconsole_logf(const char* format, ...) {

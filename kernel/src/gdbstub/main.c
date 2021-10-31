@@ -38,7 +38,7 @@
 #include <ferro/core/scheduler.private.h>
 #include <ferro/core/mempool.h>
 
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 #include <stdatomic.h>
 
@@ -386,7 +386,7 @@ static ferr_t deserialize_thread_id(fgdb_packet_buffer_t* packet_buffer, fthread
 		thread_id = FTHREAD_ID_INVALID;
 	} else {
 		const char* one_past_end = NULL;
-		status = libk_string_to_integer_unsigned((const char*)&packet_buffer->buffer[packet_buffer->offset], packet_buffer->length - packet_buffer->offset, &one_past_end, 0x10, &thread_id);
+		status = simple_string_to_integer_unsigned((const char*)&packet_buffer->buffer[packet_buffer->offset], packet_buffer->length - packet_buffer->offset, &one_past_end, 0x10, &thread_id);
 		if (status == ferr_ok) {
 			packet_buffer->offset = one_past_end - (const char*)packet_buffer->buffer;
 			--thread_id;
@@ -508,8 +508,8 @@ static void fgdb_serial_read_notify(void* data) {
 			// TODO: once we have userspace, threads will have the ability to have separate memory mappings,
 			//       so this command will also depend on ::selected_thread
 
-			const char* comma = strnchr(recv_data, ',', recv_length);
-			const char* colon = strnchr(recv_data, ':', recv_length);
+			const char* comma = simple_strnchr(recv_data, ',', recv_length);
+			const char* colon = simple_strnchr(recv_data, ':', recv_length);
 			bool ok = true;
 			uintmax_t address;
 			uintmax_t length;
@@ -538,11 +538,11 @@ static void fgdb_serial_read_notify(void* data) {
 				ok = false;
 			}
 
-			if (ok && libk_string_to_integer_unsigned(recv_data + 1, address_length, NULL, 0x10, &address) != ferr_ok) {
+			if (ok && simple_string_to_integer_unsigned(recv_data + 1, address_length, NULL, 0x10, &address) != ferr_ok) {
 				ok = false;
 			}
 
-			if (ok && libk_string_to_integer_unsigned(comma + 1, length_length, NULL, 0x10, &length) != ferr_ok) {
+			if (ok && simple_string_to_integer_unsigned(comma + 1, length_length, NULL, 0x10, &length) != ferr_ok) {
 				ok = false;
 			}
 
@@ -559,7 +559,7 @@ static void fgdb_serial_read_notify(void* data) {
 				// colon means we're writing
 				for (size_t i = 0; i < length; ++i) {
 					uintmax_t value = 0;
-					if (libk_string_to_integer_unsigned(colon + 1 + (i * 2), 2, NULL, 0x10, &value) != ferr_ok) {
+					if (simple_string_to_integer_unsigned(colon + 1 + (i * 2), 2, NULL, 0x10, &value) != ferr_ok) {
 						ok = false;
 						break;
 					}
@@ -589,7 +589,7 @@ static void fgdb_serial_read_notify(void* data) {
 			fgdb_packet_buffer_destroy(&send_packet_buffer);
 
 			handled = true;
-		} else if (recv_length == sizeof(VCONT_QMARK_COMMAND) - 1 && strncmp(recv_data, VCONT_QMARK_COMMAND, sizeof(VCONT_QMARK_COMMAND) - 1) == 0) {
+		} else if (recv_length == sizeof(VCONT_QMARK_COMMAND) - 1 && simple_strncmp(recv_data, VCONT_QMARK_COMMAND, sizeof(VCONT_QMARK_COMMAND) - 1) == 0) {
 			fgdb_packet_buffer_t send_packet_buffer;
 
 			fgdb_packet_buffer_init(&send_packet_buffer, fgdb_static_packet_buffer_send, sizeof(fgdb_static_packet_buffer_send));
@@ -605,14 +605,14 @@ static void fgdb_serial_read_notify(void* data) {
 			fgdb_packet_buffer_destroy(&send_packet_buffer);
 
 			handled = true;
-		} else if (recv_length > sizeof("vCont;") - 1 && strncmp(recv_data, "vCont;", sizeof("vCont;") - 1) == 0) {
+		} else if (recv_length > sizeof("vCont;") - 1 && simple_strncmp(recv_data, "vCont;", sizeof("vCont;") - 1) == 0) {
 			const char* command_start = recv_data + (sizeof("vCont;") - 1);
-			const char* semicolon = strnchr(command_start, ';', recv_end - command_start);
+			const char* semicolon = simple_strnchr(command_start, ';', recv_end - command_start);
 			size_t command_length = (semicolon) ? (semicolon - command_start) : (recv_end - command_start);
 			const char* command_end = command_start + command_length;
 
 			while (command_start) {
-				const char* colon = strnchr(command_start, ':', command_length);
+				const char* colon = simple_strnchr(command_start, ':', command_length);
 				fthread_id_t thread_id = FTHREAD_ID_INVALID;
 
 				if (colon) {
@@ -630,9 +630,9 @@ static void fgdb_serial_read_notify(void* data) {
 				//       for a specific thread (or set of threads), further commands should not apply to it.
 				//       (e.g. 's:1234;c' means 'step thread 1234 and continue all others')
 
-				if (strncmp(command_start, "c", command_length) == 0 || (command_length == 3 && command_start[0] == 'C')) {
+				if (simple_strncmp(command_start, "c", command_length) == 0 || (command_length == 3 && command_start[0] == 'C')) {
 					should_continue = true;
-				} else if (strncmp(command_start, "s", command_length) == 0 || (command_length == 3 && command_start[0] == 'S')) {
+				} else if (simple_strncmp(command_start, "s", command_length) == 0 || (command_length == 3 && command_start[0] == 'S')) {
 					should_continue = true;
 
 					if (thread_id != FTHREAD_ID_INVALID) {
@@ -644,13 +644,13 @@ static void fgdb_serial_read_notify(void* data) {
 					} else {
 						fsched_foreach_thread(foreach_thread_set_single_step, NULL, false);
 					}
-				} else if (strncmp(command_start, "t", command_length) == 0) {
+				} else if (simple_strncmp(command_start, "t", command_length) == 0) {
 					should_continue = false;
 				}
 
 				command_start = (semicolon) ? (semicolon + 1) : NULL;
 				if (command_start) {
-					semicolon = strnchr(command_start, ';', recv_end - command_start);
+					semicolon = simple_strnchr(command_start, ';', recv_end - command_start);
 					command_length = (semicolon) ? (semicolon - command_start) : (recv_end - command_start);
 					command_end = command_start + command_length;
 				}
@@ -660,7 +660,7 @@ static void fgdb_serial_read_notify(void* data) {
 			}
 
 			handled = true;
-		} else if (recv_length == sizeof("qfThreadInfo") - 1 && strncmp(recv_data, "qfThreadInfo", sizeof("qfThreadInfo") - 1) == 0) {
+		} else if (recv_length == sizeof("qfThreadInfo") - 1 && simple_strncmp(recv_data, "qfThreadInfo", sizeof("qfThreadInfo") - 1) == 0) {
 			fgdb_packet_buffer_t send_packet_buffer;
 
 			fgdb_packet_buffer_init(&send_packet_buffer, fgdb_static_packet_buffer_send, sizeof(fgdb_static_packet_buffer_send));
@@ -689,7 +689,7 @@ static void fgdb_serial_read_notify(void* data) {
 			fgdb_packet_buffer_destroy(&send_packet_buffer);
 
 			handled = true;
-		} else if (recv_length == sizeof("qsThreadInfo") - 1 && strncmp(recv_data, "qsThreadInfo", sizeof("qsThreadInfo") - 1) == 0) {
+		} else if (recv_length == sizeof("qsThreadInfo") - 1 && simple_strncmp(recv_data, "qsThreadInfo", sizeof("qsThreadInfo") - 1) == 0) {
 			fgdb_packet_buffer_t send_packet_buffer;
 
 			fgdb_packet_buffer_init(&send_packet_buffer, fgdb_static_packet_buffer_send, sizeof(fgdb_static_packet_buffer_send));
@@ -705,7 +705,7 @@ static void fgdb_serial_read_notify(void* data) {
 			fgdb_packet_buffer_destroy(&send_packet_buffer);
 
 			handled = true;
-		} else if (recv_length == sizeof("qOffsets") - 1 && strncmp(recv_data, "qOffsets", sizeof("qOffsets") - 1) == 0) {
+		} else if (recv_length == sizeof("qOffsets") - 1 && simple_strncmp(recv_data, "qOffsets", sizeof("qOffsets") - 1) == 0) {
 			fgdb_packet_buffer_t send_packet_buffer;
 
 			fgdb_packet_buffer_init(&send_packet_buffer, fgdb_static_packet_buffer_send, sizeof(fgdb_static_packet_buffer_send));
@@ -723,7 +723,7 @@ static void fgdb_serial_read_notify(void* data) {
 			fgdb_packet_buffer_destroy(&send_packet_buffer);
 
 			handled = true;
-		} else if (recv_length == sizeof("qC") - 1 && strncmp(recv_data, "qC", sizeof("qC") - 1) == 0) {
+		} else if (recv_length == sizeof("qC") - 1 && simple_strncmp(recv_data, "qC", sizeof("qC") - 1) == 0) {
 			fgdb_packet_buffer_t send_packet_buffer;
 			fthread_id_t id = selected_thread ? selected_thread->id : 0;
 
@@ -744,7 +744,7 @@ static void fgdb_serial_read_notify(void* data) {
 			fgdb_packet_buffer_destroy(&send_packet_buffer);
 
 			handled = true;
-		} else if (recv_length == sizeof("qAttached") - 1 && strncmp(recv_data, "qAttached", sizeof("qAttached") - 1) == 0) {
+		} else if (recv_length == sizeof("qAttached") - 1 && simple_strncmp(recv_data, "qAttached", sizeof("qAttached") - 1) == 0) {
 			fgdb_packet_buffer_t send_packet_buffer;
 
 			fgdb_packet_buffer_init(&send_packet_buffer, fgdb_static_packet_buffer_send, sizeof(fgdb_static_packet_buffer_send));
@@ -764,12 +764,12 @@ static void fgdb_serial_read_notify(void* data) {
 			uintmax_t id;
 			bool ok = true;
 			fgdb_packet_buffer_t send_packet_buffer;
-			const char* equal_sign = strnchr(recv_data + 1, '=', recv_length - 1);
+			const char* equal_sign = simple_strnchr(recv_data + 1, '=', recv_length - 1);
 			size_t id_length = (equal_sign) ? (equal_sign - (recv_data + 1)) : recv_length - 1;
 
 			fgdb_packet_buffer_init(&send_packet_buffer, fgdb_static_packet_buffer_send, sizeof(fgdb_static_packet_buffer_send));
 
-			if (ok && libk_string_to_integer_unsigned(recv_data + 1, id_length, NULL, 0x10, &id) != ferr_ok) {
+			if (ok && simple_string_to_integer_unsigned(recv_data + 1, id_length, NULL, 0x10, &id) != ferr_ok) {
 				ok = false;
 			}
 
@@ -799,7 +799,7 @@ static void fgdb_serial_read_notify(void* data) {
 			fgdb_packet_buffer_destroy(&send_packet_buffer);
 
 			handled = true;
-		} else if (recv_length == sizeof("qHostInfo") - 1 && strncmp(recv_data, "qHostInfo", sizeof("qHostInfo") - 1) == 0) {
+		} else if (recv_length == sizeof("qHostInfo") - 1 && simple_strncmp(recv_data, "qHostInfo", sizeof("qHostInfo") - 1) == 0) {
 			fgdb_packet_buffer_t send_packet_buffer;
 
 			fgdb_packet_buffer_init(&send_packet_buffer, fgdb_static_packet_buffer_send, sizeof(fgdb_static_packet_buffer_send));
@@ -821,7 +821,7 @@ static void fgdb_serial_read_notify(void* data) {
 			handled = true;
 		} else if (
 			recv_length >= sizeof(QSUPPORTED_COMMAND) - 1                               &&
-			strncmp(recv_data, QSUPPORTED_COMMAND, sizeof(QSUPPORTED_COMMAND) - 1) == 0 &&
+			simple_strncmp(recv_data, QSUPPORTED_COMMAND, sizeof(QSUPPORTED_COMMAND) - 1) == 0 &&
 			(
 				recv_length == sizeof(QSUPPORTED_COMMAND) - 1    ||
 				recv_data[sizeof(QSUPPORTED_COMMAND) - 1] == ':'
@@ -964,12 +964,12 @@ static void fgdb_serial_read_notify(void* data) {
 			fgdb_packet_buffer_destroy(&send_packet_buffer);
 
 			handled = true;
-		} else if (recv_length > sizeof("qXfer:features:read:") - 1 && strncmp(recv_data, "qXfer:features:read:", sizeof("qXfer:features:read:") - 1) == 0) {
+		} else if (recv_length > sizeof("qXfer:features:read:") - 1 && simple_strncmp(recv_data, "qXfer:features:read:", sizeof("qXfer:features:read:") - 1) == 0) {
 			fgdb_packet_buffer_t send_packet_buffer;
 			bool ok = true;
 			const char* name = recv_data + (sizeof("qXfer:features:read:") - 1);
-			const char* annex_colon = strnchr(name, ':', recv_length - sizeof("qXfer:features:read:") - 1);
-			const char* comma = annex_colon ? strnchr(annex_colon + 1, ',', recv_end - (annex_colon + 1)) : NULL;
+			const char* annex_colon = simple_strnchr(name, ':', recv_length - sizeof("qXfer:features:read:") - 1);
+			const char* comma = annex_colon ? simple_strnchr(annex_colon + 1, ',', recv_end - (annex_colon + 1)) : NULL;
 			size_t name_length = (annex_colon) ? (annex_colon - name) : 0;
 			size_t offset = 0;
 			size_t length = 0;
@@ -985,11 +985,11 @@ static void fgdb_serial_read_notify(void* data) {
 			}
 
 			if (ok) {
-				ok = libk_string_to_integer_unsigned(annex_colon + 1, comma - (annex_colon + 1), NULL, 0x10, &offset) == ferr_ok;
+				ok = simple_string_to_integer_unsigned(annex_colon + 1, comma - (annex_colon + 1), NULL, 0x10, &offset) == ferr_ok;
 			}
 
 			if (ok) {
-				ok = libk_string_to_integer_unsigned(comma + 1, recv_end - (comma + 1), NULL, 0x10, &length) == ferr_ok;
+				ok = simple_string_to_integer_unsigned(comma + 1, recv_end - (comma + 1), NULL, 0x10, &length) == ferr_ok;
 			}
 
 			if (ok) {
@@ -1026,7 +1026,7 @@ static void fgdb_serial_read_notify(void* data) {
 			fgdb_packet_buffer_init(&send_packet_buffer, fgdb_static_packet_buffer_send, sizeof(fgdb_static_packet_buffer_send));
 
 			if (ok) {
-				ok = libk_string_to_integer_unsigned(&recv_data[2], recv_length - 2, &after_size, 0x10, &size) == ferr_ok;
+				ok = simple_string_to_integer_unsigned(&recv_data[2], recv_length - 2, &after_size, 0x10, &size) == ferr_ok;
 			}
 
 			if (ok && *after_size != ',') {
@@ -1064,7 +1064,7 @@ static void fgdb_serial_read_notify(void* data) {
 			fgdb_packet_buffer_init(&send_packet_buffer, fgdb_static_packet_buffer_send, sizeof(fgdb_static_packet_buffer_send));
 
 			if (ok) {
-				ok = libk_string_to_integer_unsigned(&recv_data[2], recv_length - 2, NULL, 0x10, (uintmax_t*)&addr) == ferr_ok;
+				ok = simple_string_to_integer_unsigned(&recv_data[2], recv_length - 2, NULL, 0x10, (uintmax_t*)&addr) == ferr_ok;
 			}
 
 			if (ok) {
@@ -1093,7 +1093,7 @@ static void fgdb_serial_read_notify(void* data) {
 			bool ok = true;
 			void* addr = NULL;
 			size_t size = 0;
-			const char* comma = strnchr(&recv_data[3], ',', recv_length - 3);
+			const char* comma = simple_strnchr(&recv_data[3], ',', recv_length - 3);
 
 			fgdb_packet_buffer_init(&send_packet_buffer, fgdb_static_packet_buffer_send, sizeof(fgdb_static_packet_buffer_send));
 
@@ -1102,11 +1102,11 @@ static void fgdb_serial_read_notify(void* data) {
 			}
 
 			if (ok) {
-				ok = libk_string_to_integer_unsigned(&recv_data[3], comma - &recv_data[3], NULL, 0x10, (uintmax_t*)&addr) == ferr_ok;
+				ok = simple_string_to_integer_unsigned(&recv_data[3], comma - &recv_data[3], NULL, 0x10, (uintmax_t*)&addr) == ferr_ok;
 			}
 
 			if (ok) {
-				ok = libk_string_to_integer_unsigned(comma + 1, recv_end - (comma + 1), NULL, 0x10, &size) == ferr_ok;
+				ok = simple_string_to_integer_unsigned(comma + 1, recv_end - (comma + 1), NULL, 0x10, &size) == ferr_ok;
 			}
 
 			if (ok) {

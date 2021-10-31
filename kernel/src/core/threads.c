@@ -27,29 +27,46 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/paging.h>
 #include <ferro/core/waitq.private.h>
+#include <ferro/core/workers.h>
 
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 #include <stdatomic.h>
 
-static void fthread_destroy(fthread_t* thread) {
+static void fthread_destroy_worker(void* context) {
+	fthread_t* thread = context;
+
+	fwaitq_wake_many(&thread->destroy_wait, SIZE_MAX);
+
 	if (fmempool_free(thread) != ferr_ok) {
 		fpanic("Failed to free thread information structure");
 	}
 };
 
+static void fthread_destroy(fthread_t* thread) {
+	fpanic_status(fwork_schedule_new(fthread_destroy_worker, thread, 0, NULL));
+};
+
 ferr_t fthread_retain(fthread_t* thread) {
-	if (__atomic_fetch_add(&thread->reference_count, 1, __ATOMIC_RELAXED) == 0) {
-		return ferr_permanent_outage;
-	}
+	uint64_t old_value = __atomic_load_n(&thread->reference_count, __ATOMIC_RELAXED);
+
+	do {
+		if (old_value == 0) {
+			return ferr_permanent_outage;
+		}
+	} while (!__atomic_compare_exchange_n(&thread->reference_count, &old_value, old_value + 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
 
 	return ferr_ok;
 };
 
 void fthread_release(fthread_t* thread) {
-	if (__atomic_sub_fetch(&thread->reference_count, 1, __ATOMIC_ACQ_REL) != 0) {
-		return;
-	}
+	uint64_t old_value = __atomic_load_n(&thread->reference_count, __ATOMIC_RELAXED);
+
+	do {
+		if (old_value != 0) {
+			return;
+		}
+	} while (!__atomic_compare_exchange_n(&thread->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
 
 	fthread_destroy(thread);
 };
@@ -64,7 +81,7 @@ FERRO_NO_RETURN void fthread_exit(void* exit_data, size_t exit_data_size, bool c
 			data = NULL;
 			data_size = 0;
 		}
-		memcpy(data, exit_data, exit_data_size);
+		simple_memcpy(data, exit_data, exit_data_size);
 	}
 
 	if (data) {
@@ -86,6 +103,7 @@ ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_value, fthrea
 	fthread_private_t* private_thread;
 	fthread_state_execution_t prev_exec_state;
 	ferr_t status = ferr_ok;
+	uint8_t hooks_in_use;
 
 	if (!thread) {
 		thread = fthread_current();
@@ -93,11 +111,14 @@ ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_value, fthrea
 
 	private_thread = (void*)thread;
 
-	if (!private_thread->manager) {
-		return ferr_invalid_argument;
-	}
-
 	flock_spin_intsafe_lock(&thread->lock);
+
+	hooks_in_use = private_thread->hooks_in_use;
+
+	if (hooks_in_use == 0) {
+		status = ferr_invalid_argument;
+		goto out_locked;
+	}
 
 	prev_exec_state = fthread_state_execution_read_locked(thread);
 
@@ -106,12 +127,38 @@ ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_value, fthrea
 	} else if (prev_exec_state == fthread_state_execution_suspended || (thread->state & fthread_state_pending_suspend) != 0) {
 		status = ferr_already_in_progress;
 	} else {
+		bool handled = false;
+
 		thread->state |= fthread_state_pending_suspend;
 		private_thread->pending_timeout_value = timeout_value;
 		private_thread->pending_timeout_type = timeout_type;
-		private_thread->manager->suspend(thread);
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].suspend) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].suspend(private_thread->hooks[slot].context, thread);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+
+		if (!handled) {
+			fpanic("No hooks were able to handle the thread suspension");
+		}
 	}
 
+out_locked:
 	flock_spin_intsafe_unlock(&thread->lock);
 
 	return status;
@@ -132,16 +179,20 @@ ferr_t fthread_resume(fthread_t* thread) {
 	fthread_private_t* private_thread = (void*)thread;
 	fthread_state_execution_t prev_exec_state;
 	ferr_t status = ferr_ok;
+	uint8_t hooks_in_use;
 
 	if (!thread) {
 		return ferr_invalid_argument;
 	}
 
-	if (!private_thread->manager) {
-		return ferr_invalid_argument;
-	}
-
 	flock_spin_intsafe_lock(&thread->lock);
+
+	hooks_in_use = private_thread->hooks_in_use;
+
+	if (hooks_in_use == 0) {
+		status = ferr_invalid_argument;
+		goto out_locked;
+	}
 
 	prev_exec_state = fthread_state_execution_read_locked(thread);
 
@@ -150,10 +201,36 @@ ferr_t fthread_resume(fthread_t* thread) {
 	} else if (prev_exec_state != fthread_state_execution_suspended && (thread->state & fthread_state_pending_suspend) == 0) {
 		status = ferr_already_in_progress;
 	} else {
+		bool handled = false;
+
 		thread->state &= ~fthread_state_pending_suspend;
-		private_thread->manager->resume(thread);
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].resume) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].resume(private_thread->hooks[slot].context, thread);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+
+		if (!handled) {
+			fpanic("No hooks were able to handle the thread resumption");
+		}
 	}
 
+out_locked:
 	flock_spin_intsafe_unlock(&thread->lock);
 
 	return status;
@@ -163,6 +240,7 @@ ferr_t fthread_kill(fthread_t* thread) {
 	fthread_private_t* private_thread;
 	fthread_state_execution_t prev_exec_state;
 	ferr_t status = ferr_ok;
+	uint8_t hooks_in_use;
 
 	if (!thread) {
 		thread = fthread_current();
@@ -174,23 +252,52 @@ ferr_t fthread_kill(fthread_t* thread) {
 		return ferr_invalid_argument;
 	}
 
-	if (!private_thread->manager) {
-		return ferr_invalid_argument;
-	}
-
 	flock_spin_intsafe_lock(&thread->lock);
+
+	hooks_in_use = private_thread->hooks_in_use;
+
+	if (hooks_in_use == 0) {
+		status = ferr_invalid_argument;
+		goto out_locked;
+	}
 
 	prev_exec_state = fthread_state_execution_read_locked(thread);
 
 	if (prev_exec_state == fthread_state_execution_dead || (thread->state & fthread_state_pending_death) != 0) {
 		status = ferr_already_in_progress;
 	} else {
+		bool handled = false;
+
 		thread->state |= fthread_state_pending_death;
-		private_thread->manager->kill(thread);
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].kill) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].kill(private_thread->hooks[slot].context, thread);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+
+		if (!handled) {
+			fpanic("No hooks were able to handle the thread assassination");
+		}
 	}
 
 	flock_spin_intsafe_unlock(&thread->lock);
 
+out_locked:
 	fthread_release(thread);
 
 	return status;
@@ -205,20 +312,70 @@ FERRO_NO_RETURN void fthread_kill_self(void) {
 
 void fthread_interrupt_start(fthread_t* thread) {
 	fthread_private_t* private_thread = (void*)thread;
-	private_thread->manager->interrupted(thread);
+	uint8_t hooks_in_use;
+
+	flock_spin_intsafe_lock(&thread->lock);
+	hooks_in_use = private_thread->hooks_in_use;
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+		if ((hooks_in_use & (1 << slot)) == 0) {
+			continue;
+		}
+
+		if (!private_thread->hooks[slot].interrupted) {
+			continue;
+		}
+
+		ferr_t hook_status = private_thread->hooks[slot].interrupted(private_thread->hooks[slot].context, thread);
+
+		if (hook_status == ferr_permanent_outage) {
+			break;
+		}
+	}
 };
 
 void fthread_interrupt_end(fthread_t* thread) {
 	fthread_private_t* private_thread = (void*)thread;
-	private_thread->manager->ending_interrupt(thread);
+	uint8_t hooks_in_use;
+
+	flock_spin_intsafe_lock(&thread->lock);
+	hooks_in_use = private_thread->hooks_in_use;
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+		if ((hooks_in_use & (1 << slot)) == 0) {
+			continue;
+		}
+
+		if (!private_thread->hooks[slot].ending_interrupt) {
+			continue;
+		}
+
+		ferr_t hook_status = private_thread->hooks[slot].ending_interrupt(private_thread->hooks[slot].context, thread);
+
+		if (hook_status == ferr_permanent_outage) {
+			break;
+		}
+	}
 };
 
-void fthread_died(fthread_t* thread) {
+static void fthread_died_worker(void* context) {
+	fthread_t* thread = context;
+
 	if ((thread->flags & fthread_flag_deallocate_stack_on_exit) != 0) {
 		if (fpage_free_kernel(thread->stack_base, fpage_round_up_to_page_count(thread->stack_size)) != ferr_ok) {
 			fpanic("Failed to free thread stack");
 		}
 	}
+
+	fwaitq_wake_many(&thread->death_wait, SIZE_MAX);
+};
+
+void fthread_died(fthread_t* thread) {
+	// this is fine even if the thread that's dying is a worker thread, because there's always going to be
+	// at least one worker thread alive and available for the system to use
+	fpanic_status(fwork_schedule_new(fthread_died_worker, thread, 0, NULL));
 };
 
 fthread_state_execution_t fthread_execution_state(fthread_t* thread) {
@@ -268,7 +425,7 @@ ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_ba
 	*out_thread = (void*)new_thread;
 
 	// clear the thread
-	memset(new_thread, 0, sizeof(*new_thread));
+	simple_memset(new_thread, 0, sizeof(*new_thread));
 
 	flock_spin_intsafe_init(&new_thread->thread.lock);
 
@@ -297,6 +454,7 @@ ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq) {
 	fthread_private_t* private_thread;
 	fthread_state_execution_t prev_exec_state;
 	ferr_t status = ferr_ok;
+	uint8_t hooks_in_use;
 
 	if (!thread) {
 		thread = fthread_current();
@@ -304,11 +462,14 @@ ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq) {
 
 	private_thread = (void*)thread;
 
-	if (!private_thread->manager) {
-		return ferr_invalid_argument;
-	}
-
 	flock_spin_intsafe_lock(&thread->lock);
+
+	hooks_in_use = private_thread->hooks_in_use;
+
+	if (hooks_in_use == 0) {
+		status = ferr_invalid_argument;
+		goto out_locked;
+	}
 
 	prev_exec_state = fthread_state_execution_read_locked(thread);
 
@@ -339,12 +500,38 @@ ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq) {
 		thread->state &= ~fthread_state_holding_waitq_lock;
 		thread->waitq = waitq;
 	} else {
+		bool handled = false;
+
 		// otherwise, we need to perform the same operation as fthread_suspend(), but with a pending waitq to wait on
 		thread->state |= fthread_state_pending_suspend;
 		thread->waitq = waitq;
-		private_thread->manager->suspend(thread);
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].suspend) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].suspend(private_thread->hooks[slot].context, thread);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+
+		if (!handled) {
+			fpanic("No hooks were able to handle the thread suspension");
+		}
 	}
 
+out_locked:
 	flock_spin_intsafe_unlock(&thread->lock);
 
 	return status;
@@ -359,6 +546,7 @@ ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq) {
 	fthread_private_t* private_thread;
 	fthread_state_execution_t prev_exec_state;
 	ferr_t status = ferr_ok;
+	uint8_t hooks_in_use;
 
 	if (!thread) {
 		thread = fthread_current();
@@ -366,11 +554,14 @@ ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq) {
 
 	private_thread = (void*)thread;
 
-	if (!private_thread->manager) {
-		return ferr_invalid_argument;
-	}
-
 	flock_spin_intsafe_lock(&thread->lock);
+
+	hooks_in_use = private_thread->hooks_in_use;
+
+	if (hooks_in_use == 0) {
+		status = ferr_invalid_argument;
+		goto out_locked;
+	}
 
 	prev_exec_state = fthread_state_execution_read_locked(thread);
 
@@ -400,13 +591,93 @@ ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq) {
 		thread->state |= fthread_state_holding_waitq_lock;
 		thread->waitq = waitq;
 	} else {
+		bool handled = false;
+
 		// otherwise, we need to perform the same operation as fthread_suspend(), but with a pending waitq to wait on
 		thread->state |= fthread_state_pending_suspend | fthread_state_holding_waitq_lock;
 		thread->waitq = waitq;
-		private_thread->manager->suspend(thread);
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].suspend) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].suspend(private_thread->hooks[slot].context, thread);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+
+		if (!handled) {
+			fpanic("No hooks were able to handle the thread suspension");
+		}
 	}
 
+out_locked:
 	flock_spin_intsafe_unlock(&thread->lock);
 
 	return status;
+};
+
+uint8_t fthread_register_hook(fthread_t* thread, uint64_t owner_id, void* context, fthread_hook_suspend_f suspend, fthread_hook_resume_f resume, fthread_hook_kill_f kill, fthread_hook_interrupted_f interrupted, fthread_hook_ending_interrupt_f ending_interrupt) {
+	fthread_private_t* private_thread = (void*)thread;
+
+	flock_spin_intsafe_lock(&thread->lock);
+
+	for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+		if ((private_thread->hooks_in_use & (1 << slot)) != 0) {
+			continue;
+		}
+
+		private_thread->hooks_in_use |= 1 << slot;
+
+		private_thread->hooks[slot].context = context;
+		private_thread->hooks[slot].owner_id = owner_id;
+		private_thread->hooks[slot].suspend = suspend;
+		private_thread->hooks[slot].resume = resume;
+		private_thread->hooks[slot].kill = kill;
+		private_thread->hooks[slot].interrupted = interrupted;
+		private_thread->hooks[slot].ending_interrupt = ending_interrupt;
+
+		flock_spin_intsafe_unlock(&thread->lock);
+		return slot;
+	}
+
+	flock_spin_intsafe_unlock(&thread->lock);
+	return UINT8_MAX;
+};
+
+uint8_t fthread_find_hook(fthread_t* thread, uint64_t owner_id) {
+	fthread_private_t* private_thread = (void*)thread;
+
+	if (!thread) {
+		return UINT8_MAX;
+	}
+
+	flock_spin_intsafe_lock(&thread->lock);
+
+	for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+		if ((private_thread->hooks_in_use & (1 << slot)) == 0) {
+			continue;
+		}
+
+		if (private_thread->hooks[slot].owner_id != owner_id) {
+			continue;
+		}
+
+		flock_spin_intsafe_unlock(&thread->lock);
+		return slot;
+	}
+
+	flock_spin_intsafe_unlock(&thread->lock);
+	return UINT8_MAX;
 };

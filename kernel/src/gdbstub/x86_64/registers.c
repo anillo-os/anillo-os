@@ -30,7 +30,7 @@
 
 #include <gen/ferro/gdbstub/target.xml.h>
 
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 #define U128_XXX "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 #define U80_XXX "xxxxxxxxxxxxxxxxxxxx"
@@ -79,13 +79,13 @@
 	case 19: \
 		_macro_present(32, ss); \
 	case 20: \
-		_macro_present(32, ds); \
+		_macro_xxx(32); \
 	case 21: \
-		_macro_present(32, es); \
+		_macro_xxx(32); \
 	case 22: \
-		_macro_present(32, fs); \
+		_macro_xxx(32); \
 	case 23: \
-		_macro_present(32, gs);
+		_macro_xxx(32);
 
 #define FOREACH_REGISTER_FPU(_macro_present, _macro_xxx) \
 	/* TODO: Ferro doesn't have FPU/SSE support yet, so these are irrelevant (but GDB still wants them) */ \
@@ -362,7 +362,7 @@ ferr_t fgdb_registers_serialize_features(fgdb_packet_buffer_t* packet_buffer, co
 	ferr_t status = ferr_ok;
 	char more = '\0';
 
-	if (name_length != sizeof("target.xml") - 1 || strncmp(name, "target.xml", sizeof("target.xml") - 1) != 0) {
+	if (name_length != sizeof("target.xml") - 1 || simple_strncmp(name, "target.xml", sizeof("target.xml") - 1) != 0) {
 		return ferr_no_such_resource;
 	}
 
@@ -373,7 +373,7 @@ ferr_t fgdb_registers_serialize_features(fgdb_packet_buffer_t* packet_buffer, co
 		return status;
 	}
 
-	status = fgdb_packet_buffer_serialize_data(packet_buffer, &target_xml_data[offset], min(sizeof(target_xml_data) - offset, length));
+	status = fgdb_packet_buffer_serialize_data(packet_buffer, &target_xml_data[offset], simple_min(sizeof(target_xml_data) - offset, length));
 	if (status != ferr_ok) {
 		return status;
 	}

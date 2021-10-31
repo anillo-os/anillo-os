@@ -30,7 +30,7 @@
 #include <ferro/core/paging.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/locks.h>
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 // maximum order of a single allocation
 #define MAX_ORDER 32
@@ -134,7 +134,7 @@ FERRO_ALWAYS_INLINE size_t leaf_index(const fmempool_region_header_t* parent_reg
  * The parent region's lock MUST be held.
  */
 static bool leaf_is_in_use(const fmempool_region_header_t* parent_region, const fmempool_free_leaf_t* leaf) {
-	return parent_region->bookkeeping[leaf_index(parent_region, leaf)] & (1 << 7);
+	return (parent_region->bookkeeping[leaf_index(parent_region, leaf)] & (1 << 7)) != 0;
 };
 
 /**
@@ -188,6 +188,8 @@ static void insert_free_leaf(fmempool_region_header_t* parent_region, fmempool_f
 	set_leaf_order(parent_region, leaf, order);
 
 	parent_region->free_count += leaf_count_of_order(order);
+
+	set_leaf_is_in_use(parent_region, leaf, false);
 };
 
 /**
@@ -202,6 +204,8 @@ static void remove_free_leaf(fmempool_region_header_t* parent_region, fmempool_f
 	}
 
 	parent_region->free_count -= leaf_count_of_order(order);
+
+	set_leaf_is_in_use(parent_region, leaf, true);
 };
 
 /**
@@ -537,13 +541,13 @@ try_order:
 
 	header->start = (void*)((uintptr_t)header + ((extra_bookkeeping_page_count + 1) * FPAGE_PAGE_SIZE));
 
-	memset(&header->bookkeeping[0], 0, HEADER_BOOKKEEPING_COUNT);
+	simple_memset(&header->bookkeeping[0], 0, HEADER_BOOKKEEPING_COUNT);
 	for (size_t i = 0; i < extra_bookkeeping_page_count; ++i) {
 		uint8_t* page = (uint8_t*)header + FPAGE_PAGE_SIZE + (i * FPAGE_PAGE_SIZE);
-		memset(page, 0, FPAGE_PAGE_SIZE);
+		simple_memset(page, 0, FPAGE_PAGE_SIZE);
 	}
 
-	memset(&header->buckets[0], 0, sizeof(header->buckets));
+	simple_memset(&header->buckets[0], 0, sizeof(header->buckets));
 
 	while (leaves_allocated < leaf_count) {
 		size_t order = max_order_of_leaf_count(leaf_count - leaves_allocated);
@@ -595,9 +599,6 @@ static bool free_leaf(void* address) {
 	// parent region's lock is held here
 
 	order = leaf_order(parent_region, leaf);
-
-	// mark it as free
-	set_leaf_is_in_use(parent_region, leaf, false);
 
 	// find buddies to merge with
 	for (; order < MAX_ORDER; ++order) {
@@ -805,7 +806,7 @@ ferr_t fmempool_reallocate(void* old_address, size_t new_byte_count, size_t* out
 			}
 
 			// next, copy the old data
-			memcpy(new_address, old_address, leaf_count_of_order(old_order) * LEAF_SIZE);
+			simple_memcpy(new_address, old_address, leaf_count_of_order(old_order) * LEAF_SIZE);
 
 			// finally, free the old region
 			if (fmempool_free(old_address) != ferr_ok) {

@@ -25,7 +25,7 @@
 #include <ferro/core/x86_64/tsc.h>
 #include <ferro/core/x86_64/legacy-io.h>
 #include <ferro/core/panic.h>
-#include <ferro/core/x86_64/per-cpu.h>
+#include <ferro/core/per-cpu.private.h>
 #include <ferro/core/console.h>
 
 #include <stddef.h>

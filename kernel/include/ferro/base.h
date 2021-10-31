@@ -111,6 +111,9 @@ FERRO_ALWAYS_INLINE void fassert_helper(int result, const char* expr) {
  */
 #define FERRO_WUR_IGNORE(x) ((void)(x))
 
+#define FERRO_GS_RELATIVE __attribute__((address_space(256)))
+#define FERRO_FS_RELATIVE __attribute__((address_space(257)))
+
 /**
  * @}
  */

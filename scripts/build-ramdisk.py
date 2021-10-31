@@ -76,8 +76,9 @@ for root, dirs, files in os.walk(INPUT_DIR_PATH):
 	dir_entry_count += len(dirs) + len(files)
 
 	for entry in dirs + files:
-		string_table[entry] = string_table_offset
-		string_table_offset += len(entry) + 1
+		if not entry in string_table:
+			string_table[entry] = string_table_offset
+			string_table_offset += len(entry) + 1
 
 ramdisk.seek(SECTIONS_START)
 

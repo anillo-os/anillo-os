@@ -27,12 +27,24 @@
 #define MAKE_IMMEDIATE_HELPER(x) $ ## x
 #define MAKE_IMMEDIATE(x) MAKE_IMMEDIATE_HELPER(x)
 
+#define FERRO_GDT_OFFSET_KERNEL_CS $8
+
 .altmacro
 
 .macro wrapper func, has_code
 	.text
 	.global farch_int_wrapper_\()\func
 	farch_int_wrapper_\()\func\():
+		# check if we need to perform a swapgs
+		.if \has_code == 0
+			cmpq FERRO_GDT_OFFSET_KERNEL_CS, FOFFSET_farch_int_frame_core_cs(%rsp)
+		.else
+			cmpq FERRO_GDT_OFFSET_KERNEL_CS, FOFFSET_farch_int_frame_with_code_cs(%rsp)
+		.endif
+		je 1f
+		swapgs
+		1:
+
 		.if \has_code == 0
 			subq MAKE_IMMEDIATE(FOFFSET_fint_frame_core), %rsp
 		.else
@@ -84,10 +96,16 @@
 		mov FOFFSET_fint_frame_r15(%rsp), %r15
 		movw FOFFSET_fint_frame_ds(%rsp),  %ds
 		movw FOFFSET_fint_frame_es(%rsp),  %es
-		movw FOFFSET_fint_frame_fs(%rsp),  %fs
-		movw FOFFSET_fint_frame_gs(%rsp),  %gs
+		//movw FOFFSET_fint_frame_fs(%rsp),  %fs
+		//movw FOFFSET_fint_frame_gs(%rsp),  %gs
 
 		add MAKE_IMMEDIATE(FOFFSET_fint_frame_core), %rsp
+
+		# check if we need to perform a swapgs
+		cmpq FERRO_GDT_OFFSET_KERNEL_CS, FOFFSET_farch_int_frame_core_cs(%rsp)
+		je 1f
+		swapgs
+		1:
 
 		iretq
 .endm
@@ -101,6 +119,7 @@ wrapper breakpoint, 0
 wrapper double_fault, 1
 wrapper general_protection, 1
 wrapper page_fault, 1
+wrapper invalid_opcode, 0
 
 //
 // user-defined interrupts

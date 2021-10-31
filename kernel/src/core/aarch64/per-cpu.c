@@ -22,7 +22,7 @@
  * AARCH64 implementation of per-CPU data.
  */
 
-#include <ferro/core/aarch64/per-cpu.h>
+#include <ferro/core/per-cpu.private.h>
 
 // for now, we only ever operate on a single CPU
 // however, once we enable SMP, we can extend this

@@ -363,7 +363,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 			printf("Info: Allocated memory for configuration file\n");
 
 			// zero out the memory
-			memset(config_data, 0, config_data_size);
+			simple_memset(config_data, 0, config_data_size);
 
 			// actually read the data
 			config_data_length = fread(config_data, config_data_length, 1, config_file);
@@ -382,10 +382,10 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 			printf("Info: Allocated memory for ramdisk\n");
 
 			// zero out the memory
-			memset(ramdisk_address, 0, ramdisk_size);
+			simple_memset(ramdisk_address, 0, ramdisk_size);
 
 			// copy in the header
-			memcpy(ramdisk_address, &local_ramdisk_header, sizeof(ferro_ramdisk_header_t));
+			simple_memcpy(ramdisk_address, &local_ramdisk_header, sizeof(ferro_ramdisk_header_t));
 
 			ferro_ramdisk_header_t* ramdisk_header = ramdisk_address;
 
@@ -492,7 +492,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 			segment->virtual_address = (void*)(uintptr_t)(program_header->virtual_address);
 
 			// zero out the memory
-			memset(segment->physical_address, 0, segment->size);
+			simple_memset(segment->physical_address, 0, segment->size);
 
 			// set the file position to read the segment
 			if (fseek(kernel_file, program_header->offset, SEEK_SET) != 0) {
@@ -557,7 +557,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		return status;
 	}
 	printf("Info: Allocated Ferro memory map\n");
-	memset(ferro_memory_map, 0, ferro_map_size);
+	simple_memset(ferro_memory_map, 0, ferro_map_size);
 
 	// can't call printf() anymore after acquiring the memory map; it might allocate more memory and mess up the memory map
 	printf("Info: Going to acquire final UEFI memory map (no more UEFI-based messages after this point, except for fatal errors)\n");
@@ -620,7 +620,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 			if (physical_address > ferro_region->physical_start && physical_address < ferro_region->physical_start + (ferro_region->page_count * 0x1000)) {
 				ferro_memory_region_t* new_ferro_region = &ferro_memory_map[j + 1];
 				for (size_t k = map_entry_count; k > j; --k) {
-					memcpy(&ferro_memory_map[k], &ferro_memory_map[k - 1], sizeof(ferro_memory_region_t));
+					simple_memcpy(&ferro_memory_map[k], &ferro_memory_map[k - 1], sizeof(ferro_memory_region_t));
 				}
 				++map_entry_count;
 				new_ferro_region->physical_start = (uintptr_t)physical_address;
@@ -636,7 +636,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 					// we have to create a new entry for the remaining memory
 					ferro_memory_region_t* new_ferro_region = &ferro_memory_map[j + 1];
 					for (size_t k = map_entry_count; k > j; --k) {
-						memcpy(&ferro_memory_map[k], &ferro_memory_map[k - 1], sizeof(ferro_memory_region_t));
+						simple_memcpy(&ferro_memory_map[k], &ferro_memory_map[k - 1], sizeof(ferro_memory_region_t));
 					}
 					++map_entry_count;
 					new_ferro_region->page_count = ferro_region->page_count - page_count;

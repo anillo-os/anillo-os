@@ -46,7 +46,7 @@
 #include <ferro/core/vfs.h>
 #include <ferro/core/ramdisk.h>
 
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	#include <ferro/core/x86_64/apic.h>
@@ -57,6 +57,9 @@
 #endif
 
 #include <ferro/core/mempool.h>
+#include <ferro/core/per-cpu.private.h>
+
+#include <ferro/userspace/entry.h>
 
 static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2          FERRO_PAGE_ALIGNED = {0};
@@ -351,6 +354,7 @@ static void ferro_entry_threaded(void* data) {
 	fvfs_release(desc);
 #endif
 
+#if TEST_SPACES
 	fpage_space_t space1;
 	fpage_space_t space2;
 	volatile uint8_t* virt1;
@@ -403,6 +407,9 @@ static void ferro_entry_threaded(void* data) {
 
 	fpage_space_destroy(&space2);
 	fconsole_log("Destroyed space 2\n");
+#endif
+
+	ferro_userspace_entry();
 };
 
 __attribute__((section(".text.ferro_entry")))
@@ -445,6 +452,10 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 	fentry_jump_to_virtual(&&jump_here_for_virtual);
 jump_here_for_virtual:;
 
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	farch_per_cpu_init();
+#endif
+
 	// interrupts are already disabled, but let our interrupt handler code know that
 	fint_disable();
 
@@ -476,6 +487,8 @@ jump_here_for_virtual:;
 	// initialize the console subsystem
 	fconsole_init();
 
+	fper_cpu_init();
+
 	if (config_data) {
 		fconfig_init(config_data, config_data_length);
 	}
@@ -502,7 +515,7 @@ jump_here_for_virtual:;
 	if (console_config) {
 		fserial_t* serial_port = NULL;
 
-		if (console_config_length == 7 && strncmp(console_config, "serial", 6) == 0 && console_config[6] >= '1' && console_config[6] <= '4') {
+		if (console_config_length == 7 && simple_strncmp(console_config, "serial", 6) == 0 && console_config[6] >= '1' && console_config[6] <= '4') {
 			serial_port = fserial_find(console_config[6] - '1');
 		}
 
@@ -514,7 +527,7 @@ jump_here_for_virtual:;
 	if (debug_config) {
 		fserial_t* serial_port = NULL;
 
-		if (debug_config_length == 7 && strncmp(debug_config, "serial", 6) == 0 && debug_config[6] >= '1' && debug_config[6] <= '4') {
+		if (debug_config_length == 7 && simple_strncmp(debug_config, "serial", 6) == 0 && debug_config[6] >= '1' && debug_config[6] <= '4') {
 			serial_port = fserial_find(debug_config[6] - '1');
 		}
 

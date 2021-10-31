@@ -253,17 +253,25 @@ static void fworker_destroy(fwork_t* work) {
 };
 
 ferr_t fwork_retain(fwork_t* work) {
-	if (__atomic_fetch_add(&work->reference_count, 1, __ATOMIC_RELAXED) == 0) {
-		return ferr_permanent_outage;
-	}
+	uint64_t old_value = __atomic_load_n(&work->reference_count, __ATOMIC_RELAXED);
+
+	do {
+		if (old_value == 0) {
+			return ferr_permanent_outage;
+		}
+	} while (!__atomic_compare_exchange_n(&work->reference_count, &old_value, old_value + 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
 
 	return ferr_ok;
 };
 
 void fwork_release(fwork_t* work) {
-	if (__atomic_sub_fetch(&work->reference_count, 1, __ATOMIC_ACQ_REL) != 0) {
-		return;
-	}
+	uint64_t old_value = __atomic_load_n(&work->reference_count, __ATOMIC_RELAXED);
+
+	do {
+		if (old_value != 0) {
+			return;
+		}
+	} while (!__atomic_compare_exchange_n(&work->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
 
 	fworker_destroy(work);
 };

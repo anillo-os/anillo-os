@@ -24,7 +24,7 @@
 
 #include <ferro/bootstrap/uefi/wrappers.h>
 #include <ferro/bits.h>
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 fuefi_status_t errstat = fuefi_status_ok;
 int errno = 0;
@@ -411,7 +411,7 @@ FERRO_STRUCT(atw_context) {
 };
 
 static bool ascii_to_wide(const char* input, atw_context_t* context) {
-	size_t len = strlen(input);
+	size_t len = simple_strlen(input);
 
 	if (len > (sizeof(context->cache) - 1)) {
 		context->string = malloc(len + 1);
@@ -557,9 +557,9 @@ long long sysconf(int name) {
 			} else if (fuefi_graphics_protocol->mode->info->format == fuefi_graphics_pixel_format_bgr) {
 				result = 32;
 			} else {
-				result = max(
-					max(
-						max(
+				result = simple_max(
+					simple_max(
+						simple_max(
 							ferro_bits_in_use_u32(fuefi_graphics_protocol->mode->info->bitmask.red), 
 							ferro_bits_in_use_u32(fuefi_graphics_protocol->mode->info->bitmask.green)
 						),
@@ -585,9 +585,9 @@ long long sysconf(int name) {
 			for (size_t i = 0; i < fuefi_system_table->configuration_table_entry_count; ++i) {
 				fuefi_configuration_table_entry_t* entry = &fuefi_system_table->configuration_table[i];
 				//printf("table with guid %x%x%x%x%x%x%x%x%x%x%x%x%x%x%x%x at %zu\n", entry->guid[0], entry->guid[1], entry->guid[2], entry->guid[3], entry->guid[4], entry->guid[5], entry->guid[6], entry->guid[7], entry->guid[8], entry->guid[9], entry->guid[10], entry->guid[11], entry->guid[12], entry->guid[13], entry->guid[14], entry->guid[15], i);
-				if (memcmp(&entry->guid[0], fuefi_guid_acpi_20_table, sizeof(fuefi_guid_acpi_20_table) / sizeof(*fuefi_guid_acpi_20_table)) == 0) {
+				if (simple_memcmp(&entry->guid[0], fuefi_guid_acpi_20_table, sizeof(fuefi_guid_acpi_20_table) / sizeof(*fuefi_guid_acpi_20_table)) == 0) {
 					acpi_20_table = (uintptr_t)entry->table;
-				} else if (memcmp(&entry->guid[0], fuefi_guid_acpi_10_table, sizeof(fuefi_guid_acpi_10_table) / sizeof(*fuefi_guid_acpi_10_table)) == 0) {
+				} else if (simple_memcmp(&entry->guid[0], fuefi_guid_acpi_10_table, sizeof(fuefi_guid_acpi_10_table) / sizeof(*fuefi_guid_acpi_10_table)) == 0) {
 					acpi_10_table = (uintptr_t)entry->table;
 				}
 			}

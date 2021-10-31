@@ -26,7 +26,7 @@
 #include <ferro/core/interrupts.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/mempool.h>
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 static void ignore_interrupt(fint_frame_t* frame) {};
 
@@ -81,10 +81,6 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 			current_thread->saved_context.cs     = frame->core.cs;
 			current_thread->saved_context.ss     = frame->core.ss;
 			current_thread->saved_context.interrupt_disable = frame->saved_registers.interrupt_disable;
-			current_thread->saved_context.ds     = frame->saved_registers.ds;
-			current_thread->saved_context.es     = frame->saved_registers.es;
-			current_thread->saved_context.fs     = frame->saved_registers.fs;
-			current_thread->saved_context.gs     = frame->saved_registers.gs;
 		}
 
 		// NOTE: a very important detail regarding the safety of the following operations is that on x86, all interrupt handlers have their own stacks (and each CPU has its own set of interrupt stacks).
@@ -108,10 +104,6 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 		new_frame->saved_registers.r13 = new_thread->saved_context.r13;
 		new_frame->saved_registers.r14 = new_thread->saved_context.r14;
 		new_frame->saved_registers.r15 = new_thread->saved_context.r15;
-		new_frame->saved_registers.ds  = new_thread->saved_context.ds;
-		new_frame->saved_registers.es  = new_thread->saved_context.es;
-		new_frame->saved_registers.fs  = new_thread->saved_context.fs;
-		new_frame->saved_registers.gs  = new_thread->saved_context.gs;
 		new_frame->core.rip            = (void*)new_thread->saved_context.rip;
 		new_frame->core.rflags         = new_thread->saved_context.rflags;
 		new_frame->core.cs             = new_thread->saved_context.cs;
@@ -128,6 +120,11 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 		// make sure interrupts are disabled for the helper
 		frame->core.rflags &= ~(1ULL << 9);
 		frame->saved_registers.interrupt_disable = 1;
+
+		// also make sure we stay in kernel-space
+		// the helper will switch to userspace (if necessary) via the fake interrupt return
+		frame->core.cs = farch_int_gdt_index_code * 8;
+		frame->core.ss = farch_int_gdt_index_data * 8;
 
 		FARCH_PER_CPU(current_thread) = new_thread;
 
@@ -154,10 +151,6 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 		frame.saved_registers.r13 = new_thread->saved_context.r13;
 		frame.saved_registers.r14 = new_thread->saved_context.r14;
 		frame.saved_registers.r15 = new_thread->saved_context.r15;
-		frame.saved_registers.ds  = new_thread->saved_context.ds;
-		frame.saved_registers.es  = new_thread->saved_context.es;
-		frame.saved_registers.fs  = new_thread->saved_context.fs;
-		frame.saved_registers.gs  = new_thread->saved_context.gs;
 		frame.core.rip            = (void*)new_thread->saved_context.rip;
 		frame.core.rflags         = new_thread->saved_context.rflags;
 		frame.core.cs             = new_thread->saved_context.cs;
@@ -202,10 +195,6 @@ FERRO_NO_RETURN void fsched_bootstrap(fthread_t* new_thread) {
 	frame.saved_registers.r13 = new_thread->saved_context.r13;
 	frame.saved_registers.r14 = new_thread->saved_context.r14;
 	frame.saved_registers.r15 = new_thread->saved_context.r15;
-	frame.saved_registers.ds  = new_thread->saved_context.ds;
-	frame.saved_registers.es  = new_thread->saved_context.es;
-	frame.saved_registers.fs  = new_thread->saved_context.fs;
-	frame.saved_registers.gs  = new_thread->saved_context.gs;
 	frame.core.rip            = (void*)new_thread->saved_context.rip;
 	frame.core.rflags         = new_thread->saved_context.rflags;
 	frame.core.cs             = new_thread->saved_context.cs;

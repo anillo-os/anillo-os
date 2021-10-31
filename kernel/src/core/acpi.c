@@ -30,7 +30,7 @@
 #include <ferro/core/console.h>
 #include <ferro/core/mempool.h>
 #include <ferro/core/locks.h>
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 static facpi_rsdp_t* rsdp = NULL;
 static facpi_rsdt_t* rsdt = NULL;
@@ -60,7 +60,7 @@ facpi_sdt_header_t* facpi_find_table(const char* name) {
 			continue;
 		}
 
-		if (strncmp(header->signature, name, sizeof(header->signature) / sizeof(*header->signature)) == 0) {
+		if (simple_strncmp(header->signature, name, sizeof(header->signature) / sizeof(*header->signature)) == 0) {
 			flock_spin_intsafe_unlock(&tables_lock);
 			return header;
 		}
@@ -112,7 +112,7 @@ void facpi_init(facpi_rsdp_t* physical_rsdp) {
 	// now verify the RSDP
 
 	// 1. verify the signature
-	if (strncmp(rsdp->legacy.signature, "RSD PTR ", 8) != 0) {
+	if (simple_strncmp(rsdp->legacy.signature, "RSD PTR ", 8) != 0) {
 		fpanic("invalid RSDP (invalid signature)");
 	}
 
@@ -185,7 +185,7 @@ void facpi_init(facpi_rsdp_t* physical_rsdp) {
 			}
 		}
 
-		memcpy(tmp, header->signature, 4);
+		simple_memcpy(tmp, header->signature, 4);
 
 		//fconsole_logf("info: found ACPI table at %p (mapped to %p) with signature \"%s\"\n", phys_header, header, tmp);
 

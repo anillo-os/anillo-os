@@ -2,7 +2,7 @@
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>
 
-#include <libk/libk.h>
+#include <libsimple/libsimple.h>
 
 ferr_t fgdb_packet_buffer_init(fgdb_packet_buffer_t* packet_buffer, uint8_t* static_buffer, size_t static_buffer_size) {
 	packet_buffer->mempooled = false;
@@ -31,7 +31,7 @@ ferr_t fgdb_packet_buffer_grow(fgdb_packet_buffer_t* packet_buffer) {
 		if (fmempool_allocate(packet_buffer->size * 2, &packet_buffer->size, (void*)&new_buffer) != ferr_ok) {
 			return ferr_temporary_outage;
 		}
-		memcpy(new_buffer, packet_buffer->buffer, packet_buffer->length);
+		simple_memcpy(new_buffer, packet_buffer->buffer, packet_buffer->length);
 		packet_buffer->buffer = new_buffer;
 		packet_buffer->mempooled = true;
 	}
@@ -45,7 +45,7 @@ ferr_t fgdb_packet_buffer_append(fgdb_packet_buffer_t* packet_buffer, const uint
 		}
 	}
 
-	memcpy(&packet_buffer->buffer[packet_buffer->length], data, length);
+	simple_memcpy(&packet_buffer->buffer[packet_buffer->length], data, length);
 	packet_buffer->length += length;
 
 	return ferr_ok;

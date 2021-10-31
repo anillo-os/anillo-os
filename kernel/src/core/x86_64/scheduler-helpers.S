@@ -27,6 +27,8 @@
 #define MAKE_IMMEDIATE_HELPER(x) $ ## x
 #define MAKE_IMMEDIATE(x) MAKE_IMMEDIATE_HELPER(x)
 
+#define FERRO_GDT_OFFSET_KERNEL_CS $8
+
 // arg 1 (rdi) is a `fthread_saved_context_t*` (which may be `NULL`)
 // arg 2 (rsi) is a `fint_frame_t*`
 .text
@@ -56,10 +58,6 @@ farch_sched_immediate_switch:
 	mov %r13, FOFFSET_fthread_saved_context_r13(%rdi)
 	mov %r14, FOFFSET_fthread_saved_context_r14(%rdi)
 	mov %r15, FOFFSET_fthread_saved_context_r15(%rdi)
-	movw %ds,  FOFFSET_fthread_saved_context_ds(%rdi)
-	movw %es,  FOFFSET_fthread_saved_context_es(%rdi)
-	movw %fs,  FOFFSET_fthread_saved_context_fs(%rdi)
-	movw %gs,  FOFFSET_fthread_saved_context_gs(%rdi)
 
 	// load the target instruction pointer for re-entry
 	lea 1f(%rip), %r10
@@ -110,10 +108,6 @@ farch_sched_immediate_switch:
 	mov FOFFSET_fint_frame_r13(%rsi), %r13
 	mov FOFFSET_fint_frame_r14(%rsi), %r14
 	mov FOFFSET_fint_frame_r15(%rsi), %r15
-	movw FOFFSET_fint_frame_ds(%rsi),  %ds
-	movw FOFFSET_fint_frame_es(%rsi),  %es
-	movw FOFFSET_fint_frame_fs(%rsi),  %fs
-	movw FOFFSET_fint_frame_gs(%rsi),  %gs
 
 	// now for the next part, we setup a fake interrupt return frame
 
@@ -141,6 +135,12 @@ farch_sched_immediate_switch:
 
 	// load rsi now (doing it earlier would cause us to lose the pointer)
 	mov FOFFSET_fint_frame_rsi(%rsi), %rsi
+
+	# check if we need to perform a swapgs
+	cmpq FERRO_GDT_OFFSET_KERNEL_CS, FOFFSET_farch_int_frame_core_cs(%rsp)
+	je 1f
+	swapgs
+	1:
 
 	// now perform the fake interrupt return
 	iretq
@@ -182,13 +182,15 @@ farch_sched_delayed_switch:
 	mov FOFFSET_fint_frame_r13(%rsp), %r13
 	mov FOFFSET_fint_frame_r14(%rsp), %r14
 	mov FOFFSET_fint_frame_r15(%rsp), %r15
-	movw FOFFSET_fint_frame_ds(%rsp),  %ds
-	movw FOFFSET_fint_frame_es(%rsp),  %es
-	movw FOFFSET_fint_frame_fs(%rsp),  %fs
-	movw FOFFSET_fint_frame_gs(%rsp),  %gs
 
 	// we already have an interrupt frame set up, we just need to move the stack pointer to where we need it
 	add MAKE_IMMEDIATE(FOFFSET_fint_frame_rip), %rsp
+
+	# check if we need to perform a swapgs
+	cmpq FERRO_GDT_OFFSET_KERNEL_CS, FOFFSET_farch_int_frame_core_cs(%rsp)
+	je 1f
+	swapgs
+	1:
 
 	// now perform the fake interrupt return
 	iretq
@@ -231,10 +233,6 @@ farch_sched_bootstrap_switch:
 	mov FOFFSET_fint_frame_r13(%rdi), %r13
 	mov FOFFSET_fint_frame_r14(%rdi), %r14
 	mov FOFFSET_fint_frame_r15(%rdi), %r15
-	movw FOFFSET_fint_frame_ds(%rdi),  %ds
-	movw FOFFSET_fint_frame_es(%rdi),  %es
-	movw FOFFSET_fint_frame_fs(%rdi),  %fs
-	movw FOFFSET_fint_frame_gs(%rdi),  %gs
 
 	// now for the next part, we setup a fake interrupt return frame
 
@@ -262,6 +260,12 @@ farch_sched_bootstrap_switch:
 
 	// load rdi now (doing it earlier would cause us to lose the pointer)
 	mov FOFFSET_fint_frame_rdi(%rdi), %rdi
+
+	# check if we need to perform a swapgs
+	cmpq FERRO_GDT_OFFSET_KERNEL_CS, FOFFSET_farch_int_frame_core_cs(%rsp)
+	je 1f
+	swapgs
+	1:
 
 	// now perform the fake interrupt return
 	iretq
