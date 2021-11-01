@@ -46,10 +46,14 @@ void fproc_release(fproc_t* process) {
 	uint64_t old_value = __atomic_load_n(&process->reference_count, __ATOMIC_RELAXED);
 
 	do {
-		if (old_value != 0) {
+		if (old_value == 0) {
 			return;
 		}
 	} while (!__atomic_compare_exchange_n(&process->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
+
+	if (old_value != 1) {
+		return;
+	}
 
 	fproc_destroy(process);
 };
@@ -64,20 +68,46 @@ fproc_t* fproc_current(void) {
 	return private_data->process;
 };
 
-static void fproc_uthread_died(void* context) {
-	fproc_t* proc = context;
+static bool fproc_clear_fd_iterator(void* context, simple_ghmap_t* hashmap, simple_ghmap_hash_t hash, void* entry) {
+	fvfs_descriptor_t** desc_ptr = entry;
 
-	// TODO: once we support multiple threads in a process, we'll need to check if this is the last thread that's dying
+	fvfs_release(*desc_ptr);
 
+	return true;
+};
+
+static void fproc_all_uthreads_died(fproc_t* proc) {
 	fpanic_status(fuloader_unload_file(proc->binary_info));
 
 	proc->binary_info = NULL;
 
 	fpage_space_destroy(&proc->space);
 
+	fvfs_release(proc->binary_descriptor);
+
+	// clear all open descriptors
+	// (thereby releasing all underlying VFS descriptors)
+	flock_mutex_lock(&proc->descriptor_table_mutex);
+	simple_ghmap_for_each(&proc->descriptor_table, fproc_clear_fd_iterator, NULL);
+	simple_ghmap_destroy(&proc->descriptor_table);
+	flock_mutex_unlock(&proc->descriptor_table_mutex);
+
+	// alright, now that it's been cleaned up, the process can be released
+	fproc_release(proc);
+};
+
+static void fproc_uthread_died(void* context) {
+	fproc_t* proc = context;
+
+	// TODO: once we support multiple threads in a process, we'll need to check if this is the last thread that's dying
+
+	// retain the process so that it lives long enough to be cleaned up
+	fpanic_status(fproc_retain(proc));
+
+	// never do this before retaining the process because it may lead to a full release of the process
 	fthread_release(proc->thread);
 
-	fvfs_release(proc->binary_descriptor);
+	fproc_all_uthreads_died(proc);
 };
 
 static void fproc_uthread_destroyed(void* context) {

@@ -268,10 +268,14 @@ void fwork_release(fwork_t* work) {
 	uint64_t old_value = __atomic_load_n(&work->reference_count, __ATOMIC_RELAXED);
 
 	do {
-		if (old_value != 0) {
+		if (old_value == 0) {
 			return;
 		}
 	} while (!__atomic_compare_exchange_n(&work->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
+
+	if (old_value != 1) {
+		return;
+	}
 
 	fworker_destroy(work);
 };

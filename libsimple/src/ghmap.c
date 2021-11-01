@@ -74,6 +74,8 @@ static ferr_t simple_ghmap_resize(simple_ghmap_t* hashmap) {
 		return ferr_temporary_outage;
 	}
 
+	simple_memset(new_entry_array, 0, sizeof(*new_entry_array) * new_size);
+
 	hashmap->entries = new_entry_array;
 	hashmap->size = new_size;
 
@@ -88,7 +90,9 @@ static ferr_t simple_ghmap_resize(simple_ghmap_t* hashmap) {
 		}
 	}
 
-	hashmap->free(hashmap->callback_context, old_entry_array, sizeof(*old_entry_array) * old_size);
+	if (old_size > 0) {
+		hashmap->free(hashmap->callback_context, old_entry_array, sizeof(*old_entry_array) * old_size);
+	}
 
 	hashmap->was_resized = true;
 
@@ -129,7 +133,9 @@ void simple_ghmap_destroy(simple_ghmap_t* hashmap) {
 		}
 	}
 
-	hashmap->free(hashmap->callback_context, hashmap->entries, sizeof(*hashmap->entries) * hashmap->size);
+	if (hashmap->size > 0) {
+		hashmap->free(hashmap->callback_context, hashmap->entries, sizeof(*hashmap->entries) * hashmap->size);
+	}
 };
 
 ferr_t simple_ghmap_lookup(simple_ghmap_t* hashmap, const void* key, size_t key_size, bool create_if_absent, bool* out_created, void** out_pointer) {
@@ -236,6 +242,41 @@ ferr_t simple_ghmap_clear_h(simple_ghmap_t* hashmap, simple_ghmap_hash_t hash) {
 	}
 
 	return ferr_no_such_resource;
+};
+
+ferr_t simple_ghmap_for_each(simple_ghmap_t* hashmap, simple_ghmap_iterator_f iterator, void* context) {
+	for (size_t i = 0; i < hashmap->size; ++i) {
+		for (simple_ghmap_entry_t* entry = hashmap->entries[i]; entry != NULL; entry = entry->next) {
+			if (!iterator(context, hashmap, entry->hash, &entry->data[0])) {
+				return ferr_cancelled;
+			}
+		}
+	}
+
+	return ferr_ok;
+};
+
+ferr_t simple_ghmap_clear_all(simple_ghmap_t* hashmap) {
+	for (size_t i = 0; i < hashmap->size; ++i) {
+		for (simple_ghmap_entry_t* entry = hashmap->entries[i]; entry != NULL; /* handled in the body */) {
+			simple_ghmap_entry_t* next_entry = entry->next;
+
+			hashmap->free(hashmap->callback_context, entry, sizeof(*entry) + hashmap->data_size);
+
+			entry = next_entry;
+		}
+	}
+
+	if (hashmap->size > 0) {
+		hashmap->free(hashmap->callback_context, hashmap->entries, sizeof(*hashmap->entries) * hashmap->size);
+	}
+
+	hashmap->entries = NULL;
+	hashmap->size = 0;
+	hashmap->in_use = 0;
+	hashmap->was_resized = true;
+
+	return ferr_ok;
 };
 
 #define FNV_64_PRIME        (1099511628211ULL)

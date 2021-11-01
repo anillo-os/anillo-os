@@ -109,6 +109,8 @@ LIBSIMPLE_STRUCT(simple_ghmap) {
 	simple_ghmap_entry_t** entries;
 };
 
+typedef bool (*simple_ghmap_iterator_f)(void* context, simple_ghmap_t* hashmap, simple_ghmap_hash_t hash, void* entry);
+
 /**
  * Initializes a new generic hashmap.
  *
@@ -184,6 +186,10 @@ LIBSIMPLE_WUR ferr_t simple_ghmap_clear(simple_ghmap_t* hashmap, const void* key
  * Returns all the same error codes as simple_ghmap_clear(), except that it cannot return ::ferr_unsupported.
  */
 LIBSIMPLE_WUR ferr_t simple_ghmap_clear_h(simple_ghmap_t* hashmap, simple_ghmap_hash_t hash);
+
+ferr_t simple_ghmap_for_each(simple_ghmap_t* hashmap, simple_ghmap_iterator_f iterator, void* context);
+
+LIBSIMPLE_WUR ferr_t simple_ghmap_clear_all(simple_ghmap_t* hashmap);
 
 /**
  * An implementation of ::simple_ghmap_hash_f for strings (both null- and non-null-terminated).

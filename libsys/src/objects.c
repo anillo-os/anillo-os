@@ -58,10 +58,14 @@ void sys_object_release(sys_object_t* object) {
 	uint64_t old_value = __atomic_load_n(&object->reference_count, __ATOMIC_RELAXED);
 
 	do {
-		if (old_value != 0) {
+		if (old_value == 0) {
 			return;
 		}
 	} while (!__atomic_compare_exchange_n(&object->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
+
+	if (old_value != 1) {
+		return;
+	}
 
 	if (object->object_class->destroy) {
 		return object->object_class->destroy(object);

@@ -243,10 +243,14 @@ void fvfs_release(fvfs_descriptor_t* descriptor) {
 	uint64_t old_value = __atomic_load_n(&descriptor->reference_count, __ATOMIC_RELAXED);
 
 	do {
-		if (old_value != 0) {
+		if (old_value == 0) {
 			return;
 		}
 	} while (!__atomic_compare_exchange_n(&descriptor->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
+
+	if (old_value != 1) {
+		return;
+	}
 
 	descriptor->mount->backend->close(descriptor->mount->context, descriptor);
 };
