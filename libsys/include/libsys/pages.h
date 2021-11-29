@@ -31,6 +31,14 @@ LIBSYS_WUR ferr_t sys_page_allocate(size_t page_count, uint64_t flags, void** ou
 
 LIBSYS_WUR ferr_t sys_page_free(void* address);
 
+LIBSYS_ALWAYS_INLINE uintptr_t sys_page_round_up_multiple(uintptr_t number) {
+	return (number + (4096ULL - 1)) & -4096ULL;
+};
+
+LIBSYS_ALWAYS_INLINE uintptr_t sys_page_round_up_count(uintptr_t number) {
+	return sys_page_round_up_multiple(number) / 4096ULL;
+};
+
 LIBSYS_DECLARATIONS_END;
 
 #endif // _LIBSYS_PAGES_H_

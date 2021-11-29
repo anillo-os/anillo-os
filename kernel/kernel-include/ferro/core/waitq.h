@@ -78,8 +78,8 @@ void fwaitq_init(fwaitq_t* waitq);
  * @note This is the WRONG function to use for putting a thread to sleep to wait for a waitq.
  *       For that, use fthread_wait().
  *
- * @note Expanding on the previous note, in general, is a race condition if you need to perform some operation where you could miss the wakeup call after adding yourself to the waitq's waiting list.
- *       e.g. If your add yourself, someone else wakes you up via the waitq, but then you perform some operation that doesn't check whether your wakeup callback has already been called.
+ * @note Expanding on the previous note, in general, it is a race condition if you need to perform some operation where you could miss the wakeup call after adding yourself to the waitq's waiting list.
+ *       e.g. If you add yourself, someone else wakes you up via the waitq, but then you perform some operation that doesn't check whether your wakeup callback has already been called.
  */
 void fwaitq_wait(fwaitq_t* waitq, fwaitq_waiter_t* waiter);
 
@@ -92,6 +92,14 @@ void fwaitq_wake_many(fwaitq_t* waitq, size_t count);
  * Wakes the given waiter.
  */
 void fwaitq_wake_specific(fwaitq_t* waitq, fwaitq_waiter_t* waiter);
+
+/**
+ * Removes the given waiter from the waitq's waiting list.
+ *
+ * @note Unlike fwaitq_wake_specific(), this function does NOT notify the waiter.
+ *       It simply removes the waiter from the waitq's waiting list.
+ */
+void fwaitq_unwait(fwaitq_t* waitq, fwaitq_waiter_t* waiter);
 
 /**
  * @}

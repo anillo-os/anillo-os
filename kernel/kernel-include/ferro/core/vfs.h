@@ -202,7 +202,7 @@ FERRO_WUR ferr_t fvfs_list_children_init(fvfs_descriptor_t* descriptor, fvfs_pat
  * 	// for the example, let's just print their names
  * 	for (size_t i = 0; i < count; ++i) {
  * 		// note: fconsole_logf doesn't support width specification yet
- * 		fconsole_logf("%*s\n", children[i].length, children[i].path);
+ * 		fconsole_logf("%.*s\n", children[i].length, children[i].path);
  * 	}
  * 	fpanic_status(fvfs_list_children_finish(descriptor, children, count, &context));
  * }

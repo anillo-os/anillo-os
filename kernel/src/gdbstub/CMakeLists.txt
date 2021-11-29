@@ -33,5 +33,6 @@ target_link_libraries(ferro_gdbstub PUBLIC
 )
 
 target_link_libraries(ferro_gdbstub PRIVATE
-	libsimple_static_compat_kernel
+	libsimple_static_kernel
+	libsimple_static_compat
 )

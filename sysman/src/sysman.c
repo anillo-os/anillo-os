@@ -17,9 +17,17 @@
  */
 
 #include <stdint.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
 
-extern void exit(int32_t status);
+void main(void) {
+	printf("*** sysman starting up... ***\n");
 
-void _start(void) {
+	void* mem = malloc(sizeof("foobar"));
+	strcpy(mem, "foobar");
+	printf("look: %s\n", (const char*)mem);
+	free(mem);
+
 	exit(0);
 };

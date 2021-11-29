@@ -23,8 +23,8 @@
  */
 
 .text
-.global farch_threads_runner
-farch_threads_runner:
+.global _farch_threads_runner
+_farch_threads_runner:
 	// rdi holds user data for the initializer
 	// r10 holds the initializer
 
@@ -32,5 +32,5 @@ farch_threads_runner:
 	call *%r10
 
 	// time to die
-	call fthread_kill_self
+	call _fthread_kill_self
 	ud2 // this function should never return

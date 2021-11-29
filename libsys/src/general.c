@@ -16,9 +16,22 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <libsys/general.h>
+#include <libsys/general.private.h>
 #include <gen/libsyscall/syscall-wrappers.h>
 #include <libsimple/libsimple.h>
+#include <libsys/console.private.h>
+
+ferr_t sys_init(void) {
+	ferr_t status = ferr_ok;
+
+	status = sys_console_init();
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	return status;
+};
 
 ferr_t sys_kernel_log(const char* message) {
 	return sys_kernel_log_n(message, simple_strlen(message));

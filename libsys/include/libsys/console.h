@@ -23,17 +23,27 @@
 #include <stdarg.h>
 
 #include <libsys/base.h>
+#include <ferro/error.h>
 
 LIBSYS_DECLARATIONS_BEGIN;
 
 void sys_console_log(const char* string);
 void sys_console_log_n(const char* string, size_t string_length);
 
+ferr_t sys_console_log_c(const char* string, size_t* out_written_count);
+ferr_t sys_console_log_nc(const char* string, size_t string_length, size_t* out_written_count);
+
 LIBSYS_PRINTF(1, 2) void sys_console_log_f(const char* format, ...);
 LIBSYS_PRINTF(1, 3) void sys_console_log_fn(const char* format, size_t format_length, ...);
 
+LIBSYS_PRINTF(1, 3) ferr_t sys_console_log_fc(const char* format, size_t* out_written_count, ...);
+LIBSYS_PRINTF(1, 4) ferr_t sys_console_log_fnc(const char* format, size_t format_length, size_t* out_written_count, ...);
+
 LIBSYS_PRINTF(1, 0) void sys_console_log_fv(const char* format, va_list arguments);
 LIBSYS_PRINTF(1, 0) void sys_console_log_fnv(const char* format, size_t format_length, va_list arguments);
+
+LIBSYS_PRINTF(1, 0) ferr_t sys_console_log_fvc(const char* format, size_t* out_written_count, va_list arguments);
+LIBSYS_PRINTF(1, 0) ferr_t sys_console_log_fnvc(const char* format, size_t format_length, size_t* out_written_count, va_list arguments);
 
 LIBSYS_DECLARATIONS_END;
 

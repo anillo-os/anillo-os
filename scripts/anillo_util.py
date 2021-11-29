@@ -22,8 +22,8 @@ def to_c_array(array_name, values, array_type='uint8_t', formatter=to_padded_hex
 	body = ',\n\t'.join([', '.join(r) for r in rows])
 	return '{}{} {}[] = {{\n\t{},\n}};\n'.format('static ' if static else '', array_type, array_name, body)
 
-def run_or_fail(command, print_on_fail=True):
-	output = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+def run_or_fail(command, print_on_fail=True, cwd=None):
+	output = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, cwd=cwd)
 
 	if output.returncode != 0:
 		print(output.stdout.decode())

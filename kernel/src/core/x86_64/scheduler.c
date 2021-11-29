@@ -27,6 +27,10 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/mempool.h>
 #include <libsimple/libsimple.h>
+#include <ferro/core/paging.h>
+
+// 4 pages should be enough, right?
+#define SWITCHING_STACK_SIZE (FPAGE_PAGE_SIZE * 4)
 
 static void ignore_interrupt(fint_frame_t* frame) {};
 
@@ -34,6 +38,12 @@ void farch_sched_init(void) {
 	if (farch_int_register_handler(0xfe, ignore_interrupt) != ferr_ok) {
 		fpanic("Failed to register scheduler auxillary interrupt");
 	}
+
+	if (fpage_allocate_kernel(fpage_round_up_to_page_count(SWITCHING_STACK_SIZE), &FARCH_PER_CPU(switching_stack), 0) != ferr_ok) {
+		fpanic("Failed to allocate a switching stack");
+	}
+
+	FARCH_PER_CPU(switching_stack) = (void*)((uintptr_t)FARCH_PER_CPU(switching_stack) + SWITCHING_STACK_SIZE);
 };
 
 void farch_sched_immediate_switch(fthread_saved_context_t* out_context, fint_frame_t* new_frame);
@@ -83,11 +93,11 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 			current_thread->saved_context.interrupt_disable = frame->saved_registers.interrupt_disable;
 		}
 
-		// NOTE: a very important detail regarding the safety of the following operations is that on x86, all interrupt handlers have their own stacks (and each CPU has its own set of interrupt stacks).
-		//       therefore, the following will NOT overwrite the exception frame stored on the current interupt handler's stack, even if we're switching to the same thread.
+		// NOTE: we use a temporary stack (the switching stack) for context switching because we cannot use the target thread's stack since it may have a red zone
+		//       (and pushing our data onto it would corrupt the red zone)
 
-		// load the new frame data onto the return stack
-		new_frame = (void*)((uintptr_t)new_thread->saved_context.rsp - sizeof(*new_frame));
+		// load the new frame data onto the switching stack
+		new_frame = (void*)((uintptr_t)FARCH_PER_CPU(switching_stack) - sizeof(*new_frame));
 		new_frame->saved_registers.rax = new_thread->saved_context.rax;
 		new_frame->saved_registers.rcx = new_thread->saved_context.rcx;
 		new_frame->saved_registers.rdx = new_thread->saved_context.rdx;

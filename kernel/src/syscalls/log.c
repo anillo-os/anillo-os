@@ -19,8 +19,7 @@
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/core/console.h>
 
-ferr_t fsyscall_handler_log(const void* xmessage, uint64_t message_length) {
-	const char* message = xmessage;
+ferr_t fsyscall_handler_log(const char* message, uint64_t message_length) {
 	fconsole_logn(message, message_length);
 	return ferr_ok;
 };

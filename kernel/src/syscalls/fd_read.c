@@ -20,7 +20,7 @@
 #include <ferro/userspace/processes.h>
 #include <ferro/core/vfs.h>
 
-ferr_t fsyscall_handler_fd_read(uint64_t fd, uint64_t offset, uint64_t desired_length, void* out_buffer, void* out_read_length) {
+ferr_t fsyscall_handler_fd_read(uint64_t fd, uint64_t offset, uint64_t desired_length, void* out_buffer, uint64_t* out_read_length) {
 	fvfs_descriptor_t* descriptor = NULL;
 	ferr_t status = ferr_ok;
 

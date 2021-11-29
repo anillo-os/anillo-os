@@ -3,12 +3,17 @@
 from syscall import *
 
 syscalls.extend([
-	Syscall(1, 'exit', [SyscallParameter('i32', 'status')]),
-	Syscall(2, 'log', [SyscallParameter('*c', 'message'), SyscallParameter('u64', 'message_length')]),
-	Syscall(3, 'page_allocate_any', [SyscallParameter('u64', 'page_count'), SyscallParameter('u64', 'flags'), SyscallParameter('*', 'out_address')]),
-	Syscall(4, 'page_free', [SyscallParameter('*', 'address')]),
-	Syscall(5, 'fd_open_special', [SyscallParameter('u64', 'special_id'), SyscallParameter('*', 'out_fd')]),
-	Syscall(6, 'fd_close', [SyscallParameter('u64', 'fd')]),
-	Syscall(7, 'fd_read', [SyscallParameter('u64', 'fd'), SyscallParameter('u64', 'offset'), SyscallParameter('u64', 'desired_length'), SyscallParameter('*', 'out_buffer'), SyscallParameter('*', 'out_read_length')]),
-	Syscall(8, 'fd_write', [SyscallParameter('u64', 'fd'), SyscallParameter('u64', 'offset'), SyscallParameter('u64', 'desired_length'), SyscallParameter('*c', 'buffer'), SyscallParameter('*', 'out_written_length')]),
+	Syscall(1, 'exit', status='i32'),
+	Syscall(2, 'log', message='string', message_length='u64'),
+	Syscall(3, 'page_allocate_any', page_count='u64', flags='u64', out_address='*'),
+	Syscall(4, 'page_free', address='*'),
+	Syscall(5, 'fd_open_special', special_id='u64', out_fd='*[u64]'),
+	Syscall(6, 'fd_close', fd='u64'),
+	Syscall(7, 'fd_read', fd='u64', offset='u64', desired_length='u64', out_buffer='*', out_read_length='*[u64]'),
+	Syscall(8, 'fd_write', fd='u64', offset='u64', desired_length='u64', buffer='*c', out_written_length='*[u64]'),
+	Syscall(9, 'fd_copy_path', fd='u64', buffer_size='u64', out_buffer='mut_string', out_actual_size='*[u64]'),
+	Syscall(10, 'fd_list_children_init', fd='u64', out_context='*[u64]'),
+	Syscall(11, 'fd_list_children_finish', context='u64'),
+	Syscall(12, 'fd_list_children', context='u64', string_size='u64', out_string='*', out_read_count='*[u64]'),
+	Syscall(13, 'fd_open', path='string', path_length='u64', flags='u64', out_fd='*[u64]'),
 ])

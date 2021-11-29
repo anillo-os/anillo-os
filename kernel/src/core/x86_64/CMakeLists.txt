@@ -22,5 +22,6 @@ add_dependencies(ferro_core_x86_64
 )
 
 target_link_libraries(ferro_core_x86_64 PRIVATE
-	libsimple_static_compat_kernel
+	libsimple_static_kernel
+	libsimple_static_compat
 )

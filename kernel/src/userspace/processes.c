@@ -23,8 +23,17 @@
 #include <ferro/userspace/syscalls.h>
 #include <ferro/userspace/loader.h>
 #include <ferro/core/scheduler.h>
+#include <stdatomic.h>
+
+FERRO_STRUCT(fper_proc_entry) {
+	fper_proc_data_destructor_f destructor;
+	void* destructor_context;
+	char data[];
+};
 
 static void fproc_destroy(fproc_t* process) {
+	fwaitq_wake_many(&process->destroy_wait, SIZE_MAX);
+
 	if (fmempool_free(process) != ferr_ok) {
 		fpanic("Failed to free thread information structure");
 	}
@@ -68,7 +77,7 @@ fproc_t* fproc_current(void) {
 	return private_data->process;
 };
 
-static bool fproc_clear_fd_iterator(void* context, simple_ghmap_t* hashmap, simple_ghmap_hash_t hash, void* entry) {
+static bool fproc_clear_fd_iterator(void* context, simple_ghmap_t* hashmap, simple_ghmap_hash_t hash, const void* key, size_t key_size, void* entry, size_t entry_size) {
 	fvfs_descriptor_t** desc_ptr = entry;
 
 	fvfs_release(*desc_ptr);
@@ -76,12 +85,28 @@ static bool fproc_clear_fd_iterator(void* context, simple_ghmap_t* hashmap, simp
 	return true;
 };
 
+static bool per_proc_clear_iterator(void* context, simple_ghmap_t* hashmap, simple_ghmap_hash_t hash, const void* key, size_t key_size, void* entry, size_t entry_size) {
+	fper_proc_entry_t* per_proc_entry = entry;
+
+	if (per_proc_entry->destructor) {
+		per_proc_entry->destructor(per_proc_entry->destructor_context, per_proc_entry->data, entry_size - sizeof(fper_proc_entry_t));
+	}
+
+	return true;
+};
+
 static void fproc_all_uthreads_died(fproc_t* proc) {
+	fwaitq_wake_many(&proc->death_wait, SIZE_MAX);
+
+	// clear all per-process data
+	flock_mutex_lock(&proc->per_proc_mutex);
+	simple_ghmap_for_each(&proc->per_proc, per_proc_clear_iterator, NULL);
+	simple_ghmap_destroy(&proc->per_proc);
+	flock_mutex_unlock(&proc->per_proc_mutex);
+
 	fpanic_status(fuloader_unload_file(proc->binary_info));
 
 	proc->binary_info = NULL;
-
-	fpage_space_destroy(&proc->space);
 
 	fvfs_release(proc->binary_descriptor);
 
@@ -91,6 +116,8 @@ static void fproc_all_uthreads_died(fproc_t* proc) {
 	simple_ghmap_for_each(&proc->descriptor_table, fproc_clear_fd_iterator, NULL);
 	simple_ghmap_destroy(&proc->descriptor_table);
 	flock_mutex_unlock(&proc->descriptor_table_mutex);
+
+	fpage_space_destroy(&proc->space);
 
 	// alright, now that it's been cleaned up, the process can be released
 	fproc_release(proc);
@@ -130,6 +157,7 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	bool destroy_space_on_fail = false;
 	futhread_data_private_t* private_data = NULL;
 	bool destroy_descriptor_table_on_fail = false;
+	bool destroy_per_proc_on_fail = false;
 
 	if (!out_proc) {
 		status = ferr_invalid_argument;
@@ -185,11 +213,17 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	}
 	proc->binary_descriptor = file_descriptor;
 
-	if (simple_ghmap_init(&proc->descriptor_table, 16, sizeof(fvfs_descriptor_t*), simple_ghmap_allocate_mempool, simple_ghmap_free_mempool, NULL, NULL) != ferr_ok) {
+	if (simple_ghmap_init(&proc->descriptor_table, 16, sizeof(fvfs_descriptor_t*), simple_ghmap_allocate_mempool, simple_ghmap_free_mempool, NULL, NULL, NULL, NULL, NULL, NULL) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;
 	}
 	destroy_descriptor_table_on_fail = true;
+
+	if (simple_ghmap_init(&proc->per_proc, 16, sizeof(fper_proc_entry_t), simple_ghmap_allocate_mempool, simple_ghmap_free_mempool, NULL, NULL, NULL, NULL, NULL, NULL) != ferr_ok) {
+		status = ferr_temporary_outage;
+		goto out;
+	}
+	destroy_per_proc_on_fail = true;
 
 	// if we got here, this process is definitely okay.
 	// just a few more non-erroring-throwing tasks to do and then we're done.
@@ -212,10 +246,19 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	proc->next_lowest_fd = 0;
 	proc->highest_fd = 0;
 
+	fwaitq_init(&proc->death_wait);
+	fwaitq_init(&proc->destroy_wait);
+
+	flock_mutex_init(&proc->per_proc_mutex);
+
 out:
 	if (status == ferr_ok) {
 		*out_proc = proc;
 	} else {
+		if (destroy_per_proc_on_fail) {
+			simple_ghmap_destroy(&proc->per_proc);
+		}
+
 		if (destroy_descriptor_table_on_fail) {
 			simple_ghmap_destroy(&proc->descriptor_table);
 		}
@@ -244,7 +287,7 @@ out:
 // the process's descriptor table mutex MUST be held
 static void update_next_available_fd(fproc_t* process) {
 	for (fproc_fd_t fd = process->next_lowest_fd + 1; fd < FPROC_FD_MAX; ++fd) {
-		if (simple_ghmap_lookup_h(&process->descriptor_table, fd, false, NULL, NULL) != ferr_no_such_resource) {
+		if (simple_ghmap_lookup_h(&process->descriptor_table, fd, false, SIZE_MAX, NULL, NULL, NULL) != ferr_no_such_resource) {
 			continue;
 		}
 
@@ -282,7 +325,7 @@ ferr_t fproc_install_descriptor(fproc_t* process, fvfs_descriptor_t* descriptor,
 	}
 	release_descriptor_on_fail = true;
 
-	if (simple_ghmap_lookup_h(&process->descriptor_table, fd, true, &created, (void*)&fd_desc) != ferr_ok) {
+	if (simple_ghmap_lookup_h(&process->descriptor_table, fd, true, SIZE_MAX, &created, (void*)&fd_desc, NULL) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;
 	}
@@ -325,7 +368,7 @@ ferr_t fproc_uninstall_descriptor(fproc_t* process, fproc_fd_t fd) {
 
 	flock_mutex_lock(&process->descriptor_table_mutex);
 
-	if (simple_ghmap_lookup_h(&process->descriptor_table, fd, false, NULL, (void*)&fd_desc) != ferr_ok) {
+	if (simple_ghmap_lookup_h(&process->descriptor_table, fd, false, SIZE_MAX, NULL, (void*)&fd_desc, NULL) != ferr_ok) {
 		status = ferr_no_such_resource;
 		goto out;
 	}
@@ -356,7 +399,7 @@ ferr_t fproc_lookup_descriptor(fproc_t* process, fproc_fd_t fd, bool retain, fvf
 
 	flock_mutex_lock(&process->descriptor_table_mutex);
 
-	if (simple_ghmap_lookup_h(&process->descriptor_table, fd, false, NULL, (void*)&fd_desc) != ferr_ok) {
+	if (simple_ghmap_lookup_h(&process->descriptor_table, fd, false, SIZE_MAX, NULL, (void*)&fd_desc, NULL) != ferr_ok) {
 		status = ferr_no_such_resource;
 		goto out;
 	}
@@ -507,5 +550,72 @@ ferr_t fproc_lookup_mapping(fproc_t* process, void* address, size_t* out_page_co
 out:
 	flock_mutex_unlock(&process->mappings_mutex);
 out_unlocked:
+	return status;
+};
+
+ferr_t fper_proc_register(fper_proc_key_t* out_key) {
+	static _Atomic fper_proc_key_t key_counter = 0;
+	if (!out_key) {
+		return ferr_invalid_argument;
+	}
+	*out_key = key_counter++;
+	return ferr_ok;
+};
+
+ferr_t fper_proc_lookup(fproc_t* process, fper_proc_key_t key, bool create_if_absent, size_t size_if_absent, fper_proc_data_destructor_f destructor_if_absent, void* destructor_context, bool* out_created, void** out_pointer, size_t* out_size) {
+	ferr_t status = ferr_ok;
+	flock_mutex_lock(&process->per_proc_mutex);
+
+	fper_proc_entry_t* entry = NULL;
+	bool created = false;
+	size_t entry_size = 0;
+
+	status = simple_ghmap_lookup_h(&process->per_proc, key, create_if_absent, sizeof(fper_proc_entry_t) + size_if_absent, &created, (void*)&entry, &entry_size);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (created) {
+		entry->destructor = destructor_if_absent;
+		entry->destructor_context = destructor_context;
+	}
+
+	if (out_size) {
+		*out_size = entry_size - sizeof(fper_proc_entry_t);
+	}
+
+	if (out_pointer) {
+		*out_pointer = &entry->data[0];
+	}
+
+	if (out_created) {
+		*out_created = created;
+	}
+
+out:
+	flock_mutex_unlock(&process->per_proc_mutex);
+	return status;
+};
+
+ferr_t fper_proc_clear(fproc_t* process, fper_proc_key_t key, bool skip_previous_destructor) {
+	ferr_t status = ferr_ok;
+	flock_mutex_lock(&process->per_proc_mutex);
+
+	fper_proc_entry_t* entry = NULL;
+	size_t entry_size = 0;
+
+	if (simple_ghmap_lookup_h(&process->per_proc, key, false, SIZE_MAX, NULL, (void*)&entry, &entry_size) != ferr_ok) {
+		status = ferr_no_such_resource;
+		goto out;
+	}
+
+	if (entry->destructor) {
+		entry->destructor(entry->destructor_context, entry->data, entry_size - sizeof(fper_proc_entry_t));
+	}
+
+	status = simple_ghmap_clear_h(&process->per_proc, key);
+
+out:
+	flock_mutex_unlock(&process->per_proc_mutex);
 	return status;
 };

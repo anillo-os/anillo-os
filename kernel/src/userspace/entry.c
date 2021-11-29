@@ -23,9 +23,15 @@
 #include <libsimple/libsimple.h>
 #include <ferro/core/scheduler.h>
 #include <ferro/userspace/processes.h>
+#include <ferro/syscalls/syscalls.h>
+#include <ferro/core/console.h>
 
 void ferro_userspace_entry(void) {
 	futhread_init();
+
+	fsyscall_init();
+
+	fconsole_log("Loading init process...\n");
 
 	// TESTING
 	fvfs_descriptor_t* sysman_desc = NULL;

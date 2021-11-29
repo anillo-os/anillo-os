@@ -257,7 +257,9 @@ LIBSYS_WUR static ferr_t format_out_decimal(sys_format_write_context_t* context,
 	// the buffer is in reverse order, so print it in reverse (to get it forwards)
 	for (size_t i = index; i > 0; --i) {
 		status = write_code_point(context, buffer[i - 1]);
-		goto out;
+		if (status != ferr_ok) {
+			goto out;
+		}
 	}
 
 out:

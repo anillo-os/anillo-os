@@ -6,10 +6,13 @@ set(libsys_sources
 	src/files.c
 	src/format.c
 	src/general.c
+	src/ghmap.c
+	src/handoff.c
 	src/locks.c
 	src/mempool.c
 	src/objects.c
 	src/pages.c
+	src/paths.c
 	src/streams.c
 )
 
@@ -19,30 +22,47 @@ set(libsys_libs
 
 set(libsys_includes
 	include
-	"${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include"
-	"${CMAKE_CURRENT_SOURCE_DIR}/../kernel/user-include"
 )
 
-add_library(libsys SHARED ${libsys_sources})
+add_anillo_dylib(libsys
+	RAMDISK
+	INSTALL_PATH /sys/lib/libsys.dylib
+	SOURCES
+		${libsys_sources}
+)
 add_library(libsys_static STATIC ${libsys_sources})
 
-set_target_properties(libsys libsys_static PROPERTIES
+set_target_properties(libsys_static PROPERTIES
 	OUTPUT_NAME sys
 )
 
-target_link_libraries(libsys PRIVATE
+target_link_libraries(libsys PUBLIC
 	${libsys_libs}
-	libsimple
+	libsimple_headers
+	ferro_headers_uapi
 )
-target_link_libraries(libsys_static PRIVATE
+target_link_libraries(libsys_static PUBLIC
 	${libsys_libs}
 	libsimple_static
+	libsimple_static_compat
+	ferro_headers_uapi
+)
+
+target_link_libraries(libsys PRIVATE
+	libdymple
+	libsimple
+)
+
+target_link_options(libsys PRIVATE
+	"-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/exported-symbols.txt"
 )
 
 target_include_directories(libsys PUBLIC ${libsys_includes})
 target_include_directories(libsys_static PUBLIC ${libsys_includes})
 
-add_to_ramdisk(
-	TARGET libsys
-	DESTINATION /sys/lib/libsys.so
+add_library(libsys_headers INTERFACE)
+target_include_directories(libsys_headers INTERFACE ${libsys_includes})
+target_link_libraries(libsys_headers INTERFACE
+	libsimple_headers
+	ferro_headers_uapi
 )

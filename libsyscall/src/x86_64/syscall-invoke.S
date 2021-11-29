@@ -17,8 +17,8 @@
  */
 
 .text
-.global libsyscall_invoke
-libsyscall_invoke:
+.global _libsyscall_invoke
+_libsyscall_invoke:
 	// load the syscall number into rax
 	mov %rdi, %rax
 

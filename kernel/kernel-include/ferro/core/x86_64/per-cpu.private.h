@@ -107,6 +107,14 @@ FERRO_STRUCT(farch_per_cpu_data) {
 	 * Owner: Per-CPU Data subsystem (the generic one).
 	 */
 	fper_cpu_main_table_t main_table;
+
+	/**
+	 * A small stack used by the scheduler to switch between contexts.
+	 * This is a pointer to the top of the stack.
+	 *
+	 * Owner: scheduler subsystem.
+	 */
+	void* switching_stack;
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void);

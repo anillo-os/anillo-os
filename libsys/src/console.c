@@ -22,19 +22,27 @@
 #include <libsys/format.h>
 #include <libsys/abort.h>
 
-static sys_stream_handle_t console_handle = SYS_STREAM_HANDLE_INVALID;
+sys_stream_handle_t console_handle = SYS_STREAM_HANDLE_INVALID;
 
 ferr_t sys_console_init(void) {
 	return sys_stream_open_special_handle(sys_stream_special_id_console_standard_output, &console_handle);
 };
 
 void sys_console_log(const char* string) {
-	return sys_console_log_n(string, simple_strlen(string));
+	sys_console_log_c(string, NULL);
+};
+
+void sys_console_log_n(const char* string, size_t string_length) {
+	sys_console_log_nc(string, string_length, NULL);
+};
+
+ferr_t sys_console_log_c(const char* string, size_t* out_written_count) {
+	return sys_console_log_nc(string, simple_strlen(string), out_written_count);
 };
 
 #define TEMPORARY_OUTAGE_RETRY_COUNT 5
 
-void sys_console_log_n(const char* string, size_t string_length) {
+ferr_t sys_console_log_nc(const char* string, size_t string_length, size_t* out_written_count) {
 	ferr_t status = ferr_ok;
 	uint8_t retry_count = 0;
 	size_t written_count = 0;
@@ -54,27 +62,54 @@ void sys_console_log_n(const char* string, size_t string_length) {
 	}
 
 out:
-	return;
+	if (out_written_count) {
+		*out_written_count = written_count;
+	}
+	return status;
 };
 
 void sys_console_log_f(const char* format, ...) {
 	va_list args;
 	va_start(args, format);
-	sys_console_log_fv(format, args);
+	sys_console_log_fvc(format, NULL, args);
 	va_end(args);
 };
 
 void sys_console_log_fn(const char* format, size_t format_length, ...) {
 	va_list args;
 	va_start(args, format_length);
-	sys_console_log_fnv(format, format_length, args);
+	sys_console_log_fnvc(format, format_length, NULL, args);
 	va_end(args);
 };
 
+ferr_t sys_console_log_fc(const char* format, size_t* out_written_count, ...) {
+	va_list args;
+	va_start(args, out_written_count);
+	ferr_t status = sys_console_log_fvc(format, out_written_count, args);
+	va_end(args);
+	return status;
+};
+
+ferr_t sys_console_log_fnc(const char* format, size_t format_length, size_t* out_written_count, ...) {
+	va_list args;
+	va_start(args, out_written_count);
+	ferr_t status = sys_console_log_fnvc(format, format_length, out_written_count, args);
+	va_end(args);
+	return status;
+};
+
 void sys_console_log_fv(const char* format, va_list arguments) {
-	return sys_console_log_fnv(format, simple_strlen(format), arguments);
+	sys_console_log_fvc(format, NULL, arguments);
 };
 
 void sys_console_log_fnv(const char* format, size_t format_length, va_list arguments) {
-	sys_abort_status(sys_format_out_stream_handle_nv(console_handle, NULL, format, format_length, arguments));
+	sys_console_log_fnvc(format, format_length, NULL, arguments);
+};
+
+ferr_t sys_console_log_fvc(const char* format, size_t* out_written_count, va_list arguments) {
+	return sys_console_log_fnvc(format, simple_strlen(format), out_written_count, arguments);
+};
+
+ferr_t sys_console_log_fnvc(const char* format, size_t format_length, size_t* out_written_count, va_list arguments) {
+	return sys_format_out_stream_handle_nv(console_handle, out_written_count, format, format_length, arguments);
 };

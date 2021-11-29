@@ -40,7 +40,7 @@ void* simple_memcpy(void* restrict destination, const void* restrict source, siz
 	return destination;
 };
 
-#if LIBSIMPLE_COMPAT
+#if LIBSIMPLE_UEFI_COMPAT
 	void* memcpy(void* restrict destination, const void* restrict source, size_t n) LIBSIMPLE_ALIAS(simple_memcpy);
 #endif
 
@@ -95,7 +95,7 @@ void* simple_memset(void* destination, int value, size_t n) {
 	return destination;
 };
 
-#if LIBSIMPLE_COMPAT
+#if LIBSIMPLE_UEFI_COMPAT
 	void* memset(void* destination, int value, size_t n) LIBSIMPLE_ALIAS(simple_memset);
 #endif
 

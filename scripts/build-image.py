@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 
 import os
-from posixpath import join
 import sys
 import tempfile
 import subprocess
 import re
+import platform
 
 SCRIPT_DIR = os.path.dirname(__file__)
 SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..')
@@ -42,7 +42,10 @@ def partfs_mount():
 	anillo_util.run_or_fail(['partfs', '-o', 'dev=' + OUTPUT_IMAGE_PATH, mount_dir.name])
 
 def partfs_unmount():
-	anillo_util.run_or_fail(['fusermount', '-u', mount_dir.name])
+	if platform.system() == 'Darwin':
+		anillo_util.run_or_fail(['umount', mount_dir.name])
+	else:
+		anillo_util.run_or_fail(['fusermount', '-u', mount_dir.name])
 
 def fat_mkdir_p(image, path):
 	curr_path = ''

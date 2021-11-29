@@ -38,17 +38,17 @@ void farch_uthread_syscall_handler_wrapper();
 
 static void log_context(fthread_saved_context_t* context) {
 	fconsole_logf(
-		"rax=%lu; rcx=%lu\n"
-		"rdx=%lu; rbx=%lu\n"
-		"rsi=%lu; rdi=%lu\n"
-		"rsp=%lu; rbp=%lu\n"
-		"r8=%lu; r9=%lu\n"
-		"r10=%lu; r11=%lu\n"
-		"r12=%lu; r13=%lu\n"
-		"r14=%lu; r15=%lu\n"
-		"rip=%lu; rflags=%lu\n"
-		"cs=%lu; ss=%lu\n"
-		"interrupt_disable=%lu\n",
+		"rax=%llu; rcx=%llu\n"
+		"rdx=%llu; rbx=%llu\n"
+		"rsi=%llu; rdi=%llu\n"
+		"rsp=%llu; rbp=%llu\n"
+		"r8=%llu; r9=%llu\n"
+		"r10=%llu; r11=%llu\n"
+		"r12=%llu; r13=%llu\n"
+		"r14=%llu; r15=%llu\n"
+		"rip=%llu; rflags=%llu\n"
+		"cs=%llu; ss=%llu\n"
+		"interrupt_disable=%llu\n",
 		context->rax, context->rcx,
 		context->rdx, context->rbx,
 		context->rsi, context->rdi,

@@ -269,15 +269,15 @@ static void fint_handler_common_end(fint_handler_common_data_t* data, fint_frame
 static void print_frame(const fint_frame_t* frame) {
 	fconsole_logf(
 		"rip=%p; rsp=%p\n"
-		"rax=%lu; rcx=%lu\n"
-		"rdx=%lu; rbx=%lu\n"
-		"rsi=%lu; rdi=%lu\n"
-		"rbp=%lu; r8=%lu\n"
-		"r9=%lu; r10=%lu\n"
-		"r11=%lu; r12=%lu\n"
-		"r13=%lu; r14=%lu\n"
-		"r15=%lu; rflags=%lu\n"
-		"cs=%lu; ss=%lu\n"
+		"rax=%llu; rcx=%llu\n"
+		"rdx=%llu; rbx=%llu\n"
+		"rsi=%llu; rdi=%llu\n"
+		"rbp=%llu; r8=%llu\n"
+		"r9=%llu; r10=%llu\n"
+		"r11=%llu; r12=%llu\n"
+		"r13=%llu; r14=%llu\n"
+		"r15=%llu; rflags=%llu\n"
+		"cs=%llu; ss=%llu\n"
 		"ds=%u; es=%u\n"
 		"fs=%u; gs=%u\n"
 		,
@@ -294,6 +294,30 @@ static void print_frame(const fint_frame_t* frame) {
 		frame->saved_registers.ds, frame->saved_registers.es,
 		frame->saved_registers.fs, frame->saved_registers.gs
 	);
+};
+
+FERRO_PACKED_STRUCT(fint_stack_frame) {
+	fint_stack_frame_t* previous_frame;
+	void* return_address;
+};
+
+static void trace_stack(const fint_stack_frame_t* frame) {
+	fconsole_log("stack trace:\n");
+	for (size_t i = 0; i < 20; ++i) {
+		if (
+			// if we can't find it in the kernel address space AND
+			fpage_virtual_to_physical((uintptr_t)frame) == UINTPTR_MAX &&
+			// we can't find it in the active address space (if we have one at all)
+			fpage_space_virtual_to_physical(fpage_space_current(), (uintptr_t)frame) == UINTPTR_MAX
+		) {
+			// then this is an invalid address. stop the stack trace here.
+			break;
+		}
+
+		fconsole_logf("%p\n", frame->return_address);
+
+		frame = frame->previous_frame;
+	}
 };
 
 FERRO_OPTIONS(uint64_t, farch_int_page_fault_code_flags) {
@@ -416,6 +440,7 @@ INTERRUPT_HANDLER(breakpoint) {
 	} else {
 		fconsole_logf("breakpoint hit; frame:\n");
 		print_frame(frame);
+		trace_stack((void*)frame->saved_registers.rbp);
 	}
 
 	fint_handler_common_end(&data, frame, true);
@@ -426,8 +451,9 @@ INTERRUPT_HANDLER_NORETURN(double_fault) {
 
 	fint_handler_common_begin(&data, frame, true);
 
-	fconsole_logf("double faulted; going down now; code=%lu; frame:\n", frame->code);
+	fconsole_logf("double faulted; going down now; code=%llu; frame:\n", frame->code);
 	print_frame(frame);
+	trace_stack((void*)frame->saved_registers.rbp);
 	fpanic("double fault");
 
 	// unnecessary, but just for consistency
@@ -439,8 +465,9 @@ INTERRUPT_HANDLER(general_protection) {
 
 	fint_handler_common_begin(&data, frame, true);
 
-	fconsole_logf("general protection fault; code=%lu; frame:\n", frame->code);
+	fconsole_logf("general protection fault; code=%llu; frame:\n", frame->code);
 	print_frame(frame);
+	trace_stack((void*)frame->saved_registers.rbp);
 	fpanic("general protection fault");
 
 	fint_handler_common_end(&data, frame, true);
@@ -454,11 +481,12 @@ INTERRUPT_HANDLER(page_fault) {
 
 	__asm__ volatile("mov %%cr2, %0" : "=r" (faulting_address));
 
-	fconsole_logf("page fault; code=%lu; faulting address=%p; frame:\n", frame->code, (void*)faulting_address);
+	fconsole_logf("page fault; code=%llu; faulting address=%p; frame:\n", frame->code, (void*)faulting_address);
 	fconsole_log("page fault code description: ");
 	print_page_fault_code(frame->code);
 	fconsole_log("\n");
 	print_frame(frame);
+	trace_stack((void*)frame->saved_registers.rbp);
 	fpanic("page fault");
 
 	fint_handler_common_end(&data, frame, true);
@@ -471,6 +499,7 @@ INTERRUPT_HANDLER(invalid_opcode) {
 
 	fconsole_logf("invalid opcode; frame:\n");
 	print_frame(frame);
+	trace_stack((void*)frame->saved_registers.rbp);
 	fpanic("invalid opcode");
 
 	fint_handler_common_end(&data, frame, true);

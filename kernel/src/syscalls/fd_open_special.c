@@ -41,9 +41,7 @@ static ferr_t console_stdout_write(void* context, fvfs_descriptor_t* descriptor,
 	return ferr_ok;
 };
 
-ferr_t fsyscall_handler_fd_open_special(uint64_t special_id, void* xout_fd) {
-	uint64_t* out_fd = xout_fd;
-
+ferr_t fsyscall_handler_fd_open_special(uint64_t special_id, uint64_t* out_fd) {
 	switch (special_id) {
 		case 0:
 			return fproc_install_descriptor(fproc_current(), fproc_current()->binary_descriptor, out_fd);

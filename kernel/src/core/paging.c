@@ -589,9 +589,15 @@ uintptr_t fpage_space_virtual_to_physical(fpage_space_t* space, uintptr_t virtua
 	uint16_t l2 = FPAGE_VIRT_L2(virtual_address);
 	uint16_t l1 = FPAGE_VIRT_L1(virtual_address);
 	uint16_t offset = FPAGE_VIRT_OFFSET(virtual_address);
+	fpage_table_t* table = NULL;
+	uint64_t entry = 0;
 
-	fpage_table_t* table = map_temporarily_auto(space->l4_table);
-	uint64_t entry = table->entries[l4];
+	if (!space) {
+		return UINTPTR_MAX;
+	}
+
+	table = map_temporarily_auto(space->l4_table);
+	entry = table->entries[l4];
 
 	// L4 table
 
@@ -1529,7 +1535,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	// can't use fpage_virtual_to_physical() for the physical address lookup because it depends on the recursive entry (which is what we're setting up right now).
 	//
 	// this should remain a privileged table, so that unprivileged code can't modify page tables willy-nilly
-	root_table->entries[root_recursive_index] = fpage_table_entry(FERRO_KERNEL_VIRT_TO_PHYS(root_table) + (uintptr_t)image_base, true);
+	root_table->entries[root_recursive_index] = fpage_table_entry(FERRO_KERNEL_STATIC_TO_OFFSET(root_table) + (uintptr_t)image_base, true);
 	fpage_synchronize_after_table_modification();
 
 	// we can use the recursive virtual address for the table now

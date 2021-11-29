@@ -28,7 +28,6 @@
 #include <ferro/base.h>
 #include <ferro/error.h>
 #include <ferro/core/vfs.h>
-#include <ferro/elf.h>
 #include <ferro/core/paging.h>
 
 FERRO_DECLARATIONS_BEGIN;

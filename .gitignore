@@ -10,3 +10,4 @@ cbuild
 __py*__
 build.release
 .gdb_history
+.DS_Store

@@ -1,0 +1,11 @@
+#_simple_memset _memset
+_simple_memcpy _memcpy
+_simple_strlen _strlen
+_simple_strnlen _strnlen
+_simple_memcmp _memcmp
+_simple_memmove _memmove
+_simple_strncmp _strncmp
+#_simple_isspace _isspace
+_simple_strchr _strchr
+_simple_strrchr _strrchr
+_simple_strpbrk _strpbrk

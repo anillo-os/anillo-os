@@ -11,6 +11,9 @@ add_library(ferro_syscalls STATIC
 	fd_close.c
 	fd_read.c
 	fd_write.c
+	fd_copy_path.c
+	fd_list_children.c
+	fd_open.c
 )
 
 add_dependencies(ferro_syscalls
@@ -18,5 +21,6 @@ add_dependencies(ferro_syscalls
 )
 
 target_link_libraries(ferro_syscalls PRIVATE
-	libsimple_static_compat_kernel
+	libsimple_static_kernel
+	libsimple_static_compat
 )

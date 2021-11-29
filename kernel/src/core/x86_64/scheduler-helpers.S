@@ -32,8 +32,8 @@
 // arg 1 (rdi) is a `fthread_saved_context_t*` (which may be `NULL`)
 // arg 2 (rsi) is a `fint_frame_t*`
 .text
-.global farch_sched_immediate_switch
-farch_sched_immediate_switch:
+.global _farch_sched_immediate_switch
+_farch_sched_immediate_switch:
 	//
 	// first, save everything (if we have a current thread)
 	//
@@ -78,7 +78,7 @@ farch_sched_immediate_switch:
 	// let's arm the timer
 	//
 	pushq %rsi
-	call fsched_arm_timer
+	call _fsched_arm_timer
 	popq %rsi
 
 	//
@@ -88,7 +88,7 @@ farch_sched_immediate_switch:
 	// load the right interrupt-disable count
 	pushq %rsi
 	mov FOFFSET_fint_frame_interrupt_disable(%rsi), %rdi
-	call farch_sched_set_interrupt_disable_count
+	call _farch_sched_set_interrupt_disable_count
 	popq %rsi
 
 	// load general-purpose registers
@@ -152,10 +152,10 @@ farch_sched_immediate_switch:
 // arg 1 (rdi) is the new frame to load (it's a `fint_frame_t*`)
 // but it's also rsp, which is more useful since the call to fsched_arm_timer() can overwrite rdi
 .text
-.global farch_sched_delayed_switch
-farch_sched_delayed_switch:
+.global _farch_sched_delayed_switch
+_farch_sched_delayed_switch:
 	// arm the timer
-	call fsched_arm_timer
+	call _fsched_arm_timer
 
 	//
 	// start loading registers
@@ -163,7 +163,7 @@ farch_sched_delayed_switch:
 
 	// load the right interrupt-disable count
 	mov FOFFSET_fint_frame_interrupt_disable(%rsp), %rdi
-	call farch_sched_set_interrupt_disable_count
+	call _farch_sched_set_interrupt_disable_count
 
 	// load general-purpose registers
 	mov FOFFSET_fint_frame_rax(%rsp), %rax
@@ -199,11 +199,11 @@ farch_sched_delayed_switch:
 //
 // arg 1 (rdi) is the new frame to load (it's a `fint_frame_t*`)
 .text
-.global farch_sched_bootstrap_switch
-farch_sched_bootstrap_switch:
+.global _farch_sched_bootstrap_switch
+_farch_sched_bootstrap_switch:
 	// arm the timer
 	pushq %rdi
-	call fsched_arm_timer
+	call _fsched_arm_timer
 	popq %rdi
 
 	//
@@ -213,7 +213,7 @@ farch_sched_bootstrap_switch:
 	// load the right interrupt-disable count
 	pushq %rdi
 	mov FOFFSET_fint_frame_interrupt_disable(%rdi), %rdi
-	call farch_sched_set_interrupt_disable_count
+	call _farch_sched_set_interrupt_disable_count
 	popq %rdi
 
 	// load general-purpose registers

@@ -19,6 +19,7 @@
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/userspace/processes.h>
 #include <ferro/core/paging.h>
+#include <libsimple/libsimple.h>
 
 ferr_t fsyscall_handler_page_allocate_any(uint64_t page_count, uint64_t flags, void* xout_address) {
 	ferr_t status = ferr_ok;
@@ -41,6 +42,9 @@ ferr_t fsyscall_handler_page_allocate_any(uint64_t page_count, uint64_t flags, v
 
 out:
 	if (status == ferr_ok) {
+		// TODO: make this more efficient by having the paging subsystem map pages to a permanently-zero page
+		// and reallocate them (if they're writable) upon a page fault
+		simple_memset(address, 0, FPAGE_PAGE_SIZE * page_count);
 		*out_address = address;
 	} else {
 		if (address) {

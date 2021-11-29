@@ -79,7 +79,7 @@ with io.open(OUTPUT_HANDLER_DECLARATIONS_PATH, 'w', newline='\n') as outfile:
 				else:
 					syscall_parameters += ', '
 
-				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type[param.type]}{" " + param.name if param.name else ""}'
+				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type(param.type)}{" " + param.name if param.name else ""}'
 
 		outfile.write(f'ferr_t fsyscall_handler_{syscall.name}({syscall_parameters});\n')
 
@@ -123,6 +123,15 @@ with io.open(OUTPUT_WRAPPERS_HEADER_PATH, 'w', newline='\n') as outfile:
 
 	outfile.write('FERRO_DECLARATIONS_BEGIN;\n\n')
 
+	for structure in syscalls_module.structures:
+		outfile.write(f'typedef struct {structure.name} {structure.name}_t;\n')
+
+	outfile.write('\n')
+
+	for structure in syscalls_module.structures:
+		members_string = ''.join([f'\t{syscalls_module.syscall_type_to_c_type(member.type)} {member.name};\n' for member in structure.members])
+		outfile.write(f'struct {structure.name} {{{members_string}}};\n\n')
+
 	for syscall in syscalls_module.syscalls:
 		syscall_parameters = 'void'
 
@@ -136,7 +145,7 @@ with io.open(OUTPUT_WRAPPERS_HEADER_PATH, 'w', newline='\n') as outfile:
 				else:
 					syscall_parameters += ', '
 
-				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type[param.type]}{" " + param.name if param.name else ""}'
+				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type(param.type)}{" " + param.name if param.name else ""}'
 
 		outfile.write(f'ferr_t libsyscall_wrapper_{syscall.name}({syscall_parameters});\n')
 
@@ -166,7 +175,7 @@ with io.open(OUTPUT_WRAPPERS_SOURCE_PATH, 'w', newline='\n') as outfile:
 
 				param_name = param.name if param.name else f'arg{index}'
 
-				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type[param.type]} {param_name}'
+				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type(param.type)} {param_name}'
 				syscall_arguments += f', {param_name}'
 
 				index += 1

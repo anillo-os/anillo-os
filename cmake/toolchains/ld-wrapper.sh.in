@@ -1,0 +1,4 @@
+#!/bin/sh
+
+export LD_DYLD_PATH=/sys/support/dymple
+@REAL_LD_PATH@ "$@"

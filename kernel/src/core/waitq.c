@@ -103,9 +103,13 @@ void fwaitq_wake_many(fwaitq_t* waitq, size_t count) {
 	fwaitq_unlock(waitq);
 };
 
-void fwaitq_wake_specific(fwaitq_t* waitq, fwaitq_waiter_t* waiter) {
+void fwaitq_unwait(fwaitq_t* waitq, fwaitq_waiter_t* waiter) {
 	fwaitq_lock(waitq);
 	fwaitq_remove_locked(waitq, waiter);
 	fwaitq_unlock(waitq);
+};
+
+void fwaitq_wake_specific(fwaitq_t* waitq, fwaitq_waiter_t* waiter) {
+	fwaitq_unwait(waitq, waiter);
 	waiter->wakeup(waiter->data);
 };

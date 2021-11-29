@@ -27,6 +27,8 @@
 
 #include <libsimple/ghmap.h>
 
+FERRO_DECLARATIONS_BEGIN;
+
 /**
  * An implementation of ::simple_ghmap_allocate_f using the memory pool subsystem.
  */
@@ -36,5 +38,7 @@ ferr_t simple_ghmap_allocate_mempool(void* context, size_t bytes, void** out_poi
  * An implementation of ::simple_ghmap_free_f using the memory pool subsystem.
  */
 void simple_ghmap_free_mempool(void* context, void* pointer, size_t bytes);
+
+FERRO_DECLARATIONS_END;
 
 #endif // _FERRO_CORE_GHMAP_H_

@@ -296,6 +296,12 @@ static uint64_t determine_lapic_frequency(void) {
 		// calculate the difference
 		delta = final_tsc - loop_initial_tsc;
 
+		if (delta == 0) {
+			// disregard as bogus
+			loop_initial_tsc = final_tsc;
+			continue;
+		}
+
 		// if it's lower than the minimum, it's the new minimum
 		if (delta < delta_min) {
 			delta_min = delta;
@@ -321,7 +327,7 @@ static uint64_t determine_lapic_frequency(void) {
 	// so our final poll results might be much larger than what they should be.
 	// discard the results.
 	if (loop_count < TSC_LOOP_MIN_COUNT) {
-		//fconsole_logf("LAPIC timer calibration failed; loop_count = %zu\n", loop_count);
+		fconsole_logf("LAPIC timer calibration failed; loop_count = %llu\n", loop_count);
 		return UINT64_MAX;
 	}
 
@@ -329,7 +335,7 @@ static uint64_t determine_lapic_frequency(void) {
 	// then someone interrupted us and our results may be way off (e.g. maybe we were interrupted on the very last iteration).
 	// discard the results.
 	if (delta_max > (TSC_MIN_DELTA_COEFFICIENT * delta_min)) {
-		//fconsole_logf("LAPIC timer calibration failed; delta_max = %zu, delta_min = %zu\n", delta_max, delta_min);
+		fconsole_logf("LAPIC timer calibration failed; delta_max = %llu, delta_min = %llu\n", delta_max, delta_min);
 		return UINT64_MAX;
 	}
 
@@ -606,7 +612,7 @@ void farch_apic_init(void) {
 		fconsole_logf("warning: couldn't determine LAPIC timer frequency; no LAPIC timer will be available\n");
 	} else {
 		FARCH_PER_CPU(lapic_frequency) = lapic_frequency;
-		fconsole_logf("info: LAPIC timer frequency is %luHz\n", lapic_frequency);
+		fconsole_logf("info: LAPIC timer frequency is %lluHz\n", lapic_frequency);
 
 		set_timer_mode(fapic_timer_mode_oneshot);
 

@@ -128,6 +128,12 @@ static uint64_t determine_tsc_frequency(void) {
 		// calculate the difference
 		delta = final_tsc - loop_initial_tsc;
 
+		if (delta == 0) {
+			// disregard as bogus
+			loop_initial_tsc = final_tsc;
+			continue;
+		}
+
 		// if it's lower than the minimum, it's the new minimum
 		if (delta < delta_min) {
 			delta_min = delta;
@@ -149,7 +155,7 @@ static uint64_t determine_tsc_frequency(void) {
 	// so our final poll results might be much larger than what they should be.
 	// discard the results.
 	if (loop_count < PIT_LOOP_MIN_COUNT) {
-		fconsole_logf("TSC calibration failed; loop_count = %zu\n", loop_count);
+		fconsole_logf("TSC calibration failed; loop_count = %llu\n", loop_count);
 		return UINT64_MAX;
 	}
 
@@ -157,7 +163,7 @@ static uint64_t determine_tsc_frequency(void) {
 	// then someone interrupted us and our results may be way off (e.g. maybe we were interrupted on the very last iteration).
 	// discard the results.
 	if (delta_max > (PIT_MIN_DELTA_COEFFICIENT * delta_min)) {
-		fconsole_logf("TSC calibration failed; delta_max = %zu, delta_min = %zu\n", delta_max, delta_min);
+		fconsole_logf("TSC calibration failed; delta_max = %llu, delta_min = %llu\n", delta_max, delta_min);
 		return UINT64_MAX;
 	}
 
@@ -179,6 +185,6 @@ void farch_tsc_init(void) {
 		fpanic("failed to calibrate TSC using PIT (reached max calibration attempts)");
 	}
 
-	fconsole_logf("Calculated TSC frequency: %zuHz\n", tsc_frequency);
+	fconsole_logf("Calculated TSC frequency: %lluHz\n", tsc_frequency);
 	FARCH_PER_CPU(tsc_frequency) = tsc_frequency;
 };

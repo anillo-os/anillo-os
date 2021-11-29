@@ -1,5 +1,9 @@
 cmake_minimum_required(VERSION 3.20)
 
+add_compile_options(
+	-ferror-limit=0
+)
+
 if (NOT DEFINED ANILLO_ARCH)
 	execute_process(
 		COMMAND uname -m
@@ -35,18 +39,20 @@ endif()
 
 project(anillo-os)
 
-include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_to_ramdisk.cmake)
-
-set(COMPILER_RT_FLAGS "-ffreestanding -D__ELF__=1")
-set(COMPILER_RT_LDFLAGS "-fuse-ld=lld -nostdlib -ffreestanding")
-
-if ("${ANILLO_ARCH}" STREQUAL "aarch64")
-	set(COMPILER_RT_LDFLAGS "${COMPILER_RT_LDFLAGS} -Wl,-m,aarch64linux")
-elseif ("${ANILLO_ARCH}" STREQUAL "x86_64")
-	set(COMPILER_RT_LDFLAGS "${COMPILER_RT_LDFLAGS} -Wl,-m,elf_x86_64")
+if (CMAKE_BUILD_TYPE STREQUAL "Debug")
+	add_compile_options(
+		-fno-omit-frame-pointer
+	)
 endif()
 
-find_program(LLVM_CONFIG_PATH llvm-config)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_to_ramdisk.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_dylib.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_executable.cmake)
+
+set(COMPILER_RT_FLAGS "-ffreestanding -U__APPLE__ -D__ANILLO__=1")
+set(COMPILER_RT_LDFLAGS "--ld-path=${LD_PATH} -Wl,-platform_version,macos,10.15,10.15 -nostdlib -ffreestanding")
+
+find_program(LLVM_CONFIG_PATH llvm-config REQUIRED)
 
 include(ExternalProject)
 
@@ -55,13 +61,13 @@ ExternalProject_Add(compiler-rt
 	BINARY_DIR "${CMAKE_BINARY_DIR}/anillo-compiler-rt"
 	CMAKE_ARGS
 		"-DCMAKE_AR=${CMAKE_AR}"
-		"-DCMAKE_ASM_COMPILER_TARGET=${ANILLO_ARCH}-unknown-none-elf"
+		"-DCMAKE_ASM_COMPILER_TARGET=${ANILLO_ARCH}-unknown-none-macho"
 		"-DCMAKE_ASM_FLAGS=${COMPILER_RT_FLAGS}"
 		"-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
-		"-DCMAKE_C_COMPILER_TARGET=${ANILLO_ARCH}-unknown-none-elf"
+		"-DCMAKE_C_COMPILER_TARGET=${ANILLO_ARCH}-unknown-none-macho"
 		"-DCMAKE_C_FLAGS=${COMPILER_RT_FLAGS}"
 		"-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-		"-DCMAKE_CXX_COMPILER_TARGET=${ANILLO_ARCH}-unknown-none-elf"
+		"-DCMAKE_CXX_COMPILER_TARGET=${ANILLO_ARCH}-unknown-none-macho"
 		"-DCMAKE_CXX_FLAGS=${COMPILER_RT_FLAGS}"
 		"-DCMAKE_EXE_LINKER_FLAGS=${COMPILER_RT_LDFLAGS}"
 		"-DCMAKE_NM=${CMAKE_NM}"
@@ -79,13 +85,15 @@ ExternalProject_Add(compiler-rt
 		"-DCMAKE_SIZEOF_VOID_P=${CMAKE_SIZEOF_VOID_P}"
 		"-DCMAKE_SYSTEM_NAME=${CMAKE_SYSTEM_NAME}"
 		-DLLVM_ENABLE_PER_TARGET_RUNTIME_DIR=1
+		-DCMAKE_CXX_COMPILER_FORCED=TRUE
+		-DCMAKE_C_COMPILER_FORCED=TRUE
 	INSTALL_COMMAND ""
-	BUILD_BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_ARCH}-unknown-none-elf/libclang_rt.builtins.a"
+	BUILD_BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_ARCH}-unknown-none-macho/libclang_rt.builtins.a"
 )
 
 add_library(compiler-rt-builtins STATIC IMPORTED GLOBAL)
 set_target_properties(compiler-rt-builtins PROPERTIES
-	IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_ARCH}-unknown-none-elf/libclang_rt.builtins.a"
+	IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_ARCH}-unknown-none-macho/libclang_rt.builtins.a"
 )
 add_dependencies(compiler-rt-builtins compiler-rt)
 
@@ -154,11 +162,12 @@ add_subdirectory(kernel)
 add_subdirectory(kernel/src/bootstrap/uefi)
 add_subdirectory(libsyscall)
 add_subdirectory(sysman)
-add_subdirectory(dylink)
+add_subdirectory(dymple)
 add_subdirectory(libc)
 add_subdirectory(libsys)
 add_subdirectory(libsimple)
 add_subdirectory(libelf)
+add_subdirectory(libmacho)
 
 add_custom_command(
 	OUTPUT

@@ -43,13 +43,32 @@ LIBSYS_WUR ferr_t sys_file_fd(sys_file_t* file, sys_fd_t* out_fd);
 LIBSYS_WUR ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file);
 LIBSYS_WUR ferr_t sys_file_open_special_fd(sys_file_special_id_t id, sys_fd_t* out_fd);
 
+LIBSYS_WUR ferr_t sys_file_open(const char* path, sys_file_t** out_file);
+LIBSYS_WUR ferr_t sys_file_open_fd(const char* path, sys_fd_t* out_fd);
+LIBSYS_WUR ferr_t sys_file_open_n(const char* path, size_t path_length, sys_file_t** out_file);
+LIBSYS_WUR ferr_t sys_file_open_fd_n(const char* path, size_t path_length, sys_fd_t* out_fd);
+
 LIBSYS_WUR ferr_t sys_file_close_fd(sys_fd_t fd);
 
 LIBSYS_WUR ferr_t sys_file_read(sys_file_t* file, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count);
 LIBSYS_WUR ferr_t sys_file_read_fd(sys_fd_t fd, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count);
 
+LIBSYS_WUR ferr_t sys_file_read_retry(sys_file_t* file, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count);
+LIBSYS_WUR ferr_t sys_file_read_retry_fd(sys_fd_t fd, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count);
+
 LIBSYS_WUR ferr_t sys_file_write(sys_file_t* file, uint64_t offset, size_t buffer_size, const void* buffer, size_t* out_written_count);
 LIBSYS_WUR ferr_t sys_file_write_fd(sys_fd_t fd, uint64_t offset, size_t buffer_size, const void* buffer, size_t* out_written_count);
+
+LIBSYS_WUR ferr_t sys_file_copy_path(sys_file_t* file, size_t buffer_size, void* out_buffer, size_t* out_actual_size);
+LIBSYS_WUR ferr_t sys_file_copy_path_fd(sys_fd_t fd, size_t buffer_size, void* out_buffer, size_t* out_actual_size);
+
+/**
+ * Like sys_file_copy_path(), but automatically allocates a buffer using the memory pool.
+ *
+ * Upon success, the caller owns the allocated string and must free it back into the memory pool once they're done using it.
+ */
+LIBSYS_WUR ferr_t sys_file_copy_path_allocate(sys_file_t* file, char** out_string, size_t* out_string_length);
+LIBSYS_WUR ferr_t sys_file_copy_path_allocate_fd(sys_fd_t fd, char** out_string, size_t* out_string_length);
 
 LIBSYS_DECLARATIONS_END;
 

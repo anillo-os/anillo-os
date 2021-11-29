@@ -55,7 +55,7 @@ futhread_data_t* futhread_data_for_thread(fthread_t* thread) {
 };
 
 void futhread_init(void) {
-	fpanic_status(simple_ghmap_init(&uthread_map, 0, sizeof(futhread_data_private_t), simple_ghmap_allocate_mempool, simple_ghmap_free_mempool, simple_ghmap_hash_thread, NULL));
+	fpanic_status(simple_ghmap_init(&uthread_map, 0, sizeof(futhread_data_private_t), simple_ghmap_allocate_mempool, simple_ghmap_free_mempool, simple_ghmap_hash_thread, NULL, NULL, NULL, NULL, NULL));
 
 	futhread_arch_init();
 };
@@ -125,7 +125,7 @@ retry_lookup:
 
 	flock_mutex_lock(&uthread_map_mutex);
 
-	if (simple_ghmap_lookup(&uthread_map, thread, 0, true, &created, (void*)&data) != ferr_ok) {
+	if (simple_ghmap_lookup(&uthread_map, thread, 0, true, SIZE_MAX, &created, (void*)&data, NULL) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out_locked;
 	}

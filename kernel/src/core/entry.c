@@ -89,11 +89,11 @@ FERRO_ALWAYS_INLINE void setup_page_tables(uint16_t* next_l2, void* image_base, 
 	void* virt_stack_bottom = NULL;
 
 	// we have to access the physical addresses directly here
-	fpage_table_t* const pt2          = (fpage_table_t*)(FERRO_KERNEL_VIRT_TO_PHYS(&page_table_level_2)          + image_base);
-	fpage_table_t* const pt2_identity = (fpage_table_t*)(FERRO_KERNEL_VIRT_TO_PHYS(&page_table_level_2_identity) + image_base);
-	fpage_table_t* const pt3          = (fpage_table_t*)(FERRO_KERNEL_VIRT_TO_PHYS(&page_table_level_3)          + image_base);
-	fpage_table_t* const pt3_identity = (fpage_table_t*)(FERRO_KERNEL_VIRT_TO_PHYS(&page_table_level_3_identity) + image_base);
-	fpage_table_t* const pt4          = (fpage_table_t*)(FERRO_KERNEL_VIRT_TO_PHYS(&page_table_level_4)          + image_base);
+	fpage_table_t* const pt2          = (fpage_table_t*)(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_2)          + image_base);
+	fpage_table_t* const pt2_identity = (fpage_table_t*)(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_2_identity) + image_base);
+	fpage_table_t* const pt3          = (fpage_table_t*)(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_3)          + image_base);
+	fpage_table_t* const pt3_identity = (fpage_table_t*)(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_3_identity) + image_base);
+	fpage_table_t* const pt4          = (fpage_table_t*)(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_4)          + image_base);
 	size_t next_l2_idx = 0;
 
 	// read the physical frame address
@@ -102,7 +102,7 @@ FERRO_ALWAYS_INLINE void setup_page_tables(uint16_t* next_l2, void* image_base, 
 
 	// set up 2MiB pages for the kernel image
 	for (char* ptr = (char*)FERRO_KERNEL_VIRTUAL_START; (uintptr_t)ptr < FERRO_KERNEL_VIRTUAL_START + image_size; ptr += FPAGE_LARGE_PAGE_SIZE) {
-		pt2->entries[next_l2_idx = FPAGE_VIRT_L2(ptr)] = fpage_large_page_entry(FERRO_KERNEL_VIRT_TO_PHYS(ptr) + (uintptr_t)image_base, true);
+		pt2->entries[next_l2_idx = FPAGE_VIRT_L2(ptr)] = fpage_large_page_entry(((uintptr_t)ptr - FERRO_KERNEL_VIRTUAL_START) + (uintptr_t)image_base, true);
 	}
 	++next_l2_idx; // assumes the kernel image will never occupy 1GiB
 
@@ -146,7 +146,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 	size_t memory_regions_array_size = memory_region_count * sizeof(ferro_memory_region_t);
 	uint16_t l2_idx = (*next_l2)++;
 
-	page_table_level_2.entries[l2_idx] = fpage_table_entry(FERRO_KERNEL_VIRT_TO_PHYS(&page_table_level_1) + (uintptr_t)image_base, true);
+	page_table_level_2.entries[l2_idx] = fpage_table_entry(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_1) + (uintptr_t)image_base, true);
 
 	// first, map the memory region array itself
 	// it's guaranteed to be allocated on a page boundary
@@ -412,7 +412,6 @@ static void ferro_entry_threaded(void* data) {
 	ferro_userspace_entry();
 };
 
-__attribute__((section(".text.ferro_entry")))
 void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count) {
 	uint16_t next_l2 = 0;
 	ferro_memory_region_t* memory_map = NULL;
@@ -449,7 +448,7 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 	setup_page_tables(&next_l2, image_base, image_size);
 
 	// finally, fully switch to the higher-half by jumping into the new virtual instruction pointer
-	fentry_jump_to_virtual(&&jump_here_for_virtual);
+	fentry_jump_to_virtual((void*)(FERRO_KERNEL_STATIC_TO_OFFSET(&&jump_here_for_virtual) + FERRO_KERNEL_VIRTUAL_START));
 jump_here_for_virtual:;
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64

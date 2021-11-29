@@ -24,8 +24,8 @@
 // arg 1 (rdi) is the new rip
 // arg 2 (rsi) is the new rsp
 .text
-.global farch_uthread_jump_user_frame
-farch_uthread_jump_user_frame:
+.global _farch_uthread_jump_user_frame
+_farch_uthread_jump_user_frame:
 	// no need to load the right interrupt-disable count since userspace can't disable interrupts
 	// (and it'll be reset to 1 on syscalls and interrupts)
 
@@ -66,8 +66,8 @@ farch_uthread_jump_user_frame:
 	sysretq
 
 .text
-.global farch_uthread_syscall_handler_wrapper
-farch_uthread_syscall_handler_wrapper:
+.global _farch_uthread_syscall_handler_wrapper
+_farch_uthread_syscall_handler_wrapper:
 	// we're exiting userspace, so do a swapgs for the kernel gs
 	swapgs
 
@@ -138,7 +138,7 @@ farch_uthread_syscall_handler_wrapper:
 	xor %r11d, %r11d
 
 	// call our C handler
-	call farch_uthread_syscall_handler
+	call _farch_uthread_syscall_handler
 
 	// okay, we're returning normally from the handler, so we need to head back into userspace
 

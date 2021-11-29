@@ -2,8 +2,6 @@ project(ferro C ASM)
 
 add_link_options(
 	-static
-	"-T${CMAKE_CURRENT_SOURCE_DIR}/scripts/kernel.lds"
-	-Wl,--whole-archive
 )
 
 add_compile_options(
@@ -42,10 +40,20 @@ target_link_libraries(ferro PUBLIC
 	ferro_ubsan
 	ferro_userspace
 	ferro_syscalls
+	compiler-rt-builtins
 )
 
-target_link_libraries(ferro PRIVATE
-	"-Wl,--no-whole-archive $<TARGET_FILE:compiler-rt-builtins> -Wl,--whole-archive"
+target_link_options(ferro PUBLIC
+	-Wl,-dead_strip
+	-Wl,-e,_ferro_entry
+	-Wl,-pagezero_size,0
+	-Wl,-image_base,0xffff800000000000
+	-Wl,-execute
 )
 
-add_dependencies(ferro compiler-rt-builtins)
+add_library(ferro_headers_base INTERFACE)
+target_include_directories(ferro_headers_base INTERFACE include)
+
+add_library(ferro_headers_uapi INTERFACE)
+target_include_directories(ferro_headers_uapi INTERFACE user-include)
+target_link_libraries(ferro_headers_uapi INTERFACE ferro_headers_base)

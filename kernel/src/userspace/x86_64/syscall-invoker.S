@@ -24,8 +24,8 @@
 // arg 1 (rdi) is the handler to invoke (void*)
 // arg 2 (rsi) is the saved userspace context (fthread_saved_context*)
 .text
-.global farch_syscall_handler_invoke
-farch_syscall_handler_invoke:
+.global _farch_syscall_handler_invoke
+_farch_syscall_handler_invoke:
 	// use r11 as a scratch register to store the handler address
 	mov %rdi, %r11
 

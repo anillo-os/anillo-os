@@ -46,10 +46,15 @@ FERRO_DECLARATIONS_BEGIN;
  * @{
  */
 
-#define FERRO_KERNEL_VIRTUAL_START  ((uintptr_t)&kernel_base_virtual)
-#define FERRO_KERNEL_PHYSICAL_START ((uintptr_t)&kernel_base_physical)
+#define FERRO_KERNEL_VIRTUAL_START  ((uintptr_t)0xffff800000000000)
 
-#define FERRO_KERNEL_VIRT_TO_PHYS(x) (((uintptr_t)x - FERRO_KERNEL_VIRTUAL_START))
+#define FERRO_KERNEL_IMAGE_BASE FERRO_KERNEL_VIRTUAL_START
+
+/**
+ * Used to translate addresses for static data (variables, functions, etc. compiled into the kernel image)
+ * into physical address offsets relative to the kernel's base address (which can be different at every load).
+ */
+#define FERRO_KERNEL_STATIC_TO_OFFSET(x) (((uintptr_t)x - FERRO_KERNEL_IMAGE_BASE))
 
 #define FERRO_PAGE_ALIGNED __attribute__((aligned(4096)))
 

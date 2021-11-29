@@ -32,7 +32,6 @@
 #include <ferro/base.h>
 #include <ferro/platform.h>
 #include <ferro/core/memory-regions.h>
-#include <ferro/elf.h>
 #include <ferro/core/framebuffer.h>
 #include <ferro/core/acpi.h>
 

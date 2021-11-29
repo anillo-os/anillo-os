@@ -90,6 +90,75 @@ LIBELF_PACKED_STRUCT(elf_section_header) {
 	uint64_t entry_size;
 };
 
+LIBELF_PACKED_STRUCT(elf_symbol) {
+	uint32_t name_offset;
+	uint8_t info;
+	uint8_t reserved;
+	uint16_t section_index;
+	uint64_t value;
+	uint64_t size;
+};
+
+LIBELF_PACKED_STRUCT(elf_relocation_short) {
+	uint64_t offset;
+#if ELF_ENDIANNESS == ELF_ENDIANNESS_BIG
+	uint32_t symbol_table_index;
+	uint32_t type;
+#else
+	uint32_t type;
+	uint32_t symbol_table_index;
+#endif
+};
+
+LIBELF_PACKED_STRUCT(elf_relocation_long) {
+	uint64_t offset;
+#if ELF_ENDIANNESS == ELF_ENDIANNESS_BIG
+	uint32_t symbol_table_index;
+	uint32_t type;
+#else
+	uint32_t type;
+	uint32_t symbol_table_index;
+#endif
+	int64_t addend;
+};
+
+LIBELF_PACKED_STRUCT(elf_dynamic_table_entry) {
+	uint64_t type;
+	uint64_t value;
+};
+
+LIBELF_PACKED_STRUCT(elf_hash_table) {
+	uint32_t bucket_count;
+	uint32_t chain_count;
+	/**
+	 * Consists of something like the following:
+	 * ```c
+	 * uint32_t buckets[bucket_count];
+	 * uint32_t chain[chain_count];
+	 * ```
+	 * Each bucket has a index into the chain array.
+	 * Each chain entry is an index into both the symbol table and the next entry in the chain.
+	 */
+	char data[];
+};
+
+LIBELF_PACKED_STRUCT(elf_gnu_hash_table) {
+	uint32_t bucket_count;
+	uint32_t symbol_table_start_offset;
+	uint32_t bloom_count;
+	uint32_t bloom_shift;
+	/**
+	 * Consists of something like the following:
+	 * ```c
+	 * uint64_t bloom[bloom_count];
+	 * uint32_t buckets[bucket_count];
+	 * uint32_t chain[];
+	 * ```
+	 * TODO: explain this.
+	 */
+	char data[];
+};
+
 // the magic value as an integer is endian-dependent
 #if ELF_ENDIANNESS == ELF_ENDIANNESS_BIG
 	#define ELF_MAGIC 0x7f454c46
@@ -226,6 +295,99 @@ LIBELF_ENUM(uint32_t, elf_program_header_flags) {
 	elf_program_header_flag_execute = 1 << 0,
 	elf_program_header_flag_write   = 1 << 1,
 	elf_program_header_flag_read    = 1 << 2,
+};
+
+LIBELF_ENUM(uint8_t, elf_symbol_binding) {
+	elf_symbol_binding_local  = 0,
+	elf_symbol_binding_global = 1,
+	elf_symbol_binding_weak   = 2,
+};
+
+LIBELF_ENUM(uint8_t, elf_symbol_type) {
+	elf_symbol_type_none     = 0,
+	elf_symbol_type_object   = 1,
+	elf_symbol_type_function = 2,
+	elf_symbol_type_section  = 3,
+	elf_symbol_type_file     = 4,
+};
+
+LIBELF_ENUM(uint64_t, elf_dynamic_table_entry_type) {
+	elf_dynamic_table_entry_type_null                           = 0,
+	elf_dynamic_table_entry_type_needed_library                 = 1,
+	elf_dynamic_table_entry_type_plt_rel_entry_size             = 2,
+	elf_dynamic_table_entry_type_plt_got_address                = 3,
+	elf_dynamic_table_entry_type_hash_table_address             = 4,
+	elf_dynamic_table_entry_type_string_table_address           = 5,
+	elf_dynamic_table_entry_type_symbol_table_address           = 6,
+	elf_dynamic_table_entry_type_long_relocation_table_address  = 7,
+	elf_dynamic_table_entry_type_long_relocation_table_size     = 8,
+	elf_dynamic_table_entry_type_long_relocation_entry_size     = 9,
+	elf_dynamic_table_entry_type_string_table_size              = 10,
+	elf_dynamic_table_entry_type_symbol_entry_size              = 11,
+	elf_dynamic_table_entry_type_init_address                   = 12,
+	elf_dynamic_table_entry_type_fini_address                   = 13,
+	elf_dynamic_table_entry_type_soname_offset                  = 14,
+	elf_dynamic_table_entry_type_rpath_offset                   = 15,
+	elf_dynamic_table_entry_type_symbolic                       = 16,
+	elf_dynamic_table_entry_type_short_relocation_table_address = 17,
+	elf_dynamic_table_entry_type_short_relocation_table_size    = 18,
+	elf_dynamic_table_entry_type_short_relocation_entry_size    = 19,
+	elf_dynamic_table_entry_type_plt_relocation_table_type      = 20,
+	elf_dynamic_table_entry_type_debug                          = 21,
+	elf_dynamic_table_entry_type_text_relocation                = 22,
+	elf_dynamic_table_entry_type_plt_relocation_table_address   = 23,
+	elf_dynamic_table_entry_type_bind_now                       = 24,
+	elf_dynamic_table_entry_type_init_array                     = 25,
+	elf_dynamic_table_entry_type_fini_array                     = 26,
+	elf_dynamic_table_entry_type_init_array_size                = 27,
+	elf_dynamic_table_entry_type_fini_array_size                = 28,
+	elf_dynamic_table_entry_type_gnu_hash_table_address         = 0x6ffffef5,
+};
+
+// TODO: make these names a bit clearer after figuring out what each one is used for
+LIBELF_ENUM(uint32_t, elf_relocation_type_x86_64) {
+	elf_relocation_type_x86_64_none            = 0,
+	elf_relocation_type_x86_64_64              = 1,
+	elf_relocation_type_x86_64_pc32            = 2,
+	elf_relocation_type_x86_64_got32           = 3,
+	elf_relocation_type_x86_64_plt32           = 4,
+	elf_relocation_type_x86_64_copy            = 5,
+	elf_relocation_type_x86_64_glob_dat        = 6,
+	elf_relocation_type_x86_64_jump_slot       = 7,
+	elf_relocation_type_x86_64_relative        = 8,
+	elf_relocation_type_x86_64_gotpcrel        = 9,
+	elf_relocation_type_x86_64_32              = 10,
+	elf_relocation_type_x86_64_32s             = 11,
+	elf_relocation_type_x86_64_16              = 12,
+	elf_relocation_type_x86_64_pc16            = 13,
+	elf_relocation_type_x86_64_8               = 14,
+	elf_relocation_type_x86_64_pc8             = 15,
+	elf_relocation_type_x86_64_dtpmod64        = 16,
+	elf_relocation_type_x86_64_dtpoff64        = 17,
+	elf_relocation_type_x86_64_tpoff64         = 18,
+	elf_relocation_type_x86_64_tlsgd           = 19,
+	elf_relocation_type_x86_64_tlsld           = 20,
+	elf_relocation_type_x86_64_dtpoff32        = 21,
+	elf_relocation_type_x86_64_gottpoff        = 22,
+	elf_relocation_type_x86_64_tpoff32         = 23,
+	elf_relocation_type_x86_64_pc64            = 24,
+	elf_relocation_type_x86_64_gotoff64        = 25,
+	elf_relocation_type_x86_64_gotpc32         = 26,
+	elf_relocation_type_x86_64_got64           = 27,
+	elf_relocation_type_x86_64_gotpcrel64      = 28,
+	elf_relocation_type_x86_64_gotpc64         = 29,
+
+	elf_relocation_type_x86_64_pltoff64        = 31,
+	elf_relocation_type_x86_64_size32          = 32,
+	elf_relocation_type_x86_64_size64          = 33,
+	elf_relocation_type_x86_64_gotpc32_tlsdesc = 34,
+	elf_relocation_type_x86_64_tlsdesc_call    = 35,
+	elf_relocation_type_x86_64_tlsdesc         = 36,
+	elf_relocation_type_x86_64_irelative       = 37,
+	elf_relocation_type_x86_64_relative64      = 38,
+
+	elf_relocation_type_x86_64_gotpcrelx       = 41,
+	elf_relocation_type_x86_64_rex_gotpcrelx   = 42,
 };
 
 /**

@@ -16,15 +16,9 @@ add_link_options(
 	-Wl,-subsystem:efi_application
 )
 
-# remove a troublesome linker flag
-#
-# it's easier to just remove it here for the UEFI target rather than removing it from the toolchain file
-# because then we'd have to manually add it to all other targets
-if ("${ANILLO_ARCH}" STREQUAL "aarch64")
-	string(REPLACE "-Wl,-m,aarch64linux" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
-elseif ("${ANILLO_ARCH}" STREQUAL "x86_64")
-	string(REPLACE "-Wl,-m,elf_x86_64" "" CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS}")
-endif()
+find_program(LLD_PATH lld-link REQUIRED)
+
+set(CMAKE_EXE_LINKER_FLAGS "-fuse-ld=lld --ld-path=${LLD_PATH}")
 
 include_directories(
 	../../../include
@@ -41,7 +35,11 @@ add_executable(uefi-bootstrap
 )
 
 target_compile_definitions(uefi-bootstrap PRIVATE
-	LIBSIMPLE_COMPAT=1
+	LIBSIMPLE_UEFI_COMPAT=1
+)
+
+target_link_libraries(uefi-bootstrap PUBLIC
+	libmacho
 )
 
 set_target_properties(uefi-bootstrap PROPERTIES

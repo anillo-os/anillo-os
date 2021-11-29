@@ -112,6 +112,21 @@ FERRO_STRUCT(fproc) {
 	 * A mutex that protects #descriptor_table, #next_lowest_fd, and #highest_fd.
 	 */
 	flock_mutex_t descriptor_table_mutex;
+
+	/**
+	 * Waiters here are notified right before process resources are released, so any leaked file descriptors and memory
+	 * are still available when waiters are notified.
+	 */
+	fwaitq_t death_wait;
+
+	/**
+	 * Waiters here are notified right before the process structure is released, so the pointer is still valid.
+	 * However, by this point, most of the resources have already been released.
+	 */
+	fwaitq_t destroy_wait;
+
+	simple_ghmap_t per_proc;
+	flock_mutex_t per_proc_mutex;
 };
 
 /**
@@ -258,6 +273,13 @@ ferr_t fproc_unregister_mapping(fproc_t* process, void* address, size_t* out_pag
  * @retval ferr_forbidden        Looking up the mapping in the given process was not allowed.
  */
 ferr_t fproc_lookup_mapping(fproc_t* process, void* address, size_t* out_page_count);
+
+typedef uint64_t fper_proc_key_t;
+typedef void (*fper_proc_data_destructor_f)(void* context, void* data, size_t data_size);
+
+FERRO_WUR ferr_t fper_proc_register(fper_proc_key_t* out_key);
+FERRO_WUR ferr_t fper_proc_lookup(fproc_t* process, fper_proc_key_t key, bool create_if_absent, size_t size_if_absent, fper_proc_data_destructor_f destructor_if_absent, void* destructor_context, bool* out_created, void** out_pointer, size_t* out_size);
+FERRO_WUR ferr_t fper_proc_clear(fproc_t* process, fper_proc_key_t key, bool skip_previous_destructor);
 
 FERRO_DECLARATIONS_END;
 

@@ -33,8 +33,8 @@
 
 .macro wrapper func, has_code
 	.text
-	.global farch_int_wrapper_\()\func
-	farch_int_wrapper_\()\func\():
+	.global _farch_int_wrapper_\()\func
+	_farch_int_wrapper_\()\func\():
 		# check if we need to perform a swapgs
 		.if \has_code == 0
 			cmpq FERRO_GDT_OFFSET_KERNEL_CS, FOFFSET_farch_int_frame_core_cs(%rsp)
@@ -77,7 +77,7 @@
 		.endif
 
 		mov %rsp, %rdi
-		call farch_int_\()\func\()_handler
+		call _farch_int_\()\func\()_handler
 
 		mov FOFFSET_fint_frame_rax(%rsp), %rax
 		mov FOFFSET_fint_frame_rcx(%rsp), %rcx

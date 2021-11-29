@@ -26,10 +26,12 @@
 #include <libsys/files.h>
 #include <libsys/format.h>
 #include <libsys/general.h>
+#include <libsys/ghmap.h>
 #include <libsys/locks.h>
 #include <libsys/mempool.h>
 #include <libsys/objects.h>
 #include <libsys/pages.h>
+#include <libsys/paths.h>
 #include <libsys/streams.h>
 
 #endif // _LIBSYS_LIBSYS_H_

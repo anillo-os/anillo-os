@@ -11,11 +11,6 @@ add_library(libsyscall STATIC
 	"${CMAKE_BINARY_DIR}/src/gen/libsyscall/syscall-wrappers.c"
 )
 
-target_include_directories(libsyscall PUBLIC
-	"${CMAKE_CURRENT_SOURCE_DIR}/../kernel/include"
-	"${CMAKE_CURRENT_SOURCE_DIR}/../kernel/user-include"
-)
-
 set_target_properties(libsyscall PROPERTIES
 	OUTPUT_NAME syscall
 )
@@ -23,3 +18,5 @@ set_target_properties(libsyscall PROPERTIES
 add_dependencies(libsyscall
 	generate_syscalls
 )
+
+target_link_libraries(libsyscall PUBLIC ferro_headers_uapi)
