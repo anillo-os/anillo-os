@@ -40,14 +40,14 @@
 .macro ivt_block prefix
 	.irp type, sync, irq, fiq, serror
 		.balign 0x80
-			b \prefix\()_\type
+			b _\()\prefix\()_\type
 	.endr
 .endm
 
 .macro loop_handlers prefix
 	.irp type, sync, irq, fiq, serror
 		.text
-		\prefix\()_\type\():
+		_\()\prefix\()_\type\():
 			b .
 	.endr
 .endm
@@ -55,7 +55,7 @@
 // most of the handler stub code is based on https://krinkinmu.github.io/2021/01/10/aarch64-interrupt-handling.html
 .macro handler_stub prefix, type, c_func_name
 	.text
-	\prefix\()_\type\():
+	_\()\prefix\()_\type\():
 		// we should already be using the exception stack right here
 
 		// allocate the stack space we need
@@ -99,7 +99,7 @@
 		// move a pointer to the structure (the stack pointer) into the first argument register
 		// and then call the function
 		mov x0, sp
-		bl \c_func_name
+		bl _\()\c_func_name
 
 		//
 		// great, now let's load stuff
@@ -151,9 +151,9 @@
 .endr
 
 .text
-.global fint_ivt
+.global _fint_ivt
 .balign 0x800
-fint_ivt:
+_fint_ivt:
 	ivt_block current_with_sp0
 	ivt_block current_with_spx
 	ivt_block lower_with_aarch64

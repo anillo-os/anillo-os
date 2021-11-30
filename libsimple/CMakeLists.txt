@@ -23,6 +23,7 @@ add_library(libsimple_static_compat INTERFACE)
 target_link_options(libsimple_static_compat INTERFACE
 	-Wl,-alias,_simple_memset,_memset
 	-Wl,-alias,_simple_memcpy,_memcpy
+	-Wl,-alias,_simple_bzero,_bzero
 )
 
 target_link_libraries(libsimple PRIVATE

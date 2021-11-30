@@ -82,7 +82,7 @@ if args.arch == 'aarch64':
 		'-blockdev', f'{{"node-name":"anillo-pflash0-format","read-only":true,"driver":"raw","file":"anillo-pflash0-storage"}}',
 		'-blockdev', f'{{"driver":"file","filename":"{efi_vars_path}","node-name":"anillo-pflash1-storage","auto-read-only":true,"discard":"unmap"}}',
 		'-blockdev', '{"node-name":"anillo-pflash1-format","read-only":false,"driver":"raw","file":"anillo-pflash1-storage"}',
-		'-machine', 'virt-4.2,accel=tcg,usb=off,dump-guest-core=off,gic-version=2,pflash0=anillo-pflash0-format,pflash1=anillo-pflash1-format',
+		'-machine', 'virt-4.2,accel=tcg,usb=off,gic-version=2,pflash0=anillo-pflash0-format,pflash1=anillo-pflash1-format',
 
 		'-cpu', 'cortex-a57',
 
@@ -114,9 +114,9 @@ if args.arch == 'aarch64':
 
 		'-device', 'virtio-serial-pci,id=virtio-serial0,bus=pci.3,addr=0x0',
 
-		'-blockdev', f'{{"driver":"file","filename":"{disk_path}","node-name":"anillo-1-storage","auto-read-only":true,"discard":"unmap"}}'
+		'-blockdev', f'{{"driver":"file","filename":"{disk_path}","node-name":"anillo-1-storage","auto-read-only":true,"discard":"unmap"}}',
 		'-blockdev', '{"node-name":"anillo-1-format","read-only":false,"driver":"raw","file":"anillo-1-storage"}',
-		'-device', 'virtio-blk-pci,scsi=off,bus=pci.4,addr=0x0,drive=anillo-1-format,id=virtio-disk0,bootindex=1',
+		'-device', 'virtio-blk-pci,bus=pci.4,addr=0x0,drive=anillo-1-format,id=virtio-disk0,bootindex=1',
 
 		'-chardev', f'socket,id=charchannel0,server=on,wait=off,path={os.path.join(args.build_dir, "serial")}',
 		'-device', 'virtserialport,bus=virtio-serial0.0,nr=1,chardev=charchannel0,id=channel0,name=org.qemu.guest_agent.0',
@@ -181,7 +181,7 @@ if not os.path.exists(efi_vars_path):
 # build the OS if we were told to
 if args.build:
 	if not os.path.exists(os.path.join(args.build_dir, 'CMakeCache.txt')):
-		anillo_util.run_or_fail(['cmake', '-B', args.build_dir, '-S', SOURCE_ROOT], cwd=args.build_dir)
+		anillo_util.run_or_fail(['cmake', '-B', args.build_dir, '-S', SOURCE_ROOT, '-DCMAKE_BUILD_TYPE=Debug', '-DCMAKE_EXPORT_COMPILE_COMMANDS=1', f'-DANILLO_ARCH={args.arch}'], cwd=args.build_dir)
 	anillo_util.run_or_fail(['cmake', '--build', args.build_dir], cwd=args.build_dir)
 
 subprocess.run([f'qemu-system-{args.arch}'] + qemu_args, cwd=args.build_dir)

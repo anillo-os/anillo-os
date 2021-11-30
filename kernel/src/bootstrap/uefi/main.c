@@ -334,7 +334,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 			if (read_at(kernel_file, kernel_file_offset + (4 * sizeof(uint32_t)) + (16 * sizeof(uint64_t)), &entry_address, sizeof(entry_address)) != 0) {
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
-			#error TODO
+			if (read_at(kernel_file, kernel_file_offset + (4 * sizeof(uint32_t)) + (32 * sizeof(uint64_t)), &entry_address, sizeof(entry_address))) {
 #else
 			#error Unimplemented on this architecture
 #endif

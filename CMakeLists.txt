@@ -61,13 +61,13 @@ ExternalProject_Add(compiler-rt
 	BINARY_DIR "${CMAKE_BINARY_DIR}/anillo-compiler-rt"
 	CMAKE_ARGS
 		"-DCMAKE_AR=${CMAKE_AR}"
-		"-DCMAKE_ASM_COMPILER_TARGET=${ANILLO_ARCH}-unknown-none-macho"
+		"-DCMAKE_ASM_COMPILER_TARGET=${ANILLO_TARGET_TRIPLE}"
 		"-DCMAKE_ASM_FLAGS=${COMPILER_RT_FLAGS}"
 		"-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
-		"-DCMAKE_C_COMPILER_TARGET=${ANILLO_ARCH}-unknown-none-macho"
+		"-DCMAKE_C_COMPILER_TARGET=${ANILLO_TARGET_TRIPLE}"
 		"-DCMAKE_C_FLAGS=${COMPILER_RT_FLAGS}"
 		"-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-		"-DCMAKE_CXX_COMPILER_TARGET=${ANILLO_ARCH}-unknown-none-macho"
+		"-DCMAKE_CXX_COMPILER_TARGET=${ANILLO_TARGET_TRIPLE}"
 		"-DCMAKE_CXX_FLAGS=${COMPILER_RT_FLAGS}"
 		"-DCMAKE_EXE_LINKER_FLAGS=${COMPILER_RT_LDFLAGS}"
 		"-DCMAKE_NM=${CMAKE_NM}"
@@ -88,12 +88,12 @@ ExternalProject_Add(compiler-rt
 		-DCMAKE_CXX_COMPILER_FORCED=TRUE
 		-DCMAKE_C_COMPILER_FORCED=TRUE
 	INSTALL_COMMAND ""
-	BUILD_BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_ARCH}-unknown-none-macho/libclang_rt.builtins.a"
+	BUILD_BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_TARGET_TRIPLE}/libclang_rt.builtins.a"
 )
 
 add_library(compiler-rt-builtins STATIC IMPORTED GLOBAL)
 set_target_properties(compiler-rt-builtins PROPERTIES
-	IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_ARCH}-unknown-none-macho/libclang_rt.builtins.a"
+	IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_TARGET_TRIPLE}/libclang_rt.builtins.a"
 )
 add_dependencies(compiler-rt-builtins compiler-rt)
 

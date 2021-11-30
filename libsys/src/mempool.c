@@ -48,6 +48,8 @@
 #define LACKS_SCHED_H     1
 #define LACKS_TIME_H      1
 
+#define ffs __builtin_ffs
+
 #define USE_LOCKS 0
 
 #define MMAP(_size) sys_mempool_mmap(_size)

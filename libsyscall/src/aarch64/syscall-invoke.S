@@ -20,4 +20,4 @@
 .global _libsyscall_invoke
 _libsyscall_invoke:
 	# TODO
-	ret
+	udf #0

@@ -16,7 +16,7 @@ add_executable(dymple
 	src/loader/log.c
 	src/loader/relocations.c
 	src/loader/resolution.c
-	src/loader/stub-binder.S
+	src/loader/${ANILLO_ARCH}/stub-binder.S
 )
 
 target_include_directories(dymple PRIVATE
@@ -40,7 +40,7 @@ add_anillo_dylib(libdymple
 	RAMDISK
 	INSTALL_PATH /sys/lib/libdymple.dylib
 	SOURCES
-		src/stub/stubs.S
+		src/stub/${ANILLO_ARCH}/stubs.S
 		"${CMAKE_SOURCE_DIR}/cmake/dummy.c"
 )
 
@@ -49,6 +49,7 @@ target_link_libraries(libdymple INTERFACE libsys_headers)
 
 target_compile_options(dymple PRIVATE
 	-fPIC
+	-fno-stack-protector
 )
 
 target_link_options(dymple PRIVATE

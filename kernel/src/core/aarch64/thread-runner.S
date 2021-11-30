@@ -23,8 +23,8 @@
  */
 
 .text
-.global farch_threads_runner
-farch_threads_runner:
+.global _farch_threads_runner
+_farch_threads_runner:
 	// x0 holds the user data for the initializer
 	// x19 holds the initializer
 
@@ -32,5 +32,5 @@ farch_threads_runner:
 	blr x19
 
 	// time to die
-	b fthread_kill_self
+	b _fthread_kill_self
 	udf #0 // this function should never return

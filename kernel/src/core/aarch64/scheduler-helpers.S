@@ -32,8 +32,8 @@
 // arg 1 (x0) is a `fthread_saved_context_t*` (which may be NULL)
 // arg 2 (x1) is a `fthread_saved_context_t*`
 .text
-.global farch_sched_immediate_switch
-farch_sched_immediate_switch:
+.global _farch_sched_immediate_switch
+_farch_sched_immediate_switch:
 	cbz x0, 0f
 
 	// save general-purpose registers
@@ -69,7 +69,7 @@ farch_sched_immediate_switch:
 
 	// on AARCH64, we can now perform the exact same steps as a delayed switch, so just branch to it
 	mov x0, x1
-	b farch_sched_delayed_switch
+	b _farch_sched_delayed_switch
 
 	// this is where we come when we are re-entered; we can just return to the caller now
 	1:
@@ -77,17 +77,17 @@ farch_sched_immediate_switch:
 
 // arg 1 (x0) is a `fthread_saved_context_t*`
 .text
-.global farch_sched_delayed_switch
-farch_sched_delayed_switch:
+.global _farch_sched_delayed_switch
+_farch_sched_delayed_switch:
 	// move the context pointer from x0 to x19
 	mov x19, x0
 
 	// arm the timer
-	bl fsched_arm_timer
+	bl _fsched_arm_timer
 
 	// load the right interrupt-disable count
 	ldr x0, [x19, MAKE_IMMEDIATE(FOFFSET_fthread_saved_context_interrupt_disable)]
-	bl farch_sched_set_interrupt_disable_count
+	bl _farch_sched_set_interrupt_disable_count
 
 	// load the return address into the ELR
 	ldr x0, [x19, MAKE_IMMEDIATE(FOFFSET_fthread_saved_context_pc)]
@@ -127,8 +127,8 @@ farch_sched_delayed_switch:
 
 // arg 1 (x0) is a `fthread_saved_context_t*`
 .text
-.global farch_sched_bootstrap_switch
-farch_sched_bootstrap_switch:
+.global _farch_sched_bootstrap_switch
+_farch_sched_bootstrap_switch:
 	// we can actually just perform a delayed switch.
 	// on AARCH64, a bootstrap switch and a delayed switch are exactly the same.
-	b farch_sched_delayed_switch
+	b _farch_sched_delayed_switch

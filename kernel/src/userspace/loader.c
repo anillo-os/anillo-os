@@ -451,12 +451,12 @@ ferr_t fuloader_load_file(fvfs_descriptor_t* file_descriptor, fpage_space_t* spa
 				goto out;
 			}
 
+#if FERRO_ARCH == FERRO_ARCH_x86_64
 			// 4 * sizeof(uint32_t) for the command type, command size, flavor, and count fields
 			// 16 * sizeof(uint64_t) because `rip` is the 16th entry in the array
-#if FERRO_ARCH == FERRO_ARCH_x86_64
 			status = fuloader_read_file(file_to_load, file_offset + (4 * sizeof(uint32_t)) + (16 * sizeof(uint64_t)), &entry_address, sizeof(entry_address));
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
-			#error TODO
+			status = fuloader_read_file(file_to_load, file_offset + (4 * sizeof(uint32_t)) + (32 * sizeof(uint64_t)), &entry_address, sizeof(entry_address));
 #else
 			#error Unimplemented on this architecture
 #endif

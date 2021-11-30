@@ -279,3 +279,7 @@ char* simple_strnpbrk(const char* haystack, const char* needle, size_t length) {
 
 	return NULL;
 };
+
+void simple_bzero(void* buffer, size_t count) {
+	simple_memset(buffer, 0, count);
+};
