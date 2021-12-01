@@ -1,2 +1,4 @@
 _sys_*
 dyld_stub_binder
+___stack_chk_fail
+___stack_chk_guard

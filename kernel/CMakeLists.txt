@@ -2,6 +2,7 @@ project(ferro C ASM)
 
 add_link_options(
 	-static
+	-pie
 )
 
 add_compile_options(

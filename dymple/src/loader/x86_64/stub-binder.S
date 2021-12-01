@@ -76,3 +76,12 @@ _dymple_bind_stub_raw:
 	// now the only thing on the stack should be the return address,
 	// which is for the function we're about to jump to
 	jmp *%r11
+
+.global ___stack_chk_fail
+___stack_chk_fail:
+	ud2
+
+.data
+.global ___stack_chk_guard
+___stack_chk_guard:
+	.long 0
