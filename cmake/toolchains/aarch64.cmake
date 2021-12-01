@@ -41,7 +41,7 @@ set(ANILLO_TARGET_TRIPLE aarch64-unknown-darwin-macho)
 # TODO: get rid of `-mno-implicit-float`
 set(CMAKE_C_FLAGS "-ffreestanding -mno-implicit-float -nostdlib -target ${ANILLO_TARGET_TRIPLE} -U__APPLE__ -D__ANILLO__=1 -mmacosx-version-min=10.15" CACHE INTERNAL "")
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS}" CACHE INTERNAL "")
-set(CMAKE_ASM_FLAGS "-nostdlib -target ${ANILLO_TARGET_TRIPLE}" CACHE INTERNAL "")
+set(CMAKE_ASM_FLAGS "-nostdlib -target ${ANILLO_TARGET_TRIPLE} -mmacosx-version-min=10.15" CACHE INTERNAL "")
 
 set(CMAKE_C_FLAGS_DEBUG "-Og -g3 -gfull" CACHE INTERNAL "")
 set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG=1" CACHE INTERNAL "")
