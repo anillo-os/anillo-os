@@ -77,6 +77,16 @@ FERRO_ENUM(uint8_t, fint_special_interrupt_common) {
 	fint_special_interrupt_common_watchpoint,
 
 	/**
+	 * Triggered when an invalid page is accessed.
+	 */
+	fint_special_interrupt_page_fault,
+
+	/**
+	 * Triggered when an attempt is made to execute an invalid instruction.
+	 */
+	fint_special_interrupt_invalid_instruction,
+
+	/**
 	 * Not a special interrupt number; only used as the last member of the enum.
 	 */
 	fint_special_interrupt_common_LAST,

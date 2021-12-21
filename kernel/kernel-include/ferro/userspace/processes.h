@@ -26,6 +26,7 @@
 #include <ferro/core/paging.h>
 #include <ferro/userspace/loader.h>
 #include <ferro/core/ghmap.h>
+#include <ferro/core/paging.private.h>
 
 FERRO_DECLARATIONS_BEGIN;
 

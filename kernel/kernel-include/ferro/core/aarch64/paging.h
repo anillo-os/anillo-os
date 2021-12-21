@@ -172,7 +172,4 @@ FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_privileged(uint64_t entry, bool pr
 
 FERRO_DECLARATIONS_END;
 
-#define USE_GENERIC_FPAGE_INVALIDATE_TLB_FOR_RANGE 1
-#include <ferro/core/generic/paging.h>
-
 #endif // _FERRO_CORE_AARCH64_PAGING_H_

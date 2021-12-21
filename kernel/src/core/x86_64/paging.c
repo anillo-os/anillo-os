@@ -22,7 +22,7 @@
  * x86_64-specific paging function implementations.
  */
 
-#include <ferro/core/x86_64/paging.h>
+#include <ferro/core/x86_64/paging.private.h>
 
 uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
 	size_t l4_index = FPAGE_VIRT_L4(virtual_address);

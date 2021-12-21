@@ -22,13 +22,14 @@
  * Physical and virtual memory allocation.
  */
 
-#include <ferro/core/paging.h>
+#include <ferro/core/paging.private.h>
 #include <ferro/core/locks.h>
 #include <ferro/bits.h>
 #include <ferro/core/panic.h>
 #include <libsimple/libsimple.h>
 #include <ferro/core/mempool.h>
 #include <stdatomic.h>
+#include <ferro/core/interrupts.h>
 
 // magic value used to identify pages that need to mapped on-demand
 #define ON_DEMAND_MAGIC (0xdeadfeedf00dULL << FPAGE_VIRT_L1_SHIFT)
@@ -89,14 +90,22 @@ static fpage_table_t offset_table = {0};
 static uint16_t root_offset_index = TABLE_ENTRY_COUNT - 2;
 #endif
 
-static fpage_region_header_t* kernel_virtual_regions_head = NULL;
-
-// at the moment, we never modify the virtual regions head. however, in the future, we may want to, so this is necessary.
-static flock_spin_intsafe_t kernel_virtual_regions_head_lock = FLOCK_SPIN_INTSAFE_INIT;
-
 // TODO: this is not appropriate at all for a multi-core situation
 static fpage_space_t* current_address_space = NULL;
 static flock_spin_intsafe_t current_address_space_lock = FLOCK_SPIN_INTSAFE_INIT;
+
+static fpage_table_t kernel_address_space_root_table = {0};
+static fpage_space_t kernel_address_space = {
+	.l4_table = &kernel_address_space_root_table,
+	.head = NULL,
+	.regions_head_lock = FLOCK_SPIN_INTSAFE_INIT,
+	.regions_head = NULL,
+	.active = true,
+	.allocation_lock = FLOCK_SPIN_INTSAFE_INIT,
+	.space_destruction_waiters = FWAITQ_INIT,
+};
+
+static void page_fault_handler(void* context);
 
 uintptr_t fpage_virtual_address_for_table(size_t levels, uint16_t l4_index, uint16_t l3_index, uint16_t l2_index) {
 	if (levels == 0) {
@@ -686,124 +695,6 @@ static void break_entry(size_t levels, size_t l4_index, size_t l3_index, size_t 
 };
 
 // NOTE: this function ***WILL*** overwrite existing entries!
-static void map_frame_fixed(void* phys_frame, void* virt_frame, size_t page_count, fpage_flags_t flags) {
-	uintptr_t physical_frame = (uintptr_t)phys_frame;
-	uintptr_t virtual_frame = (uintptr_t)virt_frame;
-	bool no_cache = (flags & fpage_flag_no_cache) != 0;
-	bool unprivileged = (flags & fpage_flag_unprivileged) != 0;
-
-	while (page_count > 0) {
-		size_t l4_index = FPAGE_VIRT_L4(virtual_frame);
-		size_t l3_index = FPAGE_VIRT_L3(virtual_frame);
-		size_t l2_index = FPAGE_VIRT_L2(virtual_frame);
-		size_t l1_index = FPAGE_VIRT_L1(virtual_frame);
-
-		fpage_table_t* l4 = (fpage_table_t*)fpage_virtual_address_for_table(0, 0, 0, 0);
-		fpage_table_t* l3 = (fpage_table_t*)fpage_virtual_address_for_table(1, l4_index, 0, 0);
-		fpage_table_t* l2 = (fpage_table_t*)fpage_virtual_address_for_table(2, l4_index, l3_index, 0);
-		fpage_table_t* l1 = (fpage_table_t*)fpage_virtual_address_for_table(3, l4_index, l3_index, l2_index);
-
-		if (!ensure_table(l4, l4_index)) {
-			return;
-		}
-
-		if (fpage_is_very_large_page_aligned(physical_frame) && fpage_is_very_large_page_aligned(virtual_frame) && page_count >= FPAGE_VERY_LARGE_PAGE_COUNT) {
-			if (!fpage_entry_is_large_page_entry(l3->entries[l3_index]) && (l4_index != kernel_l4_index || l3_index != kernel_l3_index)) {
-				free_table(l2);
-			}
-
-			// break the existing entry
-			break_entry(2, l4_index, l3_index, 0, 0);
-
-			// now map our entry
-			l3->entries[l3_index] = fpage_very_large_page_entry(physical_frame, true);
-			if (no_cache) {
-				l3->entries[l3_index] = fpage_entry_disable_caching(l3->entries[l3_index]);
-			}
-			if (unprivileged) {
-				l3->entries[l3_index] = fpage_entry_mark_privileged(l3->entries[l3_index], false);
-			}
-			fpage_synchronize_after_table_modification();
-
-			page_count -= FPAGE_VERY_LARGE_PAGE_COUNT;
-			physical_frame += FPAGE_VERY_LARGE_PAGE_SIZE;
-			virtual_frame += FPAGE_VERY_LARGE_PAGE_SIZE;
-
-			continue;
-		}
-
-		if (fpage_entry_is_large_page_entry(l3->entries[l3_index])) {
-			break_entry(2, l4_index, l3_index, 0, 0);
-
-			// NOTE: this does not currently handle the case of partially remapping a large page
-			//       e.g. if we want to map the first half to another location but keep the last half to where the large page pointed
-			//       however, this is probably not something we'll ever want or need to do, so it's okay for now.
-			//       just be aware of this limitation present here.
-		}
-
-		if (!ensure_table(l3, l3_index)) {
-			return;
-		}
-
-		if (fpage_is_large_page_aligned(physical_frame) && fpage_is_large_page_aligned(virtual_frame) && page_count >= FPAGE_LARGE_PAGE_COUNT) {
-			if (!fpage_entry_is_large_page_entry(l2->entries[l2_index]) && (l4_index != kernel_l4_index || l3_index != kernel_l3_index
-#if USE_TEMPORARY_MAPPING
-				|| l2_index > temporary_table_index
-#endif
-			)) {
-				free_table(l1);
-			}
-
-			// break the existing entry
-			break_entry(3, l4_index, l3_index, l2_index, 0);
-
-			// now map our entry
-			l2->entries[l2_index] = fpage_large_page_entry(physical_frame, true);
-			if (no_cache) {
-				l2->entries[l2_index] = fpage_entry_disable_caching(l2->entries[l2_index]);
-			}
-			if (unprivileged) {
-				l2->entries[l2_index] = fpage_entry_mark_privileged(l2->entries[l2_index], false);
-			}
-			fpage_synchronize_after_table_modification();
-
-			page_count -= FPAGE_LARGE_PAGE_COUNT;
-			physical_frame += FPAGE_LARGE_PAGE_SIZE;
-			virtual_frame += FPAGE_LARGE_PAGE_SIZE;
-
-			continue;
-		}
-
-		if (fpage_entry_is_large_page_entry(l2->entries[l2_index])) {
-			break_entry(3, l4_index, l3_index, l2_index, 0);
-
-			// same note as for the l3 large page case
-		}
-
-		if (!ensure_table(l2, l2_index)) {
-			return;
-		}
-
-		if (l1->entries[l1_index]) {
-			break_entry(4, l4_index, l3_index, l2_index, l1_index);
-		}
-
-		l1->entries[l1_index] = fpage_page_entry(physical_frame, true);
-		if (no_cache) {
-			l1->entries[l1_index] = fpage_entry_disable_caching(l1->entries[l1_index]);
-		}
-		if (unprivileged) {
-			l1->entries[l1_index] = fpage_entry_mark_privileged(l1->entries[l1_index], false);
-		}
-		fpage_synchronize_after_table_modification();
-
-		page_count -= 1;
-		physical_frame += FPAGE_PAGE_SIZE;
-		virtual_frame += FPAGE_PAGE_SIZE;
-	}
-};
-
-// NOTE: this function ***WILL*** overwrite existing entries!
 static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* virt_frame, size_t page_count, fpage_flags_t flags) {
 	uintptr_t physical_frame = (uintptr_t)phys_frame;
 	uintptr_t virtual_frame = (uintptr_t)virt_frame;
@@ -942,17 +833,6 @@ static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* 
 	}
 };
 
-/**
- * Returns the bitmap bit index for the given block.
- *
- * The parent region's lock MUST be held.
- */
-FERRO_ALWAYS_INLINE size_t virtual_bitmap_bit_index_for_block(const fpage_region_header_t* parent_region, const fpage_free_block_t* block) {
-	uintptr_t relative_address = 0;
-	relative_address = (uintptr_t)block - (uintptr_t)parent_region->start;
-	return relative_address / FPAGE_PAGE_SIZE;
-};
-
 FERRO_ALWAYS_INLINE size_t space_virtual_bitmap_bit_index_for_block(fpage_space_t* space, const fpage_region_header_t* space_parent_region, const fpage_free_block_t* space_block) {
 	uintptr_t relative_address = 0;
 	const fpage_region_header_t* parent_region_temp = space_map_temporarily_auto(space, (void*)space_parent_region);
@@ -966,23 +846,6 @@ FERRO_ALWAYS_INLINE size_t virtual_byte_index_for_bit(size_t bit_index) {
 
 FERRO_ALWAYS_INLINE size_t virtual_byte_bit_index_for_bit(size_t bit_index) {
 	return bit_index % 8;
-};
-
-/**
- * Returns a pointer to the byte where the bitmap entry for the given block is stored, as well as the bit index of the entry in this byte.
- *
- * The parent region's lock MUST be held.
- */
-static const uint8_t* virtual_bitmap_entry_for_block(const fpage_region_header_t* parent_region, const fpage_free_block_t* block, size_t* out_bit_index) {
-	size_t bitmap_index = virtual_bitmap_bit_index_for_block(parent_region, block);
-	size_t byte_index = virtual_byte_index_for_bit(bitmap_index);
-	size_t byte_bit_index = virtual_byte_bit_index_for_bit(bitmap_index);
-	const uint8_t* byte = NULL;
-
-	byte = &parent_region->bitmap[byte_index];
-	*out_bit_index = byte_bit_index;
-
-	return byte;
 };
 
 /**
@@ -1000,39 +863,11 @@ static const uint8_t* space_virtual_bitmap_entry_for_block(fpage_space_t* space,
 	return byte;
 };
 
-/**
- * Returns `true` if the given block is in-use.
- *
- * The parent region's lock MUST be held.
- */
-static bool virtual_block_is_in_use(const fpage_region_header_t* parent_region, const fpage_free_block_t* block) {
-	size_t byte_bit_index = 0;
-	const uint8_t* byte = virtual_bitmap_entry_for_block(parent_region, block, &byte_bit_index);
-
-	return (*byte) & (1 << byte_bit_index);
-};
-
 static bool space_virtual_block_is_in_use(fpage_space_t* space, const fpage_region_header_t* space_parent_region, const fpage_free_block_t* space_block) {
 	size_t byte_bit_index = 0;
 	const uint8_t* byte = space_virtual_bitmap_entry_for_block(space, space_parent_region, space_block, &byte_bit_index);
 
 	return (*byte) & (1 << byte_bit_index);
-};
-
-/**
- * Sets whether the given block is in-use.
- *
- * The parent region's lock MUST be held.
- */
-static void set_virtual_block_is_in_use(fpage_region_header_t* parent_region, const fpage_free_block_t* block, bool in_use) {
-	size_t byte_bit_index = 0;
-	uint8_t* byte = (uint8_t*)virtual_bitmap_entry_for_block(parent_region, block, &byte_bit_index);
-
-	if (in_use) {
-		*byte |= 1 << byte_bit_index;
-	} else {
-		*byte &= ~(1 << byte_bit_index);
-	}
 };
 
 static void space_set_virtual_block_is_in_use(fpage_space_t* space, fpage_region_header_t* space_parent_region, const fpage_free_block_t* space_block, bool in_use) {
@@ -1044,29 +879,6 @@ static void space_set_virtual_block_is_in_use(fpage_space_t* space, fpage_region
 	} else {
 		*byte &= ~(1 << byte_bit_index);
 	}
-};
-
-/**
- * Inserts the given block into the appropriate bucket in the parent region.
- *
- * The parent region's lock MUST be held.
- */
-static void insert_virtual_free_block(fpage_region_header_t* parent_region, fpage_free_block_t* block, size_t block_page_count) {
-	size_t order = max_order_of_page_count(block_page_count);
-	fpage_free_block_t* phys_block = allocate_frame(fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE, NULL);
-
-	map_frame_fixed(phys_block, block, fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE, 0);
-
-	block->prev = &parent_region->buckets[order];
-	block->next = parent_region->buckets[order];
-
-	if (block->next) {
-		block->next->prev = &block->next;
-	}
-
-	parent_region->buckets[order] = block;
-
-	set_virtual_block_is_in_use(parent_region, block, false);
 };
 
 static void space_insert_virtual_free_block(fpage_space_t* space, fpage_region_header_t* parent_region, fpage_free_block_t* space_block, size_t block_page_count) {
@@ -1090,22 +902,6 @@ static void space_insert_virtual_free_block(fpage_space_t* space, fpage_region_h
 	space_set_virtual_block_is_in_use(space, parent_region, space_block, false);
 };
 
-/**
- * Removes the given block from the appropriate bucket in the parent region.
- *
- * The parent region's lock MUST be held.
- */
-static void remove_virtual_free_block(fpage_region_header_t* parent_region, fpage_free_block_t* block) {
-	*block->prev = block->next;
-	if (block->next) {
-		block->next->prev = block->prev;
-	}
-
-	free_frame((void*)fpage_virtual_to_physical((uintptr_t)block), fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE);
-
-	set_virtual_block_is_in_use(parent_region, block, true);
-};
-
 static void space_remove_virtual_free_block(fpage_space_t* space, fpage_region_header_t* parent_region, fpage_free_block_t* space_block) {
 	fpage_free_block_t* block_temp = space_map_temporarily_auto(space, space_block);
 
@@ -1117,22 +913,6 @@ static void space_remove_virtual_free_block(fpage_space_t* space, fpage_region_h
 	free_frame((void*)fpage_space_virtual_to_physical(space, (uintptr_t)space_block), fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE);
 
 	space_set_virtual_block_is_in_use(space, parent_region, space_block, true);
-};
-
-/**
- * Finds the region's buddy.
- *
- * The parent region's lock MUST be held.
- */
-static fpage_free_block_t* find_virtual_buddy(fpage_region_header_t* parent_region, fpage_free_block_t* block, size_t block_page_count) {
-	uintptr_t parent_start = (uintptr_t)parent_region->start;
-	uintptr_t maybe_buddy = (((uintptr_t)block - parent_start) ^ (block_page_count * FPAGE_PAGE_SIZE)) + parent_start;
-
-	if (maybe_buddy + (block_page_count * FPAGE_PAGE_SIZE) > parent_start + (parent_region->page_count * FPAGE_PAGE_SIZE)) {
-		return NULL;
-	}
-
-	return (fpage_free_block_t*)maybe_buddy;
 };
 
 static fpage_free_block_t* space_find_virtual_buddy(fpage_space_t* space, fpage_region_header_t* space_parent_region, fpage_free_block_t* space_block, size_t block_page_count) {
@@ -1147,22 +927,6 @@ static fpage_free_block_t* space_find_virtual_buddy(fpage_space_t* space, fpage_
 	return (fpage_free_block_t*)maybe_buddy;
 };
 
-/**
- * Reads and acquires the lock for the first region at ::kernel_virtual_regions_head.
- *
- * The ::kernel_virtual_regions_head lock and the first region's lock MUST NOT be held.
- */
-static fpage_region_header_t* virtual_acquire_first_region(void) {
-	fpage_region_header_t* region;
-	flock_spin_intsafe_lock(&kernel_virtual_regions_head_lock);
-	region = kernel_virtual_regions_head;
-	if (region) {
-		flock_spin_intsafe_lock(&region->lock);
-	}
-	flock_spin_intsafe_unlock(&kernel_virtual_regions_head_lock);
-	return region;
-};
-
 static fpage_region_header_t* space_virtual_acquire_first_region(fpage_space_t* space) {
 	fpage_region_header_t* region;
 
@@ -1173,21 +937,6 @@ static fpage_region_header_t* space_virtual_acquire_first_region(fpage_space_t* 
 	}
 	flock_spin_intsafe_unlock(&space->regions_head_lock);
 	return region;
-};
-
-/**
- * Reads and acquires the lock the lock for the next region after the given region.
- * Afterwards, it releases the lock for the given region.
- *
- * The given region's lock MUST be held and next region's lock MUST NOT be held.
- */
-static fpage_region_header_t* virtual_acquire_next_region(fpage_region_header_t* prev) {
-	fpage_region_header_t* next = prev->next;
-	if (next) {
-		flock_spin_intsafe_lock(&next->lock);
-	}
-	flock_spin_intsafe_unlock(&prev->lock);
-	return next;
 };
 
 static fpage_region_header_t* space_virtual_acquire_next_region(fpage_space_t* space, fpage_region_header_t* prev) {
@@ -1224,73 +973,6 @@ static fpage_region_header_t* space_virtual_acquire_next_region_with_exception(f
 		flock_spin_intsafe_unlock(&prev_temp->lock);
 	}
 	return next;
-};
-
-/**
- * Allocates a virtual region of the given size.
- *
- * The kernel_virtual_regions_head_lock() lock and all the region locks MUST NOT be held.
- */
-static void* allocate_virtual(size_t page_count, size_t* out_allocated_page_count, bool user) {
-	size_t min_order = min_order_for_page_count(page_count);
-
-	fpage_region_header_t* candidate_parent_region = NULL;
-	fpage_free_block_t* candidate_block = NULL;
-	size_t candidate_order = FPAGE_MAX_ORDER;
-	uintptr_t start_split = 0;
-
-	// first, look for the smallest usable block from any region
-	for (fpage_region_header_t* region = virtual_acquire_first_region(); region != NULL; region = virtual_acquire_next_region_with_exception(region, candidate_parent_region)) {
-		for (size_t order = min_order; order < FPAGE_MAX_ORDER && order < candidate_order; ++order) {
-			fpage_free_block_t* block = region->buckets[order];
-
-			if (block) {
-				if (candidate_parent_region) {
-					flock_spin_intsafe_unlock(&candidate_parent_region->lock);
-				}
-				candidate_order = order;
-				candidate_block = block;
-				candidate_parent_region = region;
-				break;
-			}
-		}
-
-		if (candidate_order == min_order) {
-			break;
-		}
-	}
-
-	// uh-oh, we don't have any free blocks big enough in any region
-	if (!candidate_block) {
-		return NULL;
-	}
-
-	// the candidate parent region's lock is held here
-
-	// okay, we've chosen our candidate region. un-free it
-	remove_virtual_free_block(candidate_parent_region, candidate_block);
-
-	// we might have gotten a bigger block than we wanted. split it up.
-	// to understand how this works, see allocate_frame().
-	start_split = (uintptr_t)candidate_block + (page_count_of_order(min_order) * FPAGE_PAGE_SIZE);
-	for (size_t order = min_order; order < candidate_order; ++order) {
-		fpage_free_block_t* block = (void*)start_split;
-		insert_virtual_free_block(candidate_parent_region, block, page_count_of_order(order));
-		start_split += (page_count_of_order(order) * FPAGE_PAGE_SIZE);
-	}
-
-	// alright, we now have the right-size block.
-
-	// drop the parent region lock
-	flock_spin_intsafe_unlock(&candidate_parent_region->lock);
-
-	// ...let the user know how much we actually gave them (if they want to know that)...
-	if (out_allocated_page_count) {
-		*out_allocated_page_count = page_count_of_order(min_order);
-	}
-
-	// ...and finally, give them their new block
-	return candidate_block;
 };
 
 /**
@@ -1360,78 +1042,9 @@ static void* space_allocate_virtual(fpage_space_t* space, size_t page_count, siz
 	return space_candidate_block;
 };
 
-/**
- * Returns `true` if the given block belongs to the given region.
- *
- * The region's lock MUST be held.
- */
-FERRO_ALWAYS_INLINE bool virtual_block_belongs_to_region(fpage_free_block_t* block, fpage_region_header_t* region) {
-	return (uintptr_t)block >= (uintptr_t)region->start && (uintptr_t)block < (uintptr_t)region->start + (region->page_count * FPAGE_PAGE_SIZE);
-};
-
 FERRO_ALWAYS_INLINE bool space_virtual_block_belongs_to_region(fpage_space_t* space, fpage_free_block_t* space_block, fpage_region_header_t* space_region) {
 	fpage_region_header_t* region_temp = space_map_temporarily_auto(space, space_region);
 	return (uintptr_t)space_block >= (uintptr_t)region_temp->start && (uintptr_t)space_block < (uintptr_t)region_temp->start + (region_temp->page_count * FPAGE_PAGE_SIZE);
-};
-
-/**
- * Frees a virtual region of the given size.
- *
- * The ::kernel_virtual_regions_head_lock lock and all the region locks MUST NOT be held.
- */
-static void free_virtual(void* virtual, size_t page_count, bool user) {
-	size_t order = min_order_for_page_count(page_count);
-
-	fpage_region_header_t* parent_region = NULL;
-	fpage_free_block_t* block = virtual;
-
-	for (fpage_region_header_t* region = virtual_acquire_first_region(); region != NULL; region = virtual_acquire_next_region_with_exception(region, parent_region)) {
-		if (virtual_block_belongs_to_region(block, region)) {
-			parent_region = region;
-			break;
-		}
-	}
-
-	if (!parent_region) {
-		return;
-	}
-
-	// the parent region's lock is held here
-
-	// find buddies to merge with
-	for (; order < FPAGE_MAX_ORDER; ++order) {
-		fpage_free_block_t* buddy = find_virtual_buddy(parent_region, block, page_count_of_order(order));
-
-		// oh, no buddy? how sad :(
-		if (!buddy) {
-			break;
-		}
-
-		if (virtual_block_is_in_use(parent_region, buddy)) {
-			// whelp, our buddy is in use. we can't do any more merging
-			break;
-		}
-
-		// yay, our buddy's free! let's get together.
-
-		// take them out of their current bucket
-		remove_virtual_free_block(parent_region, buddy);
-
-		// whoever's got the lower address is the start of the bigger block
-		if (buddy < block) {
-			block = buddy;
-		}
-
-		// now *don't* insert the new block into the free list.
-		// that would be pointless since we might still have a buddy to merge with the bigger block
-		// and we insert it later, after the loop.
-	}
-
-	// finally, insert the new (possibly merged) block into the appropriate bucket
-	insert_virtual_free_block(parent_region, block, page_count_of_order(order));
-
-	// drop the parent region's lock
-	flock_spin_intsafe_unlock(&parent_region->lock);
 };
 
 static bool space_region_belongs_to_buddy_allocator(fpage_space_t* space, void* virtual_start, size_t page_count) {
@@ -1668,6 +1281,13 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	// (i.e. we might have more than `total_phys_page_count`, but it's unusable).
 	max_virt_page_count = total_phys_page_count * MAX_VIRTUAL_KERNEL_BUDDY_ALLOCATOR_PAGE_COUNT_COEFFICIENT;
 
+	// address spaces store *physical* addresses, not virtual ones
+	kernel_address_space.l4_table = (void*)fpage_virtual_to_physical((uintptr_t)kernel_address_space.l4_table);
+
+	// initialize the kernel address space root table with the root table
+	// TODO: we can skip copying the temporary identity mapping entries, they're no longer necessary
+	simple_memcpy(&kernel_address_space_root_table, root_table, sizeof(kernel_address_space_root_table));
+
 	// once we reach the maximum, it'll wrap around to 0
 	while (virt_start != 0) {
 		size_t virt_page_count = 0;
@@ -1892,19 +1512,19 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 
 		header = (fpage_region_header_t*)virt_start;
 
-		map_frame_fixed(phys_header, header, fpage_round_up_page(sizeof(fpage_region_header_t)) / FPAGE_PAGE_SIZE, 0);
+		space_map_frame_fixed(&kernel_address_space, phys_header, header, fpage_round_up_page(sizeof(fpage_region_header_t)) / FPAGE_PAGE_SIZE, 0);
 
-		header->prev = &kernel_virtual_regions_head;
-		header->next = kernel_virtual_regions_head;
+		header->prev = NULL;
+		header->next = kernel_address_space.regions_head;
 		if (header->next) {
-			header->next->prev = &header->next;
+			space_map_temporarily_auto_type(&kernel_address_space, header->next)->prev = &header->next;
 		}
 		header->page_count = virt_page_count;
 		header->start = usable_start = (void*)(virt_start + FPAGE_PAGE_SIZE + (extra_bitmap_page_count * FPAGE_PAGE_SIZE));
 
 		flock_spin_intsafe_init(&header->lock);
 
-		kernel_virtual_regions_head = header;
+		kernel_address_space.regions_head = header;
 
 		// clear out the bitmap
 		simple_memset(&header->bitmap[0], 0, HEADER_BITMAP_SPACE);
@@ -1916,7 +1536,8 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 				// ack. we've gotta undo all the work we've done up 'till now.
 				for (; i > 0; --i) {
 					uint8_t* page = (uint8_t*)(virt_start + FPAGE_PAGE_SIZE + ((i - 1) * FPAGE_PAGE_SIZE));
-					free_frame((void*)fpage_virtual_to_physical((uintptr_t)page), 1);
+					uint8_t* phys_page = (void*)fpage_space_virtual_to_physical(&kernel_address_space, (uintptr_t)page);
+					free_frame(phys_page, 1);
 					break_entry(4, FPAGE_VIRT_L4(page), FPAGE_VIRT_L3(page), FPAGE_VIRT_L2(page), FPAGE_VIRT_L1(page));
 				}
 
@@ -1924,7 +1545,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 				break;
 			}
 
-			map_frame_fixed(phys_page, page, 1, 0);
+			space_map_frame_fixed(&kernel_address_space, phys_page, page, 1, 0);
 
 			simple_memset(page, 0, FPAGE_PAGE_SIZE);
 		}
@@ -1944,7 +1565,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 			size_t pages = page_count_of_order(order);
 			void* addr = (void*)((uintptr_t)usable_start + (pages_allocated * FPAGE_PAGE_SIZE));
 
-			insert_virtual_free_block(header, addr, pages);
+			space_insert_virtual_free_block(&kernel_address_space, header, addr, pages);
 
 			pages_allocated += pages;
 		}
@@ -1959,6 +1580,9 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 			break;
 		}
 	}
+
+	// register our page fault handler
+	fpanic_status(fint_register_special_handler(fint_special_interrupt_page_fault, page_fault_handler, NULL));
 };
 
 // NOTE: the table used with the first call to this function is not freed by it, no matter if `also_free` is used
@@ -2192,82 +1816,19 @@ static void fpage_break_mapping(void* address, size_t page_count) {
 };
 
 ferr_t fpage_map_kernel_any(void* physical_address, size_t page_count, void** out_virtual_address, fpage_flags_t flags) {
-	void* virt = NULL;
-
-	if (physical_address == NULL || page_count == 0 || page_count == SIZE_MAX || out_virtual_address == NULL) {
-		return ferr_invalid_argument;
-	}
-
-	virt = allocate_virtual(page_count, NULL, false);
-
-	if (!virt) {
-		return ferr_temporary_outage;
-	}
-
-	map_frame_fixed(physical_address, virt, page_count, flags);
-
-	*out_virtual_address = virt;
-
-	return ferr_ok;
+	return fpage_space_map_any(&kernel_address_space, physical_address, page_count, out_virtual_address, flags);
 };
 
 ferr_t fpage_unmap_kernel(void* virtual_address, size_t page_count) {
-	if (virtual_address == NULL || page_count == 0 || page_count == SIZE_MAX) {
-		return ferr_invalid_argument;
-	}
-
-	fpage_break_mapping(virtual_address, page_count);
-
-	free_virtual(virtual_address, page_count, false);
-
-	return ferr_ok;
+	return fpage_space_unmap(&kernel_address_space, virtual_address, page_count);
 };
 
 ferr_t fpage_allocate_kernel(size_t page_count, void** out_virtual_address, fpage_flags_t flags) {
-	void* virt = NULL;
-
-	if (page_count == 0 || page_count == SIZE_MAX || out_virtual_address == NULL) {
-		return ferr_invalid_argument;
-	}
-
-	virt = allocate_virtual(page_count, NULL, false);
-
-	if (!virt) {
-		return ferr_temporary_outage;
-	}
-
-	for (size_t i = 0; i < page_count; ++i) {
-		void* frame = allocate_frame(1, NULL);
-
-		if (!frame) {
-			for (; i > 0; --i) {
-				free_frame((void*)fpage_virtual_to_physical((uintptr_t)virt + ((i - 1) * FPAGE_PAGE_SIZE)), 1);
-			}
-			return ferr_temporary_outage;
-		}
-
-		map_frame_fixed(frame, (void*)((uintptr_t)virt + (i * FPAGE_PAGE_SIZE)), 1, flags);
-	}
-
-	*out_virtual_address = virt;
-
-	return ferr_ok;
+	return fpage_space_allocate(&kernel_address_space, page_count, out_virtual_address, flags);
 };
 
 ferr_t fpage_free_kernel(void* virtual_address, size_t page_count) {
-	if (virtual_address == NULL || page_count == 0 || page_count == SIZE_MAX) {
-		return ferr_invalid_argument;
-	}
-
-	for (size_t i = 0; i < page_count; ++i) {
-		free_frame((void*)fpage_virtual_to_physical((uintptr_t)virtual_address + (i * FPAGE_PAGE_SIZE)), 1);
-	}
-
-	fpage_break_mapping(virtual_address, page_count);
-
-	free_virtual(virtual_address, page_count, false);
-
-	return ferr_ok;
+	return fpage_space_free(&kernel_address_space, virtual_address, page_count);
 };
 
 FERRO_WUR ferr_t fpage_space_init(fpage_space_t* space) {
@@ -2324,7 +1885,7 @@ FERRO_WUR ferr_t fpage_space_init(fpage_space_t* space) {
 
 	void* usable_start = NULL;
 
-	temp_header->prev = &space->regions_head;
+	temp_header->prev = NULL;
 	temp_header->next = NULL;
 	temp_header->page_count = virt_page_count;
 	temp_header->start = usable_start = (void*)(virt_start + FPAGE_PAGE_SIZE + (extra_bitmap_page_count * FPAGE_PAGE_SIZE));
@@ -2689,4 +2250,14 @@ ferr_t fpage_space_free(fpage_space_t* space, void* virtual_address, size_t page
 	flock_spin_intsafe_unlock(&space->allocation_lock);
 
 	return ferr_ok;
+};
+
+//
+// page faults
+//
+
+static void page_fault_handler(void* context) {
+	uintptr_t faulting_address = fpage_fault_address();
+
+	fpanic("Faulted on %lu", faulting_address);
 };

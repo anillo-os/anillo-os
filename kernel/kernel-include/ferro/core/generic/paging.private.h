@@ -22,12 +22,12 @@
  * Generic implementations of architecture-specific components for the paging subsystem.
  */
 
-#ifndef _FERRO_CORE_GENERIC_PAGING_H_
-#define _FERRO_CORE_GENERIC_PAGING_H_
+#ifndef _FERRO_CORE_GENERIC_PAGING_PRIVATE_H_
+#define _FERRO_CORE_GENERIC_PAGING_PRIVATE_H_
 
 #include <ferro/base.h>
 
-#include <ferro/core/paging.h>
+#include <ferro/core/paging.private.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -62,4 +62,4 @@ FERRO_ALWAYS_INLINE void generic_fpage_invalidate_tlb_for_range(void* start, voi
 
 FERRO_DECLARATIONS_END;
 
-#endif // _FERRO_CORE_GENERIC_PAGING_H_
+#endif // _FERRO_CORE_GENERIC_PAGING_PRIVATE_H_

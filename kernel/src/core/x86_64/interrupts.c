@@ -213,7 +213,13 @@ static fint_idt_t idt = {0};
 static fint_handler_entry_t handlers[224] = {0};
 
 #define SPECIAL_HANDLERS_MAX fint_special_interrupt_common_LAST
-static fint_special_handler_entry_t special_handlers[SPECIAL_HANDLERS_MAX] = {0};
+static fint_special_handler_entry_t special_handlers[SPECIAL_HANDLERS_MAX] = {
+	[0 ... (SPECIAL_HANDLERS_MAX - 1)] = {
+		.data = NULL,
+		.handler = NULL,
+		.lock = FLOCK_SPIN_INTSAFE_INIT,
+	}
+};
 
 static fint_tss_t tss = {0};
 
@@ -476,31 +482,59 @@ INTERRUPT_HANDLER(general_protection) {
 INTERRUPT_HANDLER(page_fault) {
 	fint_handler_common_data_t data;
 	uintptr_t faulting_address = 0;
+	fint_special_handler_entry_t* entry = &special_handlers[fint_special_interrupt_page_fault];
+	fint_special_handler_f handler = NULL;
+	void* handler_data = NULL;
 
 	fint_handler_common_begin(&data, frame, true);
 
 	__asm__ volatile("mov %%cr2, %0" : "=r" (faulting_address));
 
-	fconsole_logf("page fault; code=%llu; faulting address=%p; frame:\n", frame->code, (void*)faulting_address);
-	fconsole_log("page fault code description: ");
-	print_page_fault_code(frame->code);
-	fconsole_log("\n");
-	print_frame(frame);
-	trace_stack((void*)frame->saved_registers.rbp);
-	fpanic("page fault");
+	if (entry) {
+		flock_spin_intsafe_lock(&entry->lock);
+		handler = entry->handler;
+		handler_data = entry->data;
+		flock_spin_intsafe_unlock(&entry->lock);
+	}
+
+	if (handler) {
+		handler(handler_data);
+	} else {
+		fconsole_logf("page fault; code=%llu; faulting address=%p; frame:\n", frame->code, (void*)faulting_address);
+		fconsole_log("page fault code description: ");
+		print_page_fault_code(frame->code);
+		fconsole_log("\n");
+		print_frame(frame);
+		trace_stack((void*)frame->saved_registers.rbp);
+		fpanic("page fault");
+	}
 
 	fint_handler_common_end(&data, frame, true);
 };
 
 INTERRUPT_HANDLER(invalid_opcode) {
 	fint_handler_common_data_t data;
+	fint_special_handler_entry_t* entry = &special_handlers[fint_special_interrupt_invalid_instruction];
+	fint_special_handler_f handler = NULL;
+	void* handler_data = NULL;
 
 	fint_handler_common_begin(&data, frame, true);
 
-	fconsole_logf("invalid opcode; frame:\n");
-	print_frame(frame);
-	trace_stack((void*)frame->saved_registers.rbp);
-	fpanic("invalid opcode");
+	if (entry) {
+		flock_spin_intsafe_lock(&entry->lock);
+		handler = entry->handler;
+		handler_data = entry->data;
+		flock_spin_intsafe_unlock(&entry->lock);
+	}
+
+	if (handler) {
+		handler(handler_data);
+	} else {
+		fconsole_logf("invalid opcode; frame:\n");
+		print_frame(frame);
+		trace_stack((void*)frame->saved_registers.rbp);
+		fpanic("invalid opcode");
+	}
 
 	fint_handler_common_end(&data, frame, true);
 };
@@ -1132,11 +1166,6 @@ void fint_init(void) {
 	DEFINE_INTERRUPT(221);
 	DEFINE_INTERRUPT(222);
 	DEFINE_INTERRUPT(223);
-
-	// initialize the array of special interrupts
-	for (size_t i = 0; i < sizeof(special_handlers) / sizeof(*special_handlers); ++i) {
-		flock_spin_intsafe_init(&special_handlers[i].lock);
-	}
 
 	// load the idt
 	idt_pointer.limit = sizeof(idt) - 1;

@@ -33,7 +33,7 @@
 #include <ferro/core/entry.h>
 #include <ferro/core/framebuffer.h>
 #include <ferro/core/console.h>
-#include <ferro/core/paging.h>
+#include <ferro/core/paging.private.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/interrupts.h>
 #include <ferro/core/acpi.h>

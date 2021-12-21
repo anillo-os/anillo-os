@@ -149,6 +149,9 @@ if args.debug:
 if args.qemu_debug:
 	qemu_args += ['-s', '-S']
 
+if args.cpu_reset:
+	qemu_args += ['-d', 'cpu_reset']
+
 #
 # this is where the heart of the logic begins
 #

@@ -24,6 +24,7 @@
 #include <ferro/core/locks.h>
 #include <ferro/core/workers.h>
 #include <libsimple/libsimple.h>
+#include <ferro/core/paging.private.h>
 
 // DA7A == Data
 // (because the hook is only used to swap address spaces)
