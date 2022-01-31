@@ -34,10 +34,40 @@ FERRO_STRUCT_FWD(fproc);
 FERRO_STRUCT(futhread_data_private) {
 	futhread_data_t public;
 
+	fthread_t* thread;
+
 	/**
 	 * The process to which this thread belongs.
 	 */
 	fproc_t* process;
+
+	/**
+	 * A link to the previous uthread in this uthread's process.
+	 *
+	 * This is ONLY to be accessed by this uthread's process (it is protected by that process's uthread list lock).
+	 */
+	futhread_data_private_t** prev;
+
+	/**
+	 * A link to the next uthread in this uthread's process.
+	 *
+	 * This is ONLY to be accessed by this uthread's process (it is protected by that process's uthread list lock).
+	 */
+	futhread_data_private_t* next;
+
+	/**
+	 * A waiter for this uthread's death; owned by this uthread's process.
+	 */
+	fwaitq_waiter_t uthread_death_waiter;
+
+	/**
+	 * A waiter for this uthread's destruction; owned by this uthread's process.
+	 */
+	fwaitq_waiter_t uthread_destroy_waiter;
+
+	// FIXME: this is architecture-specific; move it to its own architecture-specific header
+	uint64_t fs_base;
+	uint64_t gs_base;
 };
 
 futhread_data_t* futhread_data_for_thread(fthread_t* thread);

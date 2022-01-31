@@ -2259,5 +2259,5 @@ ferr_t fpage_space_free(fpage_space_t* space, void* virtual_address, size_t page
 static void page_fault_handler(void* context) {
 	uintptr_t faulting_address = fpage_fault_address();
 
-	fpanic("Faulted on %lu", faulting_address);
+	fpanic("Faulted on %p", (void*)faulting_address);
 };

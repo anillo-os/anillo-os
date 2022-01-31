@@ -8,6 +8,7 @@ import json
 import io
 import sys
 import tempfile
+import hashlib
 
 SCRIPT_DIR = os.path.dirname(__file__)
 SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..', '..')
@@ -15,22 +16,21 @@ SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..', '..')
 sys.path.append(os.path.join(SOURCE_ROOT, 'scripts'))
 import anillo_util
 
-if len(sys.argv) != 5:
-	print('Usage: ' + sys.argv[0] + ' <architecture> <output-header> <output-json> <output-depfile>')
+if len(sys.argv) != 6:
+	print('Usage: ' + sys.argv[0] + ' <architecture> <build-dir> <output-header> <output-json> <output-depfile>')
 	sys.exit(1)
 
 ARCH = sys.argv[1]
-OUTPUT_HEADER_PATH = sys.argv[2]
-OUTPUT_JSON_PATH = sys.argv[3]
-OUTPUT_DEPFILE_PATH = sys.argv[4]
+BUILD_DIR = sys.argv[2]
+OUTPUT_HEADER_PATH = sys.argv[3]
+OUTPUT_JSON_PATH = sys.argv[4]
+OUTPUT_DEPFILE_PATH = sys.argv[5]
 
 KERNEL_SOURCE_ROOT = os.path.join(SOURCE_ROOT, 'kernel')
 HEADER_GUARD_NAME = '_GEN_FERRO_OFFSETS_H'
 
-temp_dir = tempfile.TemporaryDirectory()
-
-offsets_tmp_path = os.path.join(temp_dir.name, 'offsets.c')
-object_tmp_path = os.path.join(temp_dir.name, 'offsets.c.o')
+offsets_tmp_path = os.path.join(BUILD_DIR, 'offsets.c')
+object_tmp_path = os.path.join(BUILD_DIR, 'offsets.o')
 
 HEADERS_COMMON = [
 	'ferro/core/interrupts.h',
@@ -92,8 +92,18 @@ headers_result.check_returncode()
 
 dep_headers = headers_result.stdout.decode().strip()
 
-with io.open(OUTPUT_DEPFILE_PATH, 'w', newline='\n') as outfile:
-	outfile.write(dep_headers)
+write_depfile = False
+
+if os.path.exists(OUTPUT_DEPFILE_PATH):
+	with io.open(OUTPUT_DEPFILE_PATH, 'r', newline='\n') as outfile:
+		file_content = outfile.read().strip()
+		if hashlib.sha256(dep_headers.encode()).hexdigest() != hashlib.sha256(file_content.encode()).hexdigest():
+			write_depfile = True
+			print("NOT MATCHING 1")
+
+if write_depfile:
+	with io.open(OUTPUT_DEPFILE_PATH, 'w', newline='\n') as outfile:
+		outfile.write(dep_headers)
 
 result = subprocess.run(['clang', '-Xclang', '-fdump-record-layouts', '-ffreestanding', '-nostdlib', '-target', ARCH + '-unknown-none-macho', '-I', os.path.join(KERNEL_SOURCE_ROOT, 'include'), '-I', os.path.join(KERNEL_SOURCE_ROOT, 'kernel-include'), '-c', '-o', object_tmp_path, offsets_tmp_path, '-emit-llvm'], stdout=subprocess.PIPE)
 
@@ -156,10 +166,19 @@ for struct in data:
 
 anillo_util.mkdir_p(os.path.dirname(OUTPUT_HEADER_PATH))
 
-with io.open(OUTPUT_HEADER_PATH, 'w', newline='\n') as outfile:
-	outfile.write('#ifndef ' + HEADER_GUARD_NAME + '\n#define ' + HEADER_GUARD_NAME + '\n')
-	outfile.write(defs)
-	outfile.write('\n#endif // ' + HEADER_GUARD_NAME + '\n')
+output_header_content = '#ifndef ' + HEADER_GUARD_NAME + '\n#define ' + HEADER_GUARD_NAME + '\n' + defs + '\n#endif // ' + HEADER_GUARD_NAME + '\n'
+
+write_header = False
+
+if os.path.exists(OUTPUT_HEADER_PATH):
+	with io.open(OUTPUT_HEADER_PATH, 'r', newline='\n') as outfile:
+		file_content = outfile.read().strip()
+		if hashlib.sha256(output_header_content.strip().encode()).hexdigest() != hashlib.sha256(file_content.encode()).hexdigest():
+			write_header = True
+
+if write_header:
+	with io.open(OUTPUT_HEADER_PATH, 'w', newline='\n') as outfile:
+		outfile.write(output_header_content)
 
 with io.open(OUTPUT_JSON_PATH, 'w', newline='\n') as jsonfile:
 	json.dump(data, jsonfile, indent='\t')

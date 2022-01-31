@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,24 +16,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBSYS_LIBSYS_H_
-#define _LIBSYS_LIBSYS_H_
+#include <gen/ferro/userspace/syscall-handlers.h>
+#include <ferro/core/threads.h>
+#include <ferro/core/paging.h>
 
-#include <libsys/base.h>
-
-#include <libsys/abort.h>
-#include <libsys/config.h>
-#include <libsys/console.h>
-#include <libsys/files.h>
-#include <libsys/format.h>
-#include <libsys/general.h>
-#include <libsys/ghmap.h>
-#include <libsys/locks.h>
-#include <libsys/mempool.h>
-#include <libsys/objects.h>
-#include <libsys/pages.h>
-#include <libsys/paths.h>
-#include <libsys/streams.h>
-#include <libsys/threads.h>
-
-#endif // _LIBSYS_LIBSYS_H_
+ferr_t fsyscall_handler_thread_id(uint64_t* out_thread_id) {
+	// TODO: implement something like copyout and use it to copy to userspace addresses
+	if (fpage_space_virtual_to_physical(fpage_space_current(), (uintptr_t)out_thread_id) == UINTPTR_MAX) {
+		return ferr_invalid_argument;
+	}
+	*out_thread_id = fthread_current()->id;
+	return ferr_ok;
+};

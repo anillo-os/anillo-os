@@ -1,4 +1,4 @@
-project(libsys C)
+project(libsys C ASM)
 
 set(libsys_sources
 	src/abort.c
@@ -14,6 +14,10 @@ set(libsys_sources
 	src/pages.c
 	src/paths.c
 	src/streams.c
+	src/threads.c
+	src/config.c
+
+	src/${ANILLO_ARCH}/threads.S
 )
 
 set(libsys_libs

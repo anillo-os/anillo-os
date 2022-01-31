@@ -13,4 +13,5 @@ add_anillo_executable(sysman
 
 target_link_libraries(sysman PUBLIC
 	libc
+	libsys
 )

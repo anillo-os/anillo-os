@@ -28,6 +28,8 @@
 
 // DA7A == Data
 // (because the hook is only used to swap address spaces)
+// UPDATE:
+// the hook is now also used to swap TLS addresses. same thing, though; still just data.
 #define UTHREAD_HOOK_OWNER_ID (0xDA7Aull)
 
 // uses a thread pointer as the key (and key_size can be anything; we don't use it)
@@ -105,7 +107,7 @@ static ferr_t uthread_ending_interrupt(void* context, fthread_t* thread) {
 	return ferr_ok;
 };
 
-ferr_t futhread_register(fthread_t* thread, size_t user_stack_size, fpage_space_t* user_space, futhread_flags_t flags, futhread_syscall_handler_f syscall_handler, void* syscall_handler_context) {
+ferr_t futhread_register(fthread_t* thread, void* user_stack_base, size_t user_stack_size, fpage_space_t* user_space, futhread_flags_t flags, futhread_syscall_handler_f syscall_handler, void* syscall_handler_context) {
 	futhread_data_t* data = NULL;
 	futhread_data_private_t* private_data = NULL;
 	bool created = false;
@@ -115,7 +117,6 @@ ferr_t futhread_register(fthread_t* thread, size_t user_stack_size, fpage_space_
 	bool release_stack_on_fail = false;
 	bool clear_flag_on_fail = false;
 	ferr_t status = ferr_ok;
-	void* user_stack_base = NULL;
 	fthread_private_t* private_thread = (void*)thread;
 
 retry_lookup:
@@ -162,13 +163,15 @@ retry_lookup:
 
 	data->user_space = user_space;
 
-	if (fpage_space_allocate(data->user_space, fpage_round_up_to_page_count(user_stack_size), &user_stack_base, fpage_flag_unprivileged) != ferr_ok) {
-		status = ferr_temporary_outage;
-		goto out_locked;
-	}
+	if (!user_stack_base) {
+		if (fpage_space_allocate(data->user_space, fpage_round_up_to_page_count(user_stack_size), &user_stack_base, fpage_flag_unprivileged) != ferr_ok) {
+			status = ferr_temporary_outage;
+			goto out_locked;
+		}
 
-	release_stack_on_fail = true;
-	flags |= futhread_flag_deallocate_user_stack_on_exit;
+		release_stack_on_fail = true;
+		flags |= futhread_flag_deallocate_user_stack_on_exit;
+	}
 
 	data->flags = flags;
 	data->user_stack_base = user_stack_base;
@@ -198,6 +201,8 @@ retry_lookup:
 
 	data->syscall_handler = syscall_handler;
 	data->syscall_handler_context = syscall_handler_context;
+
+	private_data->thread = thread;
 
 out_locked:
 	if (status != ferr_ok) {
@@ -307,4 +312,15 @@ bool fthread_is_uthread(fthread_t* thread) {
 fthread_t* futhread_current(void) {
 	fthread_t* current = fthread_current();
 	return fthread_is_uthread(current) ? current : NULL;
+};
+
+fproc_t* futhread_process(fthread_t* uthread) {
+	futhread_data_t* data = futhread_data_for_thread(uthread);
+	futhread_data_private_t* private_data = (futhread_data_private_t*)data;
+
+	if (!data) {
+		return NULL;
+	}
+
+	return private_data->process;
 };

@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -17,30 +17,20 @@
  */
 
 #include <gen/ferro/userspace/syscall-handlers.h>
-#include <ferro/userspace/threads.h>
-#include <ferro/userspace/processes.h>
-#include <ferro/core/panic.h>
+#include <ferro/core/threads.h>
+#include <ferro/userspace/threads.private.h>
+#include <ferro/core/x86_64/msr.h>
 
-static bool exit_thread_iterator(void* context, fproc_t* process, fthread_t* thread) {
-	if (thread == fthread_current()) {
-		// don't kill the current thread
-		return true;
-	}
+ferr_t fsyscall_handler_thread_set_gs(void* address) {
+	fthread_t* thread = fthread_current();
+	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
 
-	fpanic_status(fthread_kill(thread));
+	private_data->gs_base = (uintptr_t)address;
 
-	return true;
-};
+	// gs_base_kernel is actually gs_base user currently, since we're in the kernel.
+	// `swapgs` swaps gs_base_kernel and gs_base, so we need to write to gs_base_kernel
+	// for it to become the new gs_base value when we return to userspace.
+	farch_msr_write(farch_msr_gs_base_kernel, private_data->gs_base);
 
-ferr_t fsyscall_handler_exit(int32_t status) {
-	// TODO: use `status` to indicate whether the process died peacefully or not
-
-	// first kill the other threads in the process
-	fproc_for_each_thread(fproc_current(), exit_thread_iterator, NULL);
-
-	// now kill this thread
-	fthread_kill_self();
-
-	// unnecessary, but just for consistency
 	return ferr_ok;
 };

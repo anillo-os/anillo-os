@@ -636,7 +636,7 @@ static void fgdb_serial_read_notify(void* data) {
 					should_continue = true;
 
 					if (thread_id != FTHREAD_ID_INVALID) {
-						fthread_t* thread = fsched_find(thread_id);
+						fthread_t* thread = fsched_find(thread_id, false);
 
 						fgdb_registers_set_single_step(thread);
 					} else if (fthread_current() == NULL) {
@@ -892,7 +892,7 @@ static void fgdb_serial_read_notify(void* data) {
 
 			if (fthread_current()) {
 				if (ok) {
-					thread = fsched_find(id);
+					thread = fsched_find(id, false);
 					if (!thread) {
 						ok = false;
 					}
@@ -937,7 +937,7 @@ static void fgdb_serial_read_notify(void* data) {
 			}
 
 			if (ok) {
-				thread = fsched_find(id);
+				thread = fsched_find(id, false);
 				if (!thread) {
 					ok = false;
 				}

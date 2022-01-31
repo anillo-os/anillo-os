@@ -25,5 +25,6 @@
 #include <libsys/general.private.h>
 #include <libsys/handoff.private.h>
 #include <libsys/objects.private.h>
+#include <libsys/threads.private.h>
 
 #endif // _LIBSYS_LIBSYS_PRIVATE_H_

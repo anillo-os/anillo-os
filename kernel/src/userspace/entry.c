@@ -40,7 +40,8 @@ void ferro_userspace_entry(void) {
 	fproc_t* proc = NULL;
 	fpanic_status(fproc_new(sysman_desc, &proc));
 
-	fpanic_status(fthread_resume(proc->thread));
+	fpanic_status(fproc_resume(proc));
 
+	fvfs_release(sysman_desc);
 	fproc_release(proc);
 };

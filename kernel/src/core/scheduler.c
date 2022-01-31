@@ -862,11 +862,15 @@ void fsched_foreach_thread(fsched_thread_iterator_f iterator, void* data, bool i
 	flock_spin_intsafe_unlock(&global_thread_lock);
 };
 
-fthread_t* fsched_find(fthread_id_t thread_id) {
+fthread_t* fsched_find(fthread_id_t thread_id, bool retain) {
 	flock_spin_intsafe_lock(&global_thread_lock);
 
 	for (fthread_t* thread = global_thread_list; thread != NULL; thread = ((fsched_thread_private_t*)((fthread_private_t*)thread)->hooks[0].context)->global_next) {
 		if (thread->id == thread_id) {
+			if (retain) {
+				// we know that the thread can't be dead here because we own a reference to it and that can't go away as long as we have the global thread list lock
+				FERRO_WUR_IGNORE(fthread_retain(thread));
+			}
 			flock_spin_intsafe_unlock(&global_thread_lock);
 			return thread;
 		}

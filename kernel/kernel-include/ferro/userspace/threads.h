@@ -30,6 +30,8 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
+FERRO_STRUCT_FWD(fproc);
+
 /**
  * A custom syscall handler for a uthread.
  *
@@ -161,13 +163,12 @@ FERRO_WUR ferr_t futhread_context(fthread_t* uthread, fthread_saved_context_t** 
  * Allocates and initializes a new uthread with the given information.
  *
  * @param thread                  The thread to register as a uthread.
+ * @param user_stack_base         The base (i.e. lowest address) of the user stack for the uthread. If this is `NULL`, a stack is immediately allocated and ::futhread_flag_deallocate_user_stack_on_exit will automatically be set in the thread flags.
  * @param user_stack_size         The size of the user stack for the uthread.
  * @param user_space              The virtual address space for the new uthread. If `NULL`, a new address space is created and ::futhread_flag_destroy_address_space_on_exit and ::futhread_flag_deallocate_address_space_on_exit are automatically set in the uthread flags.
  * @param flags                   Flags to assign to the uthread.
  * @param syscall_handler         An optional syscall handler for the uthread.
  * @param syscall_handler_context An optional context for the syscall handler for the uthread.
- *
- * @note ::fthread_flag_deallocate_user_stack_on_exit will automatically be set in the uthread flags.
  *
  * @note The newly created uthread is suspended on creation. However, in order to start it, it must first be assigned to a thread manager (like the scheduler subsystem). Then, it can be resumed with fthread_resume() (using the uthread's core thread handle).
  *
@@ -184,7 +185,7 @@ FERRO_WUR ferr_t futhread_context(fthread_t* uthread, fthread_saved_context_t** 
  * @retval ferr_invalid_argument    One or more of: 1) @p thread was not a valid thread, 2) @p flags contained an invalid value.
  * @retval ferr_temporary_outage    One or more of: 1) there were insufficient resources to register a new uthread, 2) there was not enough memory to allocate a stack.
  */
-FERRO_WUR ferr_t futhread_register(fthread_t* thread, size_t user_stack_size, fpage_space_t* user_space, futhread_flags_t flags, futhread_syscall_handler_f syscall_handler, void* syscall_handler_context);
+FERRO_WUR ferr_t futhread_register(fthread_t* thread, void* user_stack_base, size_t user_stack_size, fpage_space_t* user_space, futhread_flags_t flags, futhread_syscall_handler_f syscall_handler, void* syscall_handler_context);
 
 /**
  * Retrieves a pointer to the uthread that is currently executing on the current CPU.
@@ -224,6 +225,16 @@ FERRO_NO_RETURN void futhread_jump_user_self(void* address);
  * Initializes the uthreads subsystem.
  */
 void futhread_init(void);
+
+/**
+ * Returns a pointer to the process to which this uthread belongs.
+ *
+ * @note UThreads can exist independently, without processes (though this is not common).
+ *       Therefore, this function MAY return `NULL` even for valid uthreads.
+ *
+ * @note This does NOT grant a reference on the process. You must use `fproc_retain` for that.
+ */
+fproc_t* futhread_process(fthread_t* uthread);
 
 FERRO_DECLARATIONS_END;
 

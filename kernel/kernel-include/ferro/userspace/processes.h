@@ -33,10 +33,11 @@ FERRO_DECLARATIONS_BEGIN;
 typedef uint64_t fproc_fd_t;
 #define FPROC_FD_MAX UINT64_MAX
 
+FERRO_STRUCT_FWD(futhread_data_private);
+
 /**
  * Processes are purely a userspace concept (thus, no `u` prefix).
  * They are a way of distinguishing groups of threads cooperating for the same purpose, sharing resources like memory.
- * (although having multiple threads in a process is planned but not implemented yet).
  *
  * Basically, the difference between a process and a thread is that the purpose of a process is to achieve a major goal (e.g. print something on the screen, manage a device,
  * modify some files, etc.) while the purpose of a thread is to execute code (e.g. perform some calculation for the printing, wait for the device to become active,
@@ -64,16 +65,12 @@ FERRO_STRUCT(fproc) {
 	fpage_space_t space;
 
 	/**
-	 * The thread for this process.
-	 *
-	 * @todo Support multiple threads in the same process.
+	 * The list of uthreads in this process.
 	 */
-	fthread_t* thread;
+	futhread_data_private_t* uthread_list;
+	flock_mutex_t uthread_list_mutex;
 
 	fuloader_info_t* binary_info;
-
-	fwaitq_waiter_t uthread_death_waiter;
-	fwaitq_waiter_t uthread_destroy_waiter;
 
 	/**
 	 * A VFS file descriptor pointing to the main binary for this process.
@@ -281,6 +278,40 @@ typedef void (*fper_proc_data_destructor_f)(void* context, void* data, size_t da
 FERRO_WUR ferr_t fper_proc_register(fper_proc_key_t* out_key);
 FERRO_WUR ferr_t fper_proc_lookup(fproc_t* process, fper_proc_key_t key, bool create_if_absent, size_t size_if_absent, fper_proc_data_destructor_f destructor_if_absent, void* destructor_context, bool* out_created, void** out_pointer, size_t* out_size);
 FERRO_WUR ferr_t fper_proc_clear(fproc_t* process, fper_proc_key_t key, bool skip_previous_destructor);
+
+typedef bool (*fproc_for_each_thread_iterator_f)(void* context, fproc_t* process, fthread_t* thread);
+
+/**
+ * Calls the given iterator for each thread in the process.
+ *
+ * @param process  The process whose threads will be iterated through.
+ * @param iterator The iterator function to call on each thread in the process.
+ * @param context  An optional context to pass to the iterator.
+ *
+ * @retval ferr_ok        The iterator was successfully called on each thread in the process.
+ * @retval ferr_cancelled The iterator exited the iteration early by returning `false`.
+ */
+ferr_t fproc_for_each_thread(fproc_t* process, fproc_for_each_thread_iterator_f iterator, void* context);
+
+/**
+ * Suspends the given process by suspending all its threads.
+ *
+ * @param process The process whose threads will be suspended.
+ *
+ * @retval ferr_ok        The threads in the process were successfully suspended.
+ * @retval ferr_forbidden Suspending the threads in the given process was not allowed.
+ */
+ferr_t fproc_suspend(fproc_t* process);
+
+/**
+ * Resumes the given process by resuming all its threads.
+ *
+ * @param process The process whose threads will be resumed.
+ *
+ * @retval ferr_ok        The threads in the process were successfully resumed.
+ * @retval ferr_forbidden Resuming the threads in the given process was not allowed.
+ */
+ferr_t fproc_resume(fproc_t* process);
 
 FERRO_DECLARATIONS_END;
 

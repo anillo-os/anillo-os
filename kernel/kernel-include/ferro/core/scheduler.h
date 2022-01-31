@@ -75,10 +75,11 @@ ferr_t fsched_manage(fthread_t* in_out_thread);
  * Finds and returns the thread with the given thread ID, if it exists.
  *
  * @param thread_id The ID to look for.
+ * @param retain    If `true`, the thread is retained before it is returned. This can be useful to avoid the thread being released and destroyed just before you get a chance to use it.
  *
  * @returns The thread with the given ID, or `NULL` if none was found.
  */
-fthread_t* fsched_find(fthread_id_t thread_id);
+fthread_t* fsched_find(fthread_id_t thread_id, bool retain);
 
 /**
  * @}

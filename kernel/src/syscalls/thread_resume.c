@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,24 +16,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBSYS_LIBSYS_H_
-#define _LIBSYS_LIBSYS_H_
+#include <gen/ferro/userspace/syscall-handlers.h>
+#include <ferro/core/threads.h>
+#include <ferro/core/scheduler.h>
 
-#include <libsys/base.h>
+ferr_t fsyscall_handler_thread_resume(uint64_t thread_id) {
+	ferr_t status = ferr_ok;
+	fthread_t* thread = fsched_find(thread_id, true);
 
-#include <libsys/abort.h>
-#include <libsys/config.h>
-#include <libsys/console.h>
-#include <libsys/files.h>
-#include <libsys/format.h>
-#include <libsys/general.h>
-#include <libsys/ghmap.h>
-#include <libsys/locks.h>
-#include <libsys/mempool.h>
-#include <libsys/objects.h>
-#include <libsys/pages.h>
-#include <libsys/paths.h>
-#include <libsys/streams.h>
-#include <libsys/threads.h>
+	if (!thread) {
+		status = ferr_no_such_resource;
+		goto out;
+	}
 
-#endif // _LIBSYS_LIBSYS_H_
+	status = fthread_resume(thread);
+
+out:
+	if (thread) {
+		fthread_release(thread);
+	}
+	return status;
+};

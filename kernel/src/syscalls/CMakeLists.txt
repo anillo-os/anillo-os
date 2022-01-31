@@ -14,6 +14,13 @@ add_library(ferro_syscalls STATIC
 	fd_copy_path.c
 	fd_list_children.c
 	fd_open.c
+	thread_create.c
+	thread_id.c
+	thread_kill.c
+	thread_suspend.c
+	thread_resume.c
+	thread_set_fs.c
+	thread_set_gs.c
 )
 
 add_dependencies(ferro_syscalls

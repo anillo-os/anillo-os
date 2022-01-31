@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -17,30 +17,31 @@
  */
 
 #include <gen/ferro/userspace/syscall-handlers.h>
-#include <ferro/userspace/threads.h>
-#include <ferro/userspace/processes.h>
-#include <ferro/core/panic.h>
+#include <ferro/core/threads.h>
+#include <ferro/core/scheduler.h>
 
-static bool exit_thread_iterator(void* context, fproc_t* process, fthread_t* thread) {
-	if (thread == fthread_current()) {
-		// don't kill the current thread
-		return true;
+ferr_t fsyscall_handler_thread_kill(uint64_t thread_id) {
+	ferr_t status = ferr_ok;
+	fthread_t* thread = fsched_find(thread_id, true);
+
+	if (!thread) {
+		status = ferr_no_such_resource;
+		goto out;
 	}
 
-	fpanic_status(fthread_kill(thread));
+	if (thread == fthread_current()) {
+		// if it's the current thread, release the reference we gained on ourselves, and *then* kill ourselves.
+		// (we can't possibly be fully released while we're running, the scheduler must be holding a reference to us)
+		fthread_release(thread);
+		fthread_kill_self();
+		__builtin_unreachable();
+	} else {
+		status = fthread_kill(thread);
+	}
 
-	return true;
-};
-
-ferr_t fsyscall_handler_exit(int32_t status) {
-	// TODO: use `status` to indicate whether the process died peacefully or not
-
-	// first kill the other threads in the process
-	fproc_for_each_thread(fproc_current(), exit_thread_iterator, NULL);
-
-	// now kill this thread
-	fthread_kill_self();
-
-	// unnecessary, but just for consistency
-	return ferr_ok;
+out:
+	if (thread) {
+		fthread_release(thread);
+	}
+	return status;
 };

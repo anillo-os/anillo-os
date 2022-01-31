@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <ferro/userspace/processes.h>
+#include <ferro/userspace/processes.private.h>
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>
 #include <ferro/userspace/threads.private.h>
@@ -123,21 +123,36 @@ static void fproc_all_uthreads_died(fproc_t* proc) {
 	fproc_release(proc);
 };
 
-static void fproc_uthread_died(void* context) {
-	fproc_t* proc = context;
-
-	// TODO: once we support multiple threads in a process, we'll need to check if this is the last thread that's dying
+void fproc_uthread_died(void* context) {
+	futhread_data_private_t* uthread_private = context;
+	fproc_t* proc = uthread_private->process;
+	bool is_last = false;
 
 	// retain the process so that it lives long enough to be cleaned up
 	fpanic_status(fproc_retain(proc));
 
-	// never do this before retaining the process because it may lead to a full release of the process
-	fthread_release(proc->thread);
+	// remove the dead uthread from the uthread list
+	flock_mutex_lock(&proc->uthread_list_mutex);
+	*uthread_private->prev = uthread_private->next;
+	if (uthread_private->next) {
+		uthread_private->next->prev = uthread_private->prev;
+	}
+	is_last = (proc->uthread_list == NULL) ? true : false;
+	flock_mutex_unlock(&proc->uthread_list_mutex);
 
-	fproc_all_uthreads_died(proc);
+	// never do this before retaining the process because it may lead to a full release of the process
+	fthread_release(uthread_private->thread);
+
+	if (is_last) {
+		// this was the last thread; let's clean up the process
+		fproc_all_uthreads_died(proc);
+	} else {
+		// there are still more threads left; release our extra retain from earlier
+		fproc_release(proc);
+	}
 };
 
-static void fproc_uthread_destroyed(void* context) {
+void fproc_uthread_destroyed(void* context) {
 	fproc_t* proc = context;
 
 	// now that the uthread has been destroyed and there's no chance of anyone using the reference it has on us, release the reference
@@ -158,6 +173,7 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	futhread_data_private_t* private_data = NULL;
 	bool destroy_descriptor_table_on_fail = false;
 	bool destroy_per_proc_on_fail = false;
+	fthread_t* first_thread = NULL;
 
 	if (!out_proc) {
 		status = ferr_invalid_argument;
@@ -170,7 +186,7 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 		goto out;
 	}
 
-	proc->thread = NULL;
+	proc->uthread_list = NULL;
 	proc->binary_info = NULL;
 	proc->binary_descriptor = NULL;
 
@@ -191,18 +207,18 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	}
 
 	// create the first thread
-	if (fthread_new(fproc_thread_init, proc, NULL, FPAGE_LARGE_PAGE_SIZE, 0, &proc->thread) != ferr_ok) {
+	if (fthread_new(fproc_thread_init, proc, NULL, FPAGE_LARGE_PAGE_SIZE, 0, &first_thread) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;
 	}
 
-	if (fsched_manage(proc->thread) != ferr_ok) {
+	if (fsched_manage(first_thread) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;
 	}
 
 	// register a userspace context onto the new thread
-	if (futhread_register(proc->thread, FPAGE_LARGE_PAGE_SIZE, &proc->space, 0, fsyscall_table_handler, (void*)&fsyscall_table_standard) != ferr_ok) {
+	if (futhread_register(first_thread, NULL, FPAGE_LARGE_PAGE_SIZE, &proc->space, 0, fsyscall_table_handler, (void*)&fsyscall_table_standard) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;
 	}
@@ -229,14 +245,19 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	// just a few more non-erroring-throwing tasks to do and then we're done.
 
 	// set ourselves as the process for the uthread
-	private_data = (void*)futhread_data_for_thread(proc->thread);
+	private_data = (void*)futhread_data_for_thread(first_thread);
 	private_data->process = proc;
 
+	flock_mutex_init(&proc->uthread_list_mutex);
+	private_data->prev = &proc->uthread_list;
+	private_data->next = NULL;
+	proc->uthread_list = private_data;
+
 	// register ourselves to be notified when the uthread dies (so we can release our resources)
-	fwaitq_waiter_init(&proc->uthread_death_waiter, fproc_uthread_died, proc);
-	fwaitq_waiter_init(&proc->uthread_destroy_waiter, fproc_uthread_destroyed, proc);
-	fwaitq_wait(&private_data->public.death_wait, &proc->uthread_death_waiter);
-	fwaitq_wait(&private_data->public.destroy_wait, &proc->uthread_destroy_waiter);
+	fwaitq_waiter_init(&private_data->uthread_death_waiter, fproc_uthread_died, private_data);
+	fwaitq_waiter_init(&private_data->uthread_destroy_waiter, fproc_uthread_destroyed, proc);
+	fwaitq_wait(&private_data->public.death_wait, &private_data->uthread_death_waiter);
+	fwaitq_wait(&private_data->public.destroy_wait, &private_data->uthread_destroy_waiter);
 
 	proc->mappings = NULL;
 
@@ -267,8 +288,8 @@ out:
 			fvfs_release(proc->binary_descriptor);
 		}
 
-		if (proc->thread) {
-			fthread_release(proc->thread);
+		if (first_thread) {
+			fthread_release(first_thread);
 		}
 
 		if (proc->binary_info) {
@@ -617,5 +638,81 @@ ferr_t fper_proc_clear(fproc_t* process, fper_proc_key_t key, bool skip_previous
 
 out:
 	flock_mutex_unlock(&process->per_proc_mutex);
+	return status;
+};
+
+ferr_t fproc_for_each_thread(fproc_t* process, fproc_for_each_thread_iterator_f iterator, void* context) {
+	ferr_t status = ferr_ok;
+	flock_mutex_lock(&process->uthread_list_mutex);
+
+	for (futhread_data_private_t* private_data = process->uthread_list; private_data != NULL; private_data = private_data->next) {
+		if (!iterator(context, process, private_data->thread)) {
+			status = ferr_cancelled;
+			break;
+		}
+	}
+
+	flock_mutex_unlock(&process->uthread_list_mutex);
+	return status;
+};
+
+static bool suspend_each_thread(void* context, fproc_t* process, fthread_t* thread) {
+	ferr_t* status_ptr = context;
+
+	if (thread == fthread_current()) {
+		// suspend the current thread later
+		return true;
+	}
+
+	ferr_t tmp = fthread_suspend(thread);
+	switch (tmp) {
+		case ferr_ok:
+		case ferr_already_in_progress:
+		case ferr_permanent_outage:
+			break;
+		default:
+			fpanic_status(tmp);
+	}
+
+	return true;
+};
+
+static bool resume_each_thread(void* context, fproc_t* process, fthread_t* thread) {
+	ferr_t* status_ptr = context;
+
+	// there's no way that we can be resuming the current thread
+	//if (thread == fthread_current()) {
+	//	return true;
+	//}
+
+	ferr_t tmp = fthread_resume(thread);
+	switch (tmp) {
+		case ferr_ok:
+		case ferr_already_in_progress:
+		case ferr_permanent_outage:
+			break;
+		default:
+			fpanic_status(tmp);
+	}
+
+	return true;
+};
+
+ferr_t fproc_suspend(fproc_t* process) {
+	ferr_t status = ferr_ok;
+	fproc_for_each_thread(process, suspend_each_thread, &status);
+	if (process == fproc_current()) {
+		fthread_suspend_self();
+	}
+	return status;
+};
+
+ferr_t fproc_resume(fproc_t* process) {
+	ferr_t status = ferr_ok;
+	fproc_for_each_thread(process, resume_each_thread, &status);
+	// we can't be resuming the current process
+	//if (process == fproc_current()) {
+	//	fthread_suspend_self();
+	//}
 	return status;
 };

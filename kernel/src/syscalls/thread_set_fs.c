@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,24 +16,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBSYS_LIBSYS_H_
-#define _LIBSYS_LIBSYS_H_
+#include <gen/ferro/userspace/syscall-handlers.h>
+#include <ferro/core/threads.h>
+#include <ferro/userspace/threads.private.h>
+#include <ferro/core/x86_64/msr.h>
 
-#include <libsys/base.h>
+ferr_t fsyscall_handler_thread_set_fs(void* address) {
+	fthread_t* thread = fthread_current();
+	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
 
-#include <libsys/abort.h>
-#include <libsys/config.h>
-#include <libsys/console.h>
-#include <libsys/files.h>
-#include <libsys/format.h>
-#include <libsys/general.h>
-#include <libsys/ghmap.h>
-#include <libsys/locks.h>
-#include <libsys/mempool.h>
-#include <libsys/objects.h>
-#include <libsys/pages.h>
-#include <libsys/paths.h>
-#include <libsys/streams.h>
-#include <libsys/threads.h>
+	private_data->fs_base = (uintptr_t)address;
+	farch_msr_write(farch_msr_fs_base, private_data->fs_base);
 
-#endif // _LIBSYS_LIBSYS_H_
+	return ferr_ok;
+};

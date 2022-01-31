@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,24 +16,33 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBSYS_LIBSYS_H_
-#define _LIBSYS_LIBSYS_H_
+#ifndef _LIBSYS_THREADS_PRIVATE_H_
+#define _LIBSYS_THREADS_PRIVATE_H_
 
 #include <libsys/base.h>
-
-#include <libsys/abort.h>
-#include <libsys/config.h>
-#include <libsys/console.h>
-#include <libsys/files.h>
-#include <libsys/format.h>
-#include <libsys/general.h>
-#include <libsys/ghmap.h>
-#include <libsys/locks.h>
-#include <libsys/mempool.h>
-#include <libsys/objects.h>
-#include <libsys/pages.h>
-#include <libsys/paths.h>
-#include <libsys/streams.h>
 #include <libsys/threads.h>
+#include <libsys/objects.private.h>
 
-#endif // _LIBSYS_LIBSYS_H_
+#include <ferro/error.h>
+
+LIBSYS_DECLARATIONS_BEGIN;
+
+LIBSYS_STRUCT(sys_thread_object) {
+	sys_object_t object;
+	sys_thread_id_t id;
+	void* tls[256];
+};
+
+LIBSYS_ENUM(uint64_t, sys_thread_tls_key) {
+	sys_thread_tls_key_tls = 0,
+	sys_thread_tls_key_self = 1,
+};
+
+#define LIBSYS_GS_RELATIVE __attribute__((address_space(256)))
+#define LIBSYS_FS_RELATIVE __attribute__((address_space(257)))
+
+LIBSYS_WUR ferr_t sys_thread_init(void);
+
+LIBSYS_DECLARATIONS_END;
+
+#endif // _LIBSYS_THREADS_PRIVATE_H_
