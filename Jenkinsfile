@@ -4,6 +4,7 @@ pipeline {
 			image 'registry.git.facekapow.dev/anillo-os/anillo-os:latest'
 			registryUrl 'https://registry.git.facekapow.dev'
 			registryCredentialsId 'jenkins-docker-login'
+			alwaysPull true
 		}
 	}
 
