@@ -27,4 +27,6 @@ RUN apt-get -y install libfdisk-dev
 RUN apt-get -y install ninja-build
 RUN apt-get -y install libc6-dev-i386
 RUN apt-get -y install fuse
-RUN cd /tmp && git clone https://github.com/braincorp/partfs.git && cd partfs && make && cp build/bin/partfs /usr/local/bin/ && cd / && rm -rf /tmp/partfs
+RUN cd /tmp && git clone https://github.com/braincorp/partfs.git && cd partfs && make -j && cp build/bin/partfs /usr/local/bin/ && cd / && rm -rf /tmp/partfs
+RUN cd /tmp && git clone https://github.com/tpoechtrager/cctools-port.git && cd cctools-port/cctools && ./configure --prefix=/usr/local --target=x86_64-apple-darwin11 --with-llvm-config=llvm-config && make -j && make install && cd / && rm -rf /tmp/cctools-port
+RUN cd /tmp && git clone https://github.com/tpoechtrager/cctools-port.git && cd cctools-port/cctools && ./configure --prefix=/usr/local --target=aarch64-apple-darwin11 --with-llvm-config=llvm-config && make -j && make install && cd / && rm -rf /tmp/cctools-port
