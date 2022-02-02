@@ -5,7 +5,7 @@ pipeline {
 			registryUrl 'https://registry.git.facekapow.dev'
 			registryCredentialsId 'jenkins-docker-login'
 			alwaysPull true
-			args '--device /dev/fuse --cap-add SYS_ADMIN'
+			args '--device /dev/fuse --cap-add SYS_ADMIN --security-opt apparmor:unconfined'
 		}
 	}
 
