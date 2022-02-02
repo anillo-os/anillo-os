@@ -100,6 +100,8 @@ if os.path.exists(OUTPUT_DEPFILE_PATH):
 		if hashlib.sha256(dep_headers.encode()).hexdigest() != hashlib.sha256(file_content.encode()).hexdigest():
 			write_depfile = True
 			print("NOT MATCHING 1")
+else:
+	write_depfile = True
 
 if write_depfile:
 	with io.open(OUTPUT_DEPFILE_PATH, 'w', newline='\n') as outfile:
@@ -175,6 +177,8 @@ if os.path.exists(OUTPUT_HEADER_PATH):
 		file_content = outfile.read().strip()
 		if hashlib.sha256(output_header_content.strip().encode()).hexdigest() != hashlib.sha256(file_content.encode()).hexdigest():
 			write_header = True
+else:
+	write_header = True
 
 if write_header:
 	with io.open(OUTPUT_HEADER_PATH, 'w', newline='\n') as outfile:
