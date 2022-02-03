@@ -34,19 +34,6 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
-/**
- * @addtogroup Paging
- *
- * @{
- */
-
-#define FARCH_PAGE_VIRT_L3_HUGE_MASK 0x000000003fffffffULL
-#define FARCH_PAGE_VIRT_L2_HUGE_MASK 0x00000000001fffffULL
-
-/**
- * @}
- */
-
 FERRO_DECLARATIONS_END;
 
 #endif // _FERRO_CORE_X86_64_PAGING_H_

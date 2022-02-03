@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,9 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-.align 4
-.text
-.global _libsyscall_invoke
-_libsyscall_invoke:
-	# TODO
-	udf #0
+#include <libsys/threads.private.h>
+#include <libsys/abort.h>
+
+void __sys_thread_setup(sys_thread_object_t* thread) {
+	// TODO
+	sys_abort();
+};

@@ -18,6 +18,7 @@ set(libsys_sources
 	src/config.c
 
 	src/${ANILLO_ARCH}/threads.S
+	src/${ANILLO_ARCH}/threads.c
 )
 
 set(libsys_libs

@@ -42,6 +42,9 @@ FERRO_DECLARATIONS_BEGIN;
 
 #define FARCH_PAGE_PHYS_ENTRY(x) ((uintptr_t)(x) & (0xffffffffff << 12))
 
+#define FARCH_PAGE_VIRT_L3_HUGE_MASK 0x000000003fffffffULL
+#define FARCH_PAGE_VIRT_L2_HUGE_MASK 0x00000000001fffffULL
+
 FERRO_ALWAYS_INLINE uintptr_t fpage_virtual_to_physical_early(uintptr_t virtual_address) {
 	fpage_table_t* l4;
 	fpage_table_t* l3;

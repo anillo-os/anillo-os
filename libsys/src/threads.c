@@ -25,7 +25,7 @@
 #include <libsimple/libsimple.h>
 
 static void sys_thread_destroy(sys_thread_t* object);
-void __sys_thread_setup(sys_thread_object_t* thread);
+extern void __sys_thread_setup(sys_thread_object_t* thread);
 void __sys_thread_exit_self(void);
 extern void __sys_thread_entry(void);
 
@@ -153,10 +153,6 @@ sys_thread_t* sys_thread_current(void) {
 sys_thread_id_t sys_thread_id(sys_thread_t* object) {
 	sys_thread_object_t* thread = (void*)object;
 	return thread->id;
-};
-
-void __sys_thread_setup(sys_thread_object_t* thread) {
-	sys_abort_status(libsyscall_wrapper_thread_set_fs(&thread->tls[0]));
 };
 
 void __sys_thread_exit_self(void) {

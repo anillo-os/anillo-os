@@ -22,7 +22,7 @@
  * AARCH64-specific paging function implementations.
  */
 
-#include <ferro/core/aarch64/paging.h>
+#include <ferro/core/aarch64/paging.private.h>
 
 uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
 	// the method used in the early version of this function on AARCH64 works always

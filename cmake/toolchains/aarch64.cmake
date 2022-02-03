@@ -35,7 +35,7 @@ set(CMAKE_STRIP "${LLVM_STRIP_PATH}" CACHE INTERNAL "")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "--ld-path=${LD_PATH} -Wl,-platform_version,macos,10.15,10.15 -Wl,-arch,arm64")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "--ld-path=${LD_PATH} -Wl,-platform_version,macos,10.15,10.15 -Wl,-arch,arm64")
 
-# the target triple is "aarch64-unknown-darwin-macho" because clang doesn't seem to like "aarch64-unknown-none-macho"
+# TODO: modify Clang to support aarch64-unknown-none-macho (and possibly submit the fix upstream)
 set(ANILLO_TARGET_TRIPLE aarch64-unknown-darwin-macho)
 
 # TODO: get rid of `-mno-implicit-float`

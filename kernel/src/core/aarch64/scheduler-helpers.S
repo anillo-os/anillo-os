@@ -31,6 +31,7 @@
 
 // arg 1 (x0) is a `fthread_saved_context_t*` (which may be NULL)
 // arg 2 (x1) is a `fthread_saved_context_t*`
+.align 4
 .text
 .global _farch_sched_immediate_switch
 _farch_sched_immediate_switch:
@@ -76,6 +77,7 @@ _farch_sched_immediate_switch:
 	ret
 
 // arg 1 (x0) is a `fthread_saved_context_t*`
+.align 4
 .text
 .global _farch_sched_delayed_switch
 _farch_sched_delayed_switch:
@@ -126,6 +128,7 @@ _farch_sched_delayed_switch:
 	eret
 
 // arg 1 (x0) is a `fthread_saved_context_t*`
+.align 4
 .text
 .global _farch_sched_bootstrap_switch
 _farch_sched_bootstrap_switch:

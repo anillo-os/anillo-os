@@ -46,6 +46,7 @@
 
 .macro loop_handlers prefix
 	.irp type, sync, irq, fiq, serror
+		.align 4
 		.text
 		_\()\prefix\()_\type\():
 			b .
@@ -54,6 +55,7 @@
 
 // most of the handler stub code is based on https://krinkinmu.github.io/2021/01/10/aarch64-interrupt-handling.html
 .macro handler_stub prefix, type, c_func_name
+	.align 4
 	.text
 	_\()\prefix\()_\type\():
 		// we should already be using the exception stack right here
@@ -150,6 +152,7 @@
 	loop_handlers \prefix
 .endr
 
+.align 4
 .text
 .global _fint_ivt
 .balign 0x800

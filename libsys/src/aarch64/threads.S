@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -18,7 +18,7 @@
 
 .align 4
 .text
-.global _libsyscall_invoke
-_libsyscall_invoke:
+.global ___sys_thread_entry
+___sys_thread_entry:
 	# TODO
 	udf #0

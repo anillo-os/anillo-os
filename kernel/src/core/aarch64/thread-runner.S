@@ -22,6 +22,7 @@
  * AARCH64 thread entry function.
  */
 
+.align 4
 .text
 .global _farch_threads_runner
 _farch_threads_runner:

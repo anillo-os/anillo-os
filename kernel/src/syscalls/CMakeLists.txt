@@ -1,5 +1,7 @@
 project(ferro-syscalls C)
 
+add_subdirectory("${ANILLO_ARCH}")
+
 add_library(ferro_syscalls STATIC
 	syscall-table.c
 
@@ -19,8 +21,6 @@ add_library(ferro_syscalls STATIC
 	thread_kill.c
 	thread_suspend.c
 	thread_resume.c
-	thread_set_fs.c
-	thread_set_gs.c
 )
 
 add_dependencies(ferro_syscalls
@@ -30,4 +30,5 @@ add_dependencies(ferro_syscalls
 target_link_libraries(ferro_syscalls PRIVATE
 	libsimple_static_kernel
 	libsimple_static_compat
+	ferro_syscalls_${ANILLO_ARCH}
 )
