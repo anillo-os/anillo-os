@@ -31,6 +31,7 @@
 #include <libsys/locks.h>
 #include <libsys/mempool.h>
 #include <libsys/objects.h>
+#include <libsys/once.h>
 #include <libsys/pages.h>
 #include <libsys/paths.h>
 #include <libsys/streams.h>

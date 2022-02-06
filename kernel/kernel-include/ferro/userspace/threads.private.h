@@ -26,6 +26,16 @@
 #define _FERRO_USERSPACE_THREADS_PRIVATE_H_
 
 #include <ferro/userspace/threads.h>
+#include <ferro/core/waitq.h>
+
+// include the arch-dependent before-header
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <ferro/userspace/x86_64/threads.private.before.h>
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#include <ferro/userspace/aarch64/threads.private.before.h>
+#else
+	#error Unrecognized/unsupported CPU architecture! (see <ferro/userspace/threads.private.h>)
+#endif
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -65,9 +75,7 @@ FERRO_STRUCT(futhread_data_private) {
 	 */
 	fwaitq_waiter_t uthread_destroy_waiter;
 
-	// FIXME: this is architecture-specific; move it to its own architecture-specific header
-	uint64_t fs_base;
-	uint64_t gs_base;
+	futhread_data_private_arch_t arch;
 };
 
 futhread_data_t* futhread_data_for_thread(fthread_t* thread);

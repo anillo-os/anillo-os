@@ -25,8 +25,8 @@ ferr_t fsyscall_handler_thread_set_fs(void* address) {
 	fthread_t* thread = fthread_current();
 	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
 
-	private_data->fs_base = (uintptr_t)address;
-	farch_msr_write(farch_msr_fs_base, private_data->fs_base);
+	private_data->arch.fs_base = (uintptr_t)address;
+	farch_msr_write(farch_msr_fs_base, private_data->arch.fs_base);
 
 	return ferr_ok;
 };

@@ -16,21 +16,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <gen/ferro/userspace/syscall-handlers.h>
-#include <ferro/core/threads.h>
-#include <ferro/userspace/threads.private.h>
-#include <ferro/core/x86_64/msr.h>
+/**
+ * @file
+ *
+ * Userspace Threads subsystem, private components; architecture-specific before-header.
+ */
 
-ferr_t fsyscall_handler_thread_set_gs(void* address) {
-	fthread_t* thread = fthread_current();
-	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
+#ifndef _FERRO_USERSPACE_AARCH64_THREADS_PRIVATE_BEFORE_H_
+#define _FERRO_USERSPACE_AARCH64_THREADS_PRIVATE_BEFORE_H_
 
-	private_data->arch.gs_base = (uintptr_t)address;
+#include <stdint.h>
 
-	// gs_base_kernel is actually gs_base user currently, since we're in the kernel.
-	// `swapgs` swaps gs_base_kernel and gs_base, so we need to write to gs_base_kernel
-	// for it to become the new gs_base value when we return to userspace.
-	farch_msr_write(farch_msr_gs_base_kernel, private_data->arch.gs_base);
+#include <ferro/base.h>
 
-	return ferr_ok;
-};
+FERRO_DECLARATIONS_BEGIN;
+
+FERRO_STRUCT(futhread_data_private_arch) {};
+
+FERRO_DECLARATIONS_END;
+
+#endif // _FERRO_USERSPACE_AARCH64_THREADS_PRIVATE_BEFORE_H_

@@ -48,27 +48,11 @@ static void fthread_destroy(fthread_t* thread) {
 };
 
 ferr_t fthread_retain(fthread_t* thread) {
-	uint64_t old_value = __atomic_load_n(&thread->reference_count, __ATOMIC_RELAXED);
-
-	do {
-		if (old_value == 0) {
-			return ferr_permanent_outage;
-		}
-	} while (!__atomic_compare_exchange_n(&thread->reference_count, &old_value, old_value + 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-
-	return ferr_ok;
+	return frefcount_increment(&thread->reference_count);
 };
 
 void fthread_release(fthread_t* thread) {
-	uint64_t old_value = __atomic_load_n(&thread->reference_count, __ATOMIC_RELAXED);
-
-	do {
-		if (old_value == 0) {
-			return;
-		}
-	} while (!__atomic_compare_exchange_n(&thread->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
-
-	if (old_value != 1) {
+	if (frefcount_decrement(&thread->reference_count) != ferr_permanent_outage) {
 		return;
 	}
 
@@ -433,7 +417,7 @@ ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_ba
 
 	flock_spin_intsafe_init(&new_thread->thread.lock);
 
-	new_thread->thread.reference_count = 1;
+	frefcount_init(&new_thread->thread.reference_count);
 
 	new_thread->thread.stack_base = stack_base;
 	new_thread->thread.stack_size = stack_size;
@@ -454,7 +438,18 @@ ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_ba
 	return ferr_ok;
 };
 
-ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq) {
+static void timeout_callback(void* data) {
+	fthread_t* thread = data;
+	fthread_private_t* private_thread = data;
+
+	flock_spin_intsafe_lock(&thread->lock);
+	private_thread->timer_id = FTIMERS_ID_INVALID;
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	FERRO_WUR_IGNORE(fthread_resume(thread));
+};
+
+ferr_t fthread_wait_timeout(fthread_t* thread, fwaitq_t* waitq, uint64_t timeout_value, fthread_timeout_type_t timeout_type) {
 	fthread_private_t* private_thread;
 	fthread_state_execution_t prev_exec_state;
 	ferr_t status = ferr_ok;
@@ -496,6 +491,26 @@ ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq) {
 		fwaitq_add_locked(waitq, &thread->wait_link);
 		fwaitq_unlock(waitq);
 		thread->waitq = waitq;
+
+		if (private_thread->timer_id != FTIMERS_ID_INVALID) {
+			FERRO_WUR_IGNORE(ftimers_cancel(private_thread->timer_id));
+		}
+
+		private_thread->timer_id = FTIMERS_ID_INVALID;
+		private_thread->pending_timeout_value = timeout_value;
+		private_thread->pending_timeout_type = timeout_type;
+
+		if (private_thread->pending_timeout_value > 0) {
+			if (private_thread->pending_timeout_type == fthread_timeout_type_ns_relative) {
+				if (ftimers_oneshot_blocking(private_thread->pending_timeout_value, timeout_callback, thread, &private_thread->timer_id) != ferr_ok) {
+					fpanic("Failed to set up thread wakeup timeout");
+				}
+			} else {
+				fpanic("Unsupported timeout type: %d", private_thread->pending_timeout_type);
+			}
+		}
+		private_thread->pending_timeout_type = 0;
+		private_thread->pending_timeout_value = 0;
 	} else if ((thread->state & fthread_state_pending_suspend) != 0) {
 		// we're not suspended yet; we can just overwrite the old pending waitq with a new one
 		if (thread->waitq && (thread->state & fthread_state_holding_waitq_lock) != 0) {
@@ -503,12 +518,16 @@ ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq) {
 		}
 		thread->state &= ~fthread_state_holding_waitq_lock;
 		thread->waitq = waitq;
+		private_thread->pending_timeout_value = timeout_value;
+		private_thread->pending_timeout_type = timeout_type;
 	} else {
 		bool handled = false;
 
 		// otherwise, we need to perform the same operation as fthread_suspend(), but with a pending waitq to wait on
 		thread->state |= fthread_state_pending_suspend;
 		thread->waitq = waitq;
+		private_thread->pending_timeout_value = timeout_value;
+		private_thread->pending_timeout_type = timeout_type;
 
 		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
 			if ((hooks_in_use & (1 << slot)) == 0) {
@@ -541,7 +560,11 @@ out_locked:
 	return status;
 };
 
-ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq) {
+ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq) {
+	return fthread_wait_timeout(thread, waitq, 0, 0);
+};
+
+ferr_t fthread_wait_timeout_locked(fthread_t* thread, fwaitq_t* waitq, uint64_t timeout_value, fthread_timeout_type_t timeout_type) {
 	// unfortunately, we have to duplicate much of fthread_wait() because it's not as simple as having fthread_wait() lock the waitq and then call us because the behavior is slightly different.
 	// for example, in the already-suspended case, we want to avoid deadlock if possible.
 	// this is possible for fthread_wait(), because it doesn't lock the new waitq until after it's done with the old waitq,
@@ -587,6 +610,26 @@ ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq) {
 		fwaitq_add_locked(waitq, &thread->wait_link);
 		fwaitq_unlock(waitq);
 		thread->waitq = waitq;
+
+		if (private_thread->timer_id != FTIMERS_ID_INVALID) {
+			FERRO_WUR_IGNORE(ftimers_cancel(private_thread->timer_id));
+		}
+
+		private_thread->timer_id = FTIMERS_ID_INVALID;
+		private_thread->pending_timeout_value = timeout_value;
+		private_thread->pending_timeout_type = timeout_type;
+
+		if (private_thread->pending_timeout_value > 0) {
+			if (private_thread->pending_timeout_type == fthread_timeout_type_ns_relative) {
+				if (ftimers_oneshot_blocking(private_thread->pending_timeout_value, timeout_callback, thread, &private_thread->timer_id) != ferr_ok) {
+					fpanic("Failed to set up thread wakeup timeout");
+				}
+			} else {
+				fpanic("Unsupported timeout type: %d", private_thread->pending_timeout_type);
+			}
+		}
+		private_thread->pending_timeout_type = 0;
+		private_thread->pending_timeout_value = 0;
 	} else if ((thread->state & fthread_state_pending_suspend) != 0) {
 		// we're not suspended yet; we can just overwrite the old pending waitq with a new one
 		if (thread->waitq && (thread->state & fthread_state_holding_waitq_lock) != 0) {
@@ -594,12 +637,16 @@ ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq) {
 		}
 		thread->state |= fthread_state_holding_waitq_lock;
 		thread->waitq = waitq;
+		private_thread->pending_timeout_value = timeout_value;
+		private_thread->pending_timeout_type = timeout_type;
 	} else {
 		bool handled = false;
 
 		// otherwise, we need to perform the same operation as fthread_suspend(), but with a pending waitq to wait on
 		thread->state |= fthread_state_pending_suspend | fthread_state_holding_waitq_lock;
 		thread->waitq = waitq;
+		private_thread->pending_timeout_value = timeout_value;
+		private_thread->pending_timeout_type = timeout_type;
 
 		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
 			if ((hooks_in_use & (1 << slot)) == 0) {
@@ -630,6 +677,10 @@ out_locked:
 	flock_spin_intsafe_unlock(&thread->lock);
 
 	return status;
+};
+
+ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq) {
+	return fthread_wait_timeout_locked(thread, waitq, 0, 0);
 };
 
 uint8_t fthread_register_hook(fthread_t* thread, uint64_t owner_id, void* context, fthread_hook_suspend_f suspend, fthread_hook_resume_f resume, fthread_hook_kill_f kill, fthread_hook_interrupted_f interrupted, fthread_hook_ending_interrupt_f ending_interrupt) {

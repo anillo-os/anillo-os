@@ -41,6 +41,7 @@
 
 #include <ferro/core/console.h>
 #include <ferro/core/paging.h>
+#include <ferro/core/refcount.h>
 
 #include <stdatomic.h>
 
@@ -57,7 +58,7 @@ FERRO_STRUCT(fwork) {
 	fwork_t* prev;
 	fwork_t* next;
 	fwork_queue_t* queue;
-	uint64_t reference_count;
+	frefcount_t reference_count;
 	fworker_f function;
 	void* data;
 
@@ -234,7 +235,7 @@ ferr_t fwork_new(fworker_f worker_function, void* data, fwork_t** out_worker) {
 
 	work->prev = NULL;
 	work->next = NULL;
-	work->reference_count = 1;
+	frefcount_init(&work->reference_count);
 	work->function = worker_function;
 	work->data = data;
 	work->state = fwork_state_complete;
@@ -246,38 +247,22 @@ ferr_t fwork_new(fworker_f worker_function, void* data, fwork_t** out_worker) {
 	return ferr_ok;
 };
 
-static void fworker_destroy(fwork_t* work) {
+static void fwork_destroy(fwork_t* work) {
 	if (fmempool_free(work) != ferr_ok) {
 		fpanic("Failed to free work instance structure");
 	}
 };
 
 ferr_t fwork_retain(fwork_t* work) {
-	uint64_t old_value = __atomic_load_n(&work->reference_count, __ATOMIC_RELAXED);
-
-	do {
-		if (old_value == 0) {
-			return ferr_permanent_outage;
-		}
-	} while (!__atomic_compare_exchange_n(&work->reference_count, &old_value, old_value + 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-
-	return ferr_ok;
+	return frefcount_increment(&work->reference_count);
 };
 
 void fwork_release(fwork_t* work) {
-	uint64_t old_value = __atomic_load_n(&work->reference_count, __ATOMIC_RELAXED);
-
-	do {
-		if (old_value == 0) {
-			return;
-		}
-	} while (!__atomic_compare_exchange_n(&work->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
-
-	if (old_value != 1) {
+	if (frefcount_decrement(&work->reference_count) != ferr_permanent_outage) {
 		return;
 	}
 
-	fworker_destroy(work);
+	fwork_destroy(work);
 };
 
 static fwork_queue_t* fwork_queue_new(void) {

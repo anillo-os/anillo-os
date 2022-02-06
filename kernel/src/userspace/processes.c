@@ -40,27 +40,11 @@ static void fproc_destroy(fproc_t* process) {
 };
 
 ferr_t fproc_retain(fproc_t* process) {
-	uint64_t old_value = __atomic_load_n(&process->reference_count, __ATOMIC_RELAXED);
-
-	do {
-		if (old_value == 0) {
-			return ferr_permanent_outage;
-		}
-	} while (!__atomic_compare_exchange_n(&process->reference_count, &old_value, old_value + 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-
-	return ferr_ok;
+	return frefcount_increment(&process->reference_count);
 };
 
 void fproc_release(fproc_t* process) {
-	uint64_t old_value = __atomic_load_n(&process->reference_count, __ATOMIC_RELAXED);
-
-	do {
-		if (old_value == 0) {
-			return;
-		}
-	} while (!__atomic_compare_exchange_n(&process->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
-
-	if (old_value != 1) {
+	if (frefcount_decrement(&process->reference_count) != ferr_permanent_outage) {
 		return;
 	}
 
@@ -103,6 +87,9 @@ static void fproc_all_uthreads_died(fproc_t* proc) {
 	simple_ghmap_for_each(&proc->per_proc, per_proc_clear_iterator, NULL);
 	simple_ghmap_destroy(&proc->per_proc);
 	flock_mutex_unlock(&proc->per_proc_mutex);
+
+	// clear all private futexes
+	futex_table_destroy(&proc->futex_table);
 
 	fpanic_status(fuloader_unload_file(proc->binary_info));
 
@@ -173,6 +160,7 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	futhread_data_private_t* private_data = NULL;
 	bool destroy_descriptor_table_on_fail = false;
 	bool destroy_per_proc_on_fail = false;
+	bool destroy_futex_table_on_fail = false;
 	fthread_t* first_thread = NULL;
 
 	if (!out_proc) {
@@ -192,7 +180,8 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 
 	// the user initially has one reference and so does the uthread
 	// the uthread's reference lasts until it is destroyed
-	proc->reference_count = 2;
+	frefcount_init(&proc->reference_count);
+	FERRO_WUR_IGNORE(frefcount_increment(&proc->reference_count));
 
 	// initialize the address space
 	if (fpage_space_init(&proc->space) != ferr_ok) {
@@ -241,6 +230,12 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	}
 	destroy_per_proc_on_fail = true;
 
+	if (futex_table_init(&proc->futex_table) != ferr_ok) {
+		status = ferr_temporary_outage;
+		goto out;
+	}
+	destroy_futex_table_on_fail = true;
+
 	// if we got here, this process is definitely okay.
 	// just a few more non-erroring-throwing tasks to do and then we're done.
 
@@ -276,6 +271,10 @@ out:
 	if (status == ferr_ok) {
 		*out_proc = proc;
 	} else {
+		if (destroy_futex_table_on_fail) {
+			futex_table_destroy(&proc->futex_table);
+		}
+
 		if (destroy_per_proc_on_fail) {
 			simple_ghmap_destroy(&proc->per_proc);
 		}

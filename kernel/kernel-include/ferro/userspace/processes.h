@@ -27,6 +27,8 @@
 #include <ferro/userspace/loader.h>
 #include <ferro/core/ghmap.h>
 #include <ferro/core/paging.private.h>
+#include <ferro/core/refcount.h>
+#include <ferro/userspace/futex.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -56,7 +58,7 @@ FERRO_STRUCT(fproc) {
 	 *
 	 * This MUST be accessed and modified ONLY with fproc_retain() and fproc_release().
 	 */
-	uint64_t reference_count;
+	frefcount_t reference_count;
 
 	/**
 	 * The user address space for this process.
@@ -125,6 +127,8 @@ FERRO_STRUCT(fproc) {
 
 	simple_ghmap_t per_proc;
 	flock_mutex_t per_proc_mutex;
+
+	futex_table_t futex_table;
 };
 
 /**

@@ -35,6 +35,7 @@
 #include <ferro/core/locks.h>
 #include <ferro/core/waitq.h>
 #include <ferro/core/timers.h>
+#include <ferro/core/refcount.h>
 
 // include the arch-dependent before-header
 #if FERRO_ARCH == FERRO_ARCH_x86_64
@@ -150,7 +151,7 @@ FERRO_STRUCT(fthread) {
 	 *
 	 * This MUST be accessed and modified ONLY with fthread_retain() and fthread_release().
 	 */
-	uint64_t reference_count;
+	frefcount_t reference_count;
 
 	/**
 	 * Protects #flags, #state, #exit_data (and #exit_data_size), #saved_context, #wait_link, and #pending_waitq from being read or written.
@@ -401,6 +402,13 @@ fthread_state_execution_t fthread_execution_state(fthread_t* thread);
  * @retval ferr_invalid_argument    The thread had no registered manager.
  */
 FERRO_WUR ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq);
+
+/**
+ * Like fthread_wait(), but once the thread begins waiting, starts a timer to resume the thread.
+ *
+ * @note Unlike fthread_suspend_timeout(), this function WILL overwrite any pending timeout.
+ */
+FERRO_WUR ferr_t fthread_wait_timeout(fthread_t* thread, fwaitq_t* waitq, uint64_t timeout_value, fthread_timeout_type_t timeout_type);
 
 /**
  * @}

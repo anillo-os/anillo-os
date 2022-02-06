@@ -5,6 +5,7 @@ add_library(ferro_userspace STATIC
 	loader.c
 	entry.c
 	processes.c
+	futex.c
 )
 
 add_subdirectory("${ANILLO_ARCH}")

@@ -187,7 +187,7 @@ ferr_t fvfs_descriptor_init(fvfs_descriptor_t* descriptor, fvfs_mount_t* mount, 
 	}
 
 	descriptor->flags = flags;
-	descriptor->reference_count = 1;
+	frefcount_init(&descriptor->reference_count);
 	descriptor->mount = mount;
 
 	return ferr_ok;
@@ -228,27 +228,11 @@ ferr_t fvfs_open(const char* path, fvfs_descriptor_flags_t flags, fvfs_descripto
 };
 
 ferr_t fvfs_retain(fvfs_descriptor_t* descriptor) {
-	uint64_t old_value = __atomic_load_n(&descriptor->reference_count, __ATOMIC_RELAXED);
-
-	do {
-		if (old_value == 0) {
-			return ferr_permanent_outage;
-		}
-	} while (!__atomic_compare_exchange_n(&descriptor->reference_count, &old_value, old_value + 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED));
-
-	return ferr_ok;
+	return frefcount_increment(&descriptor->reference_count);
 };
 
 void fvfs_release(fvfs_descriptor_t* descriptor) {
-	uint64_t old_value = __atomic_load_n(&descriptor->reference_count, __ATOMIC_RELAXED);
-
-	do {
-		if (old_value == 0) {
-			return;
-		}
-	} while (!__atomic_compare_exchange_n(&descriptor->reference_count, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED));
-
-	if (old_value != 1) {
+	if (frefcount_decrement(&descriptor->reference_count) != ferr_permanent_outage) {
 		return;
 	}
 

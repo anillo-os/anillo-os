@@ -543,6 +543,8 @@ static ferr_t manager_suspend(void* context, fthread_t* thread) {
 				fpanic("Unsupported timeout type: %d", private_thread->pending_timeout_type);
 			}
 		}
+		private_thread->pending_timeout_type = 0;
+		private_thread->pending_timeout_value = 0;
 
 		return ferr_permanent_outage;
 	}
@@ -695,6 +697,8 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 					fpanic("Unsupported timeout type: %d", private_thread->pending_timeout_type);
 				}
 			}
+			private_thread->pending_timeout_type = 0;
+			private_thread->pending_timeout_value = 0;
 
 			flock_spin_intsafe_unlock(&thread->lock);
 

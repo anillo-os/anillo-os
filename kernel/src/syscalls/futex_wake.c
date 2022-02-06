@@ -17,20 +17,23 @@
  */
 
 #include <gen/ferro/userspace/syscall-handlers.h>
-#include <ferro/core/threads.h>
-#include <ferro/userspace/threads.private.h>
-#include <ferro/core/x86_64/msr.h>
+#include <ferro/userspace/processes.h>
 
-ferr_t fsyscall_handler_thread_set_gs(void* address) {
-	fthread_t* thread = fthread_current();
-	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
+ferr_t fsyscall_handler_futex_wake(uint64_t* address, uint64_t channel, uint64_t wakeup_count, uint64_t flags) {
+	fproc_t* proc = fproc_current();
+	futex_t* futex = NULL;
+	ferr_t status = ferr_ok;
 
-	private_data->arch.gs_base = (uintptr_t)address;
+	if (futex_lookup(&proc->futex_table, (uintptr_t)address, channel, &futex) != ferr_ok) {
+		status = ferr_temporary_outage;
+		goto out;
+	}
 
-	// gs_base_kernel is actually gs_base user currently, since we're in the kernel.
-	// `swapgs` swaps gs_base_kernel and gs_base, so we need to write to gs_base_kernel
-	// for it to become the new gs_base value when we return to userspace.
-	farch_msr_write(farch_msr_gs_base_kernel, private_data->arch.gs_base);
+	fwaitq_wake_many(&futex->waitq, wakeup_count);
 
-	return ferr_ok;
+out:
+	if (futex) {
+		futex_release(futex);
+	}
+	return status;
 };

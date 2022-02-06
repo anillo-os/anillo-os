@@ -16,6 +16,7 @@ set(libsys_sources
 	src/streams.c
 	src/threads.c
 	src/config.c
+	src/once.c
 
 	src/${ANILLO_ARCH}/threads.S
 	src/${ANILLO_ARCH}/threads.c

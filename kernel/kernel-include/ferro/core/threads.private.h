@@ -195,6 +195,8 @@ void farch_thread_init_info(fthread_t* thread, fthread_initializer_f initializer
  */
 FERRO_WUR ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq);
 
+FERRO_WUR ferr_t fthread_wait_timeout_locked(fthread_t* thread, fwaitq_t* waitq, uint64_t timeout_value, fthread_timeout_type_t timeout_type);
+
 uint8_t fthread_register_hook(fthread_t* thread, uint64_t owner_id, void* context, fthread_hook_suspend_f suspend, fthread_hook_resume_f resume, fthread_hook_kill_f kill, fthread_hook_interrupted_f interrupted, fthread_hook_ending_interrupt_f ending_interrupt);
 
 uint8_t fthread_find_hook(fthread_t* thread, uint64_t owner_id);

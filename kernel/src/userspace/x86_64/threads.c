@@ -33,9 +33,9 @@ void futhread_jump_user_self_arch(fthread_t* uthread, futhread_data_t* udata, vo
 void futhread_ending_interrupt_arch(fthread_t* uthread, futhread_data_t* udata) {
 	futhread_data_private_t* private_data = (void*)udata;
 	FARCH_PER_CPU(current_uthread_data) = udata;
-	farch_msr_write(farch_msr_fs_base, private_data->fs_base);
+	farch_msr_write(farch_msr_fs_base, private_data->arch.fs_base);
 	// see syscalls/thread_set_gs.c for the reason why we set gs_base_kernel instead of gs_base
-	farch_msr_write(farch_msr_gs_base_kernel, private_data->gs_base);
+	farch_msr_write(farch_msr_gs_base_kernel, private_data->arch.gs_base);
 };
 
 void farch_uthread_syscall_handler_wrapper();

@@ -31,6 +31,7 @@
 #include <ferro/base.h>
 #include <ferro/error.h>
 #include <ferro/core/vfs.h>
+#include <ferro/core/refcount.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -51,7 +52,7 @@ FERRO_OPTIONS(uint64_t, fvfs_descriptor_private_flags) {
 };
 
 FERRO_STRUCT(fvfs_descriptor) {
-	uint64_t reference_count;
+	frefcount_t reference_count;
 	fvfs_descriptor_flags_t flags;
 	fvfs_mount_t* mount;
 };

@@ -30,12 +30,32 @@ LIBSYS_STRUCT(sys_spinlock) {
 	uint8_t internal;
 };
 
+LIBSYS_STRUCT(sys_mutex) {
+	uint64_t internal;
+};
+
+LIBSYS_STRUCT(sys_semaphore) {
+	uint64_t internal;
+};
+
 #define SYS_SPINLOCK_INIT {0}
+#define SYS_MUTEX_INIT {0}
+#define SYS_SEMAPHORE_INIT(x) {(x)}
 
 void sys_spinlock_init(sys_spinlock_t* spinlock);
 void sys_spinlock_lock(sys_spinlock_t* spinlock);
 void sys_spinlock_unlock(sys_spinlock_t* spinlock);
 LIBSYS_WUR bool sys_spinlock_try_lock(sys_spinlock_t* spinlock);
+
+void sys_mutex_init(sys_mutex_t* mutex);
+void sys_mutex_lock(sys_mutex_t* mutex);
+void sys_mutex_unlock(sys_mutex_t* mutex);
+LIBSYS_WUR bool sys_mutex_try_lock(sys_mutex_t* mutex);
+
+void sys_semaphore_init(sys_semaphore_t* semaphore, uint64_t initial_value);
+void sys_semaphore_down(sys_semaphore_t* semaphore);
+void sys_semaphore_up(sys_semaphore_t* semaphore);
+LIBSYS_WUR bool sys_semaphore_try_down(sys_semaphore_t* semaphore);
 
 LIBSYS_DECLARATIONS_END;
 
