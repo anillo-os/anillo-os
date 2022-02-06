@@ -864,8 +864,10 @@ WARN_LOGFILE           =
 # spaces. See also FILE_PATTERNS and EXTENSION_MAPPING
 # Note: If this tag is empty the current directory is searched.
 
-INPUT                  = kernel/include/libk kernel/include/ferro kernel/include/ferro/core \
-                         kernel/include/ferro/core/generic kernel/include/ferro/core/aarch64 \
+INPUT                  = kernel/include/ferro libsimple/include/libsimple kernel/kernel-include/ferro kernel/kernel-include/ferro/core \
+                         kernel/kernel-include/ferro/core/generic kernel/kernel-include/ferro/core/aarch64 kernel/kernel-include/ferro/syscalls \
+                         kernel/kernel-include/ferro/gdbstub kernel/kernel-include/ferro/userspace kernel/kernel-include/ferro/userspace/aarch64 \
+                         libmacho/include/libmacho \
                          kernel/docsrc
 
 # This tag can be used to specify the character encoding of the source files

@@ -864,10 +864,13 @@ WARN_LOGFILE           =
 # spaces. See also FILE_PATTERNS and EXTENSION_MAPPING
 # Note: If this tag is empty the current directory is searched.
 
-INPUT                  = kernel/include/libk kernel/include/ferro kernel/include/ferro/core \
-                         kernel/include/ferro/core/generic kernel/include/ferro/core/x86_64 \
+INPUT                  = kernel/include/ferro libsimple/include/libsimple kernel/kernel-include/ferro kernel/kernel-include/ferro/core \
+                         kernel/kernel-include/ferro/core/generic kernel/kernel-include/ferro/core/x86_64 kernel/kernel-include/ferro/syscalls \
+                         kernel/kernel-include/ferro/gdbstub kernel/kernel-include/ferro/userspace kernel/kernel-include/ferro/userspace/x86_64 \
+                         libmacho/include/libmacho \
                          kernel/docsrc \
-                         kernel/src/libk kernel/src/core kernel/src/core/generic kernel/src/core/x86_64
+                         libsimple/src kernel/src/core kernel/src/core/generic kernel/src/core/x86_64 kernel/src/gdbstub kernel/src/gdbstub/x86_64 \
+                         kernel/src/syscalls kernel/src/syscalls/x86_64 kernel/src/ubsan kernel/src/userspace kernel/src/userspace/x86_64
 
 # This tag can be used to specify the character encoding of the source files
 # that doxygen parses. Internally doxygen uses the UTF-8 encoding. Doxygen uses
