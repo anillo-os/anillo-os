@@ -25,6 +25,7 @@
 #include <ferro/core/workers.h>
 #include <libsimple/libsimple.h>
 #include <ferro/core/paging.private.h>
+#include <ferro/userspace/futex.h>
 
 // DA7A == Data
 // (because the hook is only used to swap address spaces)
@@ -66,12 +67,30 @@ void futhread_init(void) {
 static void uthread_thread_died(void* context) {
 	fthread_t* thread = context;
 	futhread_data_t* data = futhread_data_for_thread(thread);
+	futhread_data_private_t* private_data = (void*)data;
 
 	// we're guaranteed to be called in a thread context, so we can operate normally here
 
 	if (!data) {
 		// huh, it's not there. oh well.
 		return;
+	}
+
+	// notify the death futex (if we have one)
+	if (private_data->uthread_death_futex) {
+		// first, store the desired value
+		fpage_space_t* curr = fpage_space_current();
+		fpanic_status(fpage_space_swap(data->user_space));
+		__atomic_store_n((uint64_t*)private_data->uthread_death_futex->address, private_data->uthread_death_futex_value, __ATOMIC_RELAXED);
+		fpanic_status(fpage_space_swap(curr));
+
+		// next, wake up anyone waiting on the futex
+		fwaitq_wake_many(&private_data->uthread_death_futex->waitq, SIZE_MAX);
+
+		// finally, release the futex
+		futex_release(private_data->uthread_death_futex);
+		private_data->uthread_death_futex = NULL;
+		private_data->uthread_death_futex_value = 0;
 	}
 
 	if ((data->flags & futhread_flag_deallocate_user_stack_on_exit) != 0) {
@@ -203,6 +222,9 @@ retry_lookup:
 	data->syscall_handler_context = syscall_handler_context;
 
 	private_data->thread = thread;
+
+	private_data->uthread_death_futex = NULL;
+	private_data->uthread_death_futex_value = 0;
 
 out_locked:
 	if (status != ferr_ok) {

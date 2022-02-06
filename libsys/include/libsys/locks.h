@@ -38,9 +38,14 @@ LIBSYS_STRUCT(sys_semaphore) {
 	uint64_t internal;
 };
 
+LIBSYS_STRUCT(sys_event) {
+	uint64_t internal;
+};
+
 #define SYS_SPINLOCK_INIT {0}
 #define SYS_MUTEX_INIT {0}
 #define SYS_SEMAPHORE_INIT(x) {(x)}
+#define SYS_EVENT_INIT {0}
 
 void sys_spinlock_init(sys_spinlock_t* spinlock);
 void sys_spinlock_lock(sys_spinlock_t* spinlock);
@@ -56,6 +61,11 @@ void sys_semaphore_init(sys_semaphore_t* semaphore, uint64_t initial_value);
 void sys_semaphore_down(sys_semaphore_t* semaphore);
 void sys_semaphore_up(sys_semaphore_t* semaphore);
 LIBSYS_WUR bool sys_semaphore_try_down(sys_semaphore_t* semaphore);
+
+void sys_event_init(sys_event_t* event);
+void sys_event_wait(sys_event_t* event);
+void sys_event_notify(sys_event_t* event);
+LIBSYS_WUR bool sys_event_try_wait(sys_event_t* event);
 
 LIBSYS_DECLARATIONS_END;
 

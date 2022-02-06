@@ -83,6 +83,17 @@ sys_thread_t* sys_thread_current(void);
 
 sys_thread_id_t sys_thread_id(sys_thread_t* thread);
 
+/**
+ * Waits for the given thread to exit.
+ *
+ * @param thread The thread to wait for.
+ *
+ * @retval ferr_ok               The thread has exited.
+ * @retval ferr_invalid_argument The given thread was not a valid thread to wait for (e.g. it was the current thread).
+ * @retval ferr_forbidden        Waiting for the given thread was not allowed.
+ */
+LIBSYS_WUR ferr_t sys_thread_wait(sys_thread_t* thread);
+
 LIBSYS_DECLARATIONS_END;
 
 #endif // _LIBSYS_THREADS_H_

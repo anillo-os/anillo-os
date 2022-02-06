@@ -19,18 +19,11 @@
 #include <libsys/libsys.h>
 
 static void secondary_thread_entry(void* context, sys_thread_t* this_thread) {
-	volatile bool* foo = context;
-	sys_console_log("*** secondary sysman thread starting up***\n");
+	sys_console_log("secondary thread entering...\n");
 
-	while (true) {
-		if (*foo) {
-			sys_console_log("foo was true!\n");
-		} else {
-			sys_console_log("foo was false!\n");
-		}
-		sys_console_log("secondary thread sleeping for 1 seconds\n");
-		sys_abort_status(sys_thread_suspend_timeout(this_thread, 1000000000ULL * 1, sys_thread_timeout_type_relative_ns_monotonic));
-	}
+	sys_console_log("secondary thread sleeping for 5 seconds...\n");
+	sys_abort_status(sys_thread_suspend_timeout(this_thread, 5ULL * 1000000000ULL, sys_thread_timeout_type_relative_ns_monotonic));
+	sys_console_log("secondary thread exiting...\n");
 };
 
 void main(void) {
@@ -43,15 +36,12 @@ void main(void) {
 	sys_abort_status(sys_page_allocate(sys_config_read_minimum_stack_size() / sys_config_read_page_size(), 0, &stack));
 	sys_console_log_f("allocated stack at %p\n", stack);
 
-	sys_abort_status(sys_thread_create(stack, sys_config_read_minimum_stack_size(), secondary_thread_entry, (void*)&foo, sys_thread_flag_resume, &thread));
-	sys_console_log("created and started thread\n");
-	while (true) {
-		for (size_t i = 0; i < (1ULL << 31); ++i) {
-			foo = !foo;
-		}
-		sys_console_log("primary thread sleeping for 2 second\n");
-		sys_abort_status(sys_thread_suspend_timeout(sys_thread_current(), 1000000000ULL * 2, sys_thread_timeout_type_relative_ns_monotonic));
-	}
+	sys_abort_status(sys_thread_create(stack, sys_config_read_minimum_stack_size(), secondary_thread_entry, NULL, sys_thread_flag_resume, &thread));
+	sys_console_log("created and started secondary thread\n");
+
+	sys_console_log("waiting for secondary thread to die...\n");
+	sys_abort_status(sys_thread_wait(thread));
+	sys_console_log("secondary thread died\n");
 
 	sys_exit(0);
 };

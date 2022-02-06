@@ -17,7 +17,7 @@
  */
 
 #include <libsys/threads.private.h>
-#include <libsys/locks.h>
+#include <libsys/locks.private.h>
 #include <gen/libsyscall/syscall-wrappers.h>
 #include <libsys/objects.private.h>
 #include <libsys/abort.h>
@@ -31,6 +31,11 @@ extern void __sys_thread_entry(void);
 
 static const sys_object_class_t thread_class = {
 	.destroy = sys_thread_destroy,
+};
+
+void __sys_thread_setup_common(void) {
+	sys_thread_object_t* thread = (void*)sys_thread_current();
+	libsyscall_wrapper_futex_associate(&thread->death_event.internal, 0, 0, sys_event_state_set);
 };
 
 ferr_t sys_thread_init(void) {
@@ -146,10 +151,6 @@ ferr_t sys_thread_suspend_timeout(sys_thread_t* object, uint64_t timeout, sys_th
 	return libsyscall_wrapper_thread_suspend(thread->id, timeout, timeout_type + 1);
 };
 
-sys_thread_t* sys_thread_current(void) {
-	return *(void* LIBSYS_FS_RELATIVE*)(sys_thread_tls_key_self * sizeof(void*));
-};
-
 sys_thread_id_t sys_thread_id(sys_thread_t* object) {
 	sys_thread_object_t* thread = (void*)object;
 	return thread->id;
@@ -159,4 +160,16 @@ void __sys_thread_exit_self(void) {
 	sys_thread_object_t* thread = (void*)sys_thread_current();
 	sys_abort_status(libsyscall_wrapper_thread_kill(thread->id));
 	__builtin_unreachable();
+};
+
+ferr_t sys_thread_wait(sys_thread_t* object) {
+	sys_thread_object_t* thread = (void*)object;
+
+	if (object == sys_thread_current()) {
+		return ferr_invalid_argument;
+	}
+
+	sys_event_wait(&thread->death_event);
+
+	return ferr_ok;
 };

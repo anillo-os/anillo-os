@@ -25,4 +25,5 @@ syscalls.extend([
 	Syscall(common_base + 17, 'thread_resume', thread_id='u64'),
 	Syscall(common_base + 18, 'futex_wait', address='*[u64]', channel='u64', expected_value='u64', timeout='u64', timeout_type='u8', flags='u64'),
 	Syscall(common_base + 19, 'futex_wake', address='*[u64]', channel='u64', wakeup_count='u64', flags='u64'),
+	Syscall(common_base + 20, 'futex_associate', address='*[u64]', channel='u64', event='u64', value='u64'),
 ])

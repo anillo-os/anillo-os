@@ -22,6 +22,7 @@
 #include <libsys/base.h>
 #include <libsys/threads.h>
 #include <libsys/objects.private.h>
+#include <libsys/locks.h>
 
 #include <ferro/error.h>
 
@@ -30,6 +31,7 @@ LIBSYS_DECLARATIONS_BEGIN;
 LIBSYS_STRUCT(sys_thread_object) {
 	sys_object_t object;
 	sys_thread_id_t id;
+	sys_event_t death_event;
 	void* tls[256];
 };
 
@@ -42,6 +44,8 @@ LIBSYS_ENUM(uint64_t, sys_thread_tls_key) {
 #define LIBSYS_FS_RELATIVE __attribute__((address_space(257)))
 
 LIBSYS_WUR ferr_t sys_thread_init(void);
+
+void __sys_thread_setup_common(void);
 
 LIBSYS_DECLARATIONS_END;
 

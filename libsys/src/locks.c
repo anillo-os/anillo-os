@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <libsys/locks.h>
+#include <libsys/locks.private.h>
 #include <ferro/platform.h>
 #include <gen/libsyscall/syscall-wrappers.h>
 
@@ -52,12 +52,6 @@ bool sys_spinlock_try_lock(sys_spinlock_t* spinlock) {
 //
 // based on https://github.com/bugaevc/lets-write-sync-primitives
 //
-
-LIBSYS_ENUM(uint64_t, sys_mutex_state) {
-	sys_mutex_state_unlocked = 0,
-	sys_mutex_state_locked_uncontended = 1,
-	sys_mutex_state_locked_contended = 2,
-};
 
 void sys_mutex_init(sys_mutex_t* mutex) {
 	mutex->internal = 0;
@@ -102,10 +96,6 @@ bool sys_mutex_try_lock(sys_mutex_t* mutex) {
 //
 // based on https://github.com/bugaevc/lets-write-sync-primitives
 //
-
-LIBSYS_ENUM(uint64_t, sys_semaphore_state) {
-	sys_semaphore_state_up_needs_to_wake_bit = 1ULL << 63,
-};
 
 void sys_semaphore_init(sys_semaphore_t* semaphore, uint64_t initial_value) {
 	semaphore->internal = initial_value;
@@ -204,4 +194,39 @@ bool sys_semaphore_try_down(sys_semaphore_t* semaphore) {
 	}
 
 	return __atomic_compare_exchange_n(&semaphore->internal, &old_state, (count - 1) | (old_state & sys_semaphore_state_up_needs_to_wake_bit), false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+};
+
+//
+// event
+//
+// based on https://github.com/bugaevc/lets-write-sync-primitives
+//
+
+void sys_event_init(sys_event_t* event) {
+	event->internal = 0;
+};
+
+void sys_event_wait(sys_event_t* event) {
+	uint64_t old_state = sys_event_state_unset_no_wait;
+
+	if (__atomic_compare_exchange_n(&event->internal, &old_state, sys_event_state_unset_wait, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
+		// if we succeeded in setting it to "unset_wait", update our stored `old_state` to match
+		old_state = sys_event_state_unset_wait;
+	}
+
+	while (old_state != sys_event_state_set) {
+		libsyscall_wrapper_futex_wait(&event->internal, 0, old_state, 0, 0, 0);
+		old_state = __atomic_load_n(&event->internal, __ATOMIC_ACQUIRE);
+	}
+};
+
+void sys_event_notify(sys_event_t* event) {
+	if (__atomic_exchange_n(&event->internal, sys_event_state_set, __ATOMIC_RELEASE) == sys_event_state_unset_wait) {
+		// if "unset_wait", there are waiters we need to wake up
+		libsyscall_wrapper_futex_wake(&event->internal, 0, UINT64_MAX, 0);
+	}
+};
+
+bool sys_event_try_wait(sys_event_t* event) {
+	return __atomic_load_n(&event->internal, __ATOMIC_ACQUIRE) == sys_event_state_set;
 };

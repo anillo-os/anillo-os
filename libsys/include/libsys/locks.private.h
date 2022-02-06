@@ -16,15 +16,29 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <libsys/threads.private.h>
-#include <libsys/abort.h>
+#ifndef _LIBSYS_LOCKS_PRIVATE_H_
+#define _LIBSYS_LOCKS_PRIVATE_H_
 
-void __sys_thread_setup(sys_thread_object_t* thread) {
-	// TODO
-	sys_abort();
+#include <libsys/locks.h>
+
+LIBSYS_DECLARATIONS_BEGIN;
+
+LIBSYS_ENUM(uint64_t, sys_mutex_state) {
+	sys_mutex_state_unlocked = 0,
+	sys_mutex_state_locked_uncontended = 1,
+	sys_mutex_state_locked_contended = 2,
 };
 
-sys_thread_t* sys_thread_current(void) {
-	// TODO
-	sys_abort();
+LIBSYS_ENUM(uint64_t, sys_semaphore_state) {
+	sys_semaphore_state_up_needs_to_wake_bit = 1ULL << 63,
 };
+
+LIBSYS_ENUM(uint64_t, sys_event_state) {
+	sys_event_state_unset_no_wait = 0,
+	sys_event_state_unset_wait = 1,
+	sys_event_state_set = 2,
+};
+
+LIBSYS_DECLARATIONS_END;
+
+#endif // _LIBSYS_LOCKS_PRIVATE_H_

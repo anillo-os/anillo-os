@@ -41,7 +41,7 @@ static bool futex_table_key_equal(void* context, const void* stored_key, size_t 
 	const futex_table_key_t* stored_table_key = stored_key;
 	const futex_table_key_t* table_key = key;
 
-	return stored_table_key->address == table_key->address && stored_table_key->channel == table_key->address;
+	return stored_table_key->address == table_key->address && stored_table_key->channel == table_key->channel;
 };
 
 ferr_t futex_table_init(futex_table_t* table) {
@@ -74,6 +74,11 @@ ferr_t futex_lookup(futex_table_t* table, uintptr_t address, uint64_t channel, f
 		.channel = channel,
 	};
 
+	if (!out_futex) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
 retry:
 	flock_mutex_lock(&table->mutex);
 	status = simple_ghmap_lookup(&table->table, &key, sizeof(key), true, sizeof(futex_t), &created, (void*)&futex, NULL);
@@ -96,6 +101,10 @@ retry:
 	}
 	flock_mutex_unlock(&table->mutex);
 
+out:
+	if (status == ferr_ok) {
+		*out_futex = futex;
+	}
 	return status;
 };
 

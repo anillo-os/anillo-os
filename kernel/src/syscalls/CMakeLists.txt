@@ -23,6 +23,7 @@ add_library(ferro_syscalls STATIC
 	thread_resume.c
 	futex_wait.c
 	futex_wake.c
+	futex_associate.c
 )
 
 add_dependencies(ferro_syscalls

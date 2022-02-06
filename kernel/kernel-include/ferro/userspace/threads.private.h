@@ -40,6 +40,7 @@
 FERRO_DECLARATIONS_BEGIN;
 
 FERRO_STRUCT_FWD(fproc);
+FERRO_STRUCT_FWD(futex);
 
 FERRO_STRUCT(futhread_data_private) {
 	futhread_data_t public;
@@ -74,6 +75,9 @@ FERRO_STRUCT(futhread_data_private) {
 	 * A waiter for this uthread's destruction; owned by this uthread's process.
 	 */
 	fwaitq_waiter_t uthread_destroy_waiter;
+
+	futex_t* uthread_death_futex;
+	uint64_t uthread_death_futex_value;
 
 	futhread_data_private_arch_t arch;
 };

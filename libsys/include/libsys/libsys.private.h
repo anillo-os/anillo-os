@@ -24,6 +24,7 @@
 #include <libsys/console.private.h>
 #include <libsys/general.private.h>
 #include <libsys/handoff.private.h>
+#include <libsys/locks.private.h>
 #include <libsys/objects.private.h>
 #include <libsys/threads.private.h>
 

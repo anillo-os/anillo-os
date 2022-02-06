@@ -32,7 +32,7 @@ LIBSYS_ENUM(uint64_t, sys_once_state) {
 void sys_once(sys_once_t* token, sys_once_f initializer, void* context) {
 	uint64_t old_state = sys_once_state_init;
 
-	if (__atomic_compare_exchange_n(token, &old_state, sys_once_state_perform_no_wait, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+	if (__atomic_compare_exchange_n(token, &old_state, sys_once_state_perform_no_wait, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
 		// we saw "init" and changed it to "perform_no_wait";
 		// we're now the ones that need to call the initializer
 
@@ -56,7 +56,7 @@ void sys_once(sys_once_t* token, sys_once_f initializer, void* context) {
 	while (old_state != sys_once_state_done) {
 		if (old_state == sys_once_state_perform_no_wait) {
 			// we're the first waiter; let's update the state to let the performer know
-			if (!__atomic_compare_exchange_n(token, &old_state, sys_once_state_perform_wait, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+			if (!__atomic_compare_exchange_n(token, &old_state, sys_once_state_perform_wait, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
 				// if we failed to exchange it, the performer might've already finished;
 				// let's loop back around and check
 				continue;

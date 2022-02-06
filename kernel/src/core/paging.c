@@ -949,20 +949,6 @@ static fpage_region_header_t* space_virtual_acquire_next_region(fpage_space_t* s
 	return next;
 };
 
-/**
- * Like virtual_acquire_next_region(), but if the given region matches the given exception region, its lock is NOT released.
- */
-static fpage_region_header_t* virtual_acquire_next_region_with_exception(fpage_region_header_t* prev, fpage_region_header_t* exception) {
-	fpage_region_header_t* next = prev->next;
-	if (next) {
-		flock_spin_intsafe_lock(&next->lock);
-	}
-	if (prev != exception) {
-		flock_spin_intsafe_unlock(&prev->lock);
-	}
-	return next;
-};
-
 static fpage_region_header_t* space_virtual_acquire_next_region_with_exception(fpage_space_t* space, fpage_region_header_t* prev, fpage_region_header_t* exception) {
 	fpage_region_header_t* prev_temp = space_map_temporarily_auto(space, prev);
 	fpage_region_header_t* next = prev_temp->next;

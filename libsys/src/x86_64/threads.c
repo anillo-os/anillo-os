@@ -22,4 +22,9 @@
 
 void __sys_thread_setup(sys_thread_object_t* thread) {
 	sys_abort_status(libsyscall_wrapper_thread_set_fs(&thread->tls[0]));
+	__sys_thread_setup_common();
+};
+
+sys_thread_t* sys_thread_current(void) {
+	return *(void* LIBSYS_FS_RELATIVE*)(sys_thread_tls_key_self * sizeof(void*));
 };
