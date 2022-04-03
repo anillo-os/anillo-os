@@ -56,27 +56,11 @@ ferr_t fsyscall_handler_thread_create(void* stack, uint64_t stack_size, void con
 		goto out;
 	}
 
-	// past this point, we know that everything's good and the thread will be successfully created
-
-	// set ourselves as the process for the uthread
-	private_data = (void*)futhread_data_for_thread(thread);
-	private_data->process = proc;
-
-	// add the uthread to the process uthread list
-	flock_mutex_lock(&proc->uthread_list_mutex);
-	private_data->prev = &proc->uthread_list;
-	private_data->next = proc->uthread_list;
-	if (private_data->next) {
-		private_data->next->prev = &private_data->next;
+	// attach it to our process
+	if (fproc_attach_thread(proc, thread) != ferr_ok) {
+		status = ferr_temporary_outage;
+		goto out;
 	}
-	proc->uthread_list = private_data;
-	flock_mutex_unlock(&proc->uthread_list_mutex);
-
-	// register ourselves to be notified when the uthread dies (so we can release our resources)
-	fwaitq_waiter_init(&private_data->uthread_death_waiter, fproc_uthread_died, private_data);
-	fwaitq_waiter_init(&private_data->uthread_destroy_waiter, fproc_uthread_destroyed, proc);
-	fwaitq_wait(&private_data->public.death_wait, &private_data->uthread_death_waiter);
-	fwaitq_wait(&private_data->public.destroy_wait, &private_data->uthread_destroy_waiter);
 
 out:
 	if (status == ferr_ok) {
@@ -86,9 +70,10 @@ out:
 			// currently, the only way to make the scheduler unmanage a thread is to kill it
 			FERRO_WUR_IGNORE(fthread_kill(thread));
 		}
-		if (thread) {
-			fthread_release(thread);
-		}
+	}
+	// we always release the thread, since the process retains it when we attach it
+	if (thread) {
+		fthread_release(thread);
 	}
 	return status;
 };

@@ -317,6 +317,19 @@ ferr_t fproc_suspend(fproc_t* process);
  */
 ferr_t fproc_resume(fproc_t* process);
 
+/**
+ * Attaches the given uthread to the given process.
+ *
+ * @param process The process who will now own the uthread.
+ * @param uthread The uthread to attach to the process.
+ *
+ * @pre The thread has already been registered as a uthread but it has not been attached to any process yet.
+ *
+ * @retval ferr_ok               The uthread has been successfully attached to the process.
+ * @retval ferr_permanent_outage The process, the uthread, or both could not be retained.
+ */
+ferr_t fproc_attach_thread(fproc_t* process, fthread_t* uthread);
+
 FERRO_DECLARATIONS_END;
 
 #endif // _FERRO_USERSPACE_PROCESSES_H_

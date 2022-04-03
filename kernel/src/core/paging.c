@@ -661,7 +661,12 @@ uintptr_t fpage_space_virtual_to_physical(fpage_space_t* space, uintptr_t virtua
  * can be called without needing to remap temporarily-mapped addresses afterwards.
  */
 FERRO_ALWAYS_INLINE void* space_map_temporarily_auto(fpage_space_t* space, void* virt) {
-	return map_temporarily_auto((void*)fpage_space_virtual_to_physical(space, (uintptr_t)virt));
+	uintptr_t phys = fpage_space_virtual_to_physical(space, (uintptr_t)virt);
+	if (phys == UINTPTR_MAX) {
+		fpanic("bad address within space");
+		return NULL;
+	}
+	return map_temporarily_auto((void*)phys);
 };
 
 #define space_map_temporarily_auto_type(space, virt) ((__typeof__((virt)))space_map_temporarily_auto((space), (virt)))

@@ -181,7 +181,7 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	// the user initially has one reference and so does the uthread
 	// the uthread's reference lasts until it is destroyed
 	frefcount_init(&proc->reference_count);
-	FERRO_WUR_IGNORE(frefcount_increment(&proc->reference_count));
+	FERRO_WUR_IGNORE(fproc_retain(proc));
 
 	// initialize the address space
 	if (fpage_space_init(&proc->space) != ferr_ok) {
@@ -713,5 +713,58 @@ ferr_t fproc_resume(fproc_t* process) {
 	//if (process == fproc_current()) {
 	//	fthread_suspend_self();
 	//}
+	return status;
+};
+
+ferr_t fproc_attach_thread(fproc_t* proc, fthread_t* uthread) {
+	futhread_data_private_t* private_data = NULL;
+	ferr_t status = ferr_ok;
+
+	// the thread gets a reference on the process...
+	if (fproc_retain(proc) != ferr_ok) {
+		proc = NULL;
+		uthread = NULL;
+		status = ferr_permanent_outage;
+		goto out;
+	}
+
+	// ...and the process gets a reference on the thread
+	if (fthread_retain(uthread) != ferr_ok) {
+		uthread = NULL;
+		status = ferr_permanent_outage;
+		goto out;
+	}
+
+	// set ourselves as the process for the uthread
+	private_data = (void*)futhread_data_for_thread(uthread);
+	private_data->process = proc;
+
+	// add the uthread to the process uthread list
+	flock_mutex_lock(&proc->uthread_list_mutex);
+	private_data->prev = &proc->uthread_list;
+	private_data->next = proc->uthread_list;
+	if (private_data->next) {
+		private_data->next->prev = &private_data->next;
+	}
+	proc->uthread_list = private_data;
+	flock_mutex_unlock(&proc->uthread_list_mutex);
+
+	// register ourselves to be notified when the uthread dies (so we can release our resources)
+	fwaitq_waiter_init(&private_data->uthread_death_waiter, fproc_uthread_died, private_data);
+	fwaitq_waiter_init(&private_data->uthread_destroy_waiter, fproc_uthread_destroyed, proc);
+	fwaitq_wait(&private_data->public.death_wait, &private_data->uthread_death_waiter);
+	fwaitq_wait(&private_data->public.destroy_wait, &private_data->uthread_destroy_waiter);
+
+	// null out the pointers so we don't release the references we acquired
+	proc = NULL;
+	uthread = NULL;
+
+out:
+	if (proc) {
+		fproc_release(proc);
+	}
+	if (uthread) {
+		fthread_release(uthread);
+	}
 	return status;
 };
