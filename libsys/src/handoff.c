@@ -18,6 +18,7 @@
 
 #include <libsys/handoff.private.h>
 #include <libsys/threads.private.h>
+#include <libsys/processes.private.h>
 
 ferr_t sys_handoff_source(sys_handoff_context_t* context) {
 	context->console_stream_handle = console_handle;
@@ -31,6 +32,12 @@ ferr_t sys_handoff_destination(sys_handoff_context_t* context) {
 
 	// thread initialization should be done in the loaded dylib (which is what's being initialized here)
 	status = sys_thread_init();
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// ditto for process initialization
+	status = sys_proc_init();
 	if (status != ferr_ok) {
 		goto out;
 	}

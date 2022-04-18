@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,26 +16,26 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBSYS_LIBSYS_H_
-#define _LIBSYS_LIBSYS_H_
+#ifndef _LIBSYS_PROCESSES_PRIVATE_H_
+#define _LIBSYS_PROCESSES_PRIVATE_H_
 
 #include <libsys/base.h>
-
-#include <libsys/abort.h>
-#include <libsys/config.h>
-#include <libsys/console.h>
-#include <libsys/files.h>
-#include <libsys/format.h>
-#include <libsys/general.h>
-#include <libsys/ghmap.h>
-#include <libsys/locks.h>
-#include <libsys/mempool.h>
-#include <libsys/objects.h>
-#include <libsys/once.h>
-#include <libsys/pages.h>
-#include <libsys/paths.h>
 #include <libsys/processes.h>
-#include <libsys/streams.h>
-#include <libsys/threads.h>
+#include <libsys/objects.private.h>
+#include <libsys/locks.h>
 
-#endif // _LIBSYS_LIBSYS_H_
+#include <ferro/error.h>
+
+LIBSYS_DECLARATIONS_BEGIN;
+
+LIBSYS_STRUCT(sys_proc_object) {
+	sys_object_t object;
+	sys_proc_id_t id;
+	bool detached;
+};
+
+LIBSYS_WUR ferr_t sys_proc_init(void);
+
+LIBSYS_DECLARATIONS_END;
+
+#endif // _LIBSYS_PROCESSES_PRIVATE_H_
