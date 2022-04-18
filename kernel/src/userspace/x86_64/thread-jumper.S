@@ -26,8 +26,14 @@
 .text
 .global _farch_uthread_jump_user_frame
 _farch_uthread_jump_user_frame:
-	// no need to load the right interrupt-disable count since userspace can't disable interrupts
-	// (and it'll be reset to 1 on syscalls and interrupts)
+	// load the right interrupt-disable count (0 for userspace)
+	pushq %rdi
+	pushq %rsi
+	// zero-out rsi
+	xor %edi, %edi
+	call _farch_uthread_set_interrupt_disable_count
+	popq %rsi
+	popq %rdi
 
 	// zero-out general-purpose registers
 	// (note that here we use a 32-bit register clear trick for maximum efficiency)
@@ -141,6 +147,11 @@ _farch_uthread_syscall_handler_wrapper:
 	call _farch_uthread_syscall_handler
 
 	// okay, we're returning normally from the handler, so we need to head back into userspace
+
+	// load the right interrupt-disable count (0 for userspace)
+	// zero-out rsi
+	xor %edi, %edi
+	call _farch_uthread_set_interrupt_disable_count
 
 	// at this point, when we're heading back into userspace, any register can serve as our scratch register
 	// let's just keep using r11 for consistency

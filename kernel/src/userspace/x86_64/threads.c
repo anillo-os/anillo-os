@@ -24,6 +24,11 @@
 // ONLY FOR TESTING
 #include <ferro/core/console.h>
 
+// used by our helpers
+void farch_uthread_set_interrupt_disable_count(uint64_t idc) {
+	FARCH_PER_CPU(outstanding_interrupt_disable_count) = idc;
+};
+
 FERRO_NO_RETURN void farch_uthread_jump_user_frame(void* rip, void* rsp);
 
 void futhread_jump_user_self_arch(fthread_t* uthread, futhread_data_t* udata, void* address) {
