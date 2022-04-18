@@ -30,9 +30,12 @@ void main(void) {
 	sys_thread_t* thread = NULL;
 	void* stack = NULL;
 	volatile bool foo = false;
+	sys_proc_t* tinysh_proc = NULL;
+	sys_file_t* tinysh_file = NULL;
 
 	sys_console_log("*** sysman starting up... ***\n");
 
+#if 0
 	sys_abort_status(sys_page_allocate(sys_config_read_minimum_stack_size() / sys_config_read_page_size(), 0, &stack));
 	sys_console_log_f("allocated stack at %p\n", stack);
 
@@ -42,6 +45,22 @@ void main(void) {
 	sys_console_log("waiting for secondary thread to die...\n");
 	sys_abort_status(sys_thread_wait(thread));
 	sys_console_log("secondary thread died\n");
+
+	sys_release(thread);
+	thread = NULL;
+#endif
+
+	sys_abort_status(sys_file_open("/sys/sysman/tinysh", &tinysh_file));
+
+	sys_console_log("starting tinysh...\n");
+	sys_abort_status(sys_proc_create(tinysh_file, NULL, 0, sys_proc_flag_resume | sys_proc_flag_detach, &tinysh_proc));
+	sys_console_log_f("tinysh started with PID = %llu\n", sys_proc_id(tinysh_proc));
+
+	sys_release(tinysh_file);
+	tinysh_file = NULL;
+
+	sys_release(tinysh_proc);
+	tinysh_proc = NULL;
 
 	sys_exit(0);
 };
