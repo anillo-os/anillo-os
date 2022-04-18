@@ -66,3 +66,5 @@ if (DYMPLE_LOG_DEBUG_ENABLED)
 else()
 	target_compile_definitions(dymple PRIVATE DYMPLE_LOG_DEBUG_ENABLED=0)
 endif()
+
+dsym(dymple)

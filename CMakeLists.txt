@@ -48,6 +48,9 @@ endif()
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_to_ramdisk.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_dylib.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_executable.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/dsym.cmake)
+
+find_dsymutil()
 
 set(COMPILER_RT_FLAGS "-ffreestanding -U__APPLE__ -D__ANILLO__=1 -mmacosx-version-min=10.15")
 set(COMPILER_RT_LDFLAGS "--ld-path=${LD_PATH} -Wl,-platform_version,macos,10.15,10.15 -nostdlib -ffreestanding -mmacosx-version-min=10.15")
