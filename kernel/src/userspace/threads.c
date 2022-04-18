@@ -121,7 +121,6 @@ static void uthread_thread_destroyed(void* context) {
 
 static ferr_t uthread_ending_interrupt(void* context, fthread_t* thread) {
 	futhread_data_t* data = context;
-	fpanic_status(fpage_space_swap(data->user_space));
 	futhread_ending_interrupt_arch(thread, data);
 	return ferr_ok;
 };
@@ -273,6 +272,8 @@ ferr_t futhread_jump_user(fthread_t* uthread, void* address) {
 	if (fpage_space_virtual_to_physical(data->user_space, (uintptr_t)address) == UINTPTR_MAX) {
 		return ferr_invalid_argument;
 	}
+
+	fpanic_status(fpage_space_swap(data->user_space));
 
 	if (uthread == futhread_current()) {
 		futhread_jump_user_self_arch(uthread, data, address);

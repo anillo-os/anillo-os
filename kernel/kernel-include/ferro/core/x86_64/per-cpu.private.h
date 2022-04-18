@@ -32,6 +32,7 @@ FERRO_DECLARATIONS_BEGIN;
 FERRO_STRUCT_FWD(fint_frame);
 FERRO_STRUCT_FWD(fthread);
 FERRO_STRUCT_FWD(futhread_data);
+FERRO_STRUCT_FWD(fpage_space);
 
 FERRO_STRUCT(farch_per_cpu_data) {
 	farch_per_cpu_data_t* base;
@@ -97,7 +98,7 @@ FERRO_STRUCT(farch_per_cpu_data) {
 	 *
 	 * @warning This variable MUST NOT be read or written by ANYONE besides the UThreads subsystem.
 	 *          Consider it private for all intents and purposes.
-	 *          To obtain a pointer to the current uthread data, look through the hooks in the private thread structure of #current_thread.
+	 *          To obtain a pointer to the current uthread data, use futhread_data_for_thread().
 	 */
 	futhread_data_t* current_uthread_data;
 
@@ -115,6 +116,13 @@ FERRO_STRUCT(farch_per_cpu_data) {
 	 * Owner: scheduler subsystem.
 	 */
 	void* switching_stack;
+
+	/**
+	 * The address space that is currently active on this CPU.
+	 *
+	 * Owner: paging subsystem.
+	 */
+	fpage_space_t* address_space;
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void);

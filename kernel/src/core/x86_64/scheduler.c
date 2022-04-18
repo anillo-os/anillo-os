@@ -91,6 +91,7 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 			current_thread->saved_context.cs     = frame->core.cs;
 			current_thread->saved_context.ss     = frame->core.ss;
 			current_thread->saved_context.interrupt_disable = frame->saved_registers.interrupt_disable;
+			current_thread->saved_context.address_space = frame->saved_registers.address_space;
 		}
 
 		// NOTE: we use a temporary stack (the switching stack) for context switching because we cannot use the target thread's stack since it may have a red zone
@@ -136,6 +137,10 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 		frame->core.cs = farch_int_gdt_index_code * 8;
 		frame->core.ss = farch_int_gdt_index_data * 8;
 
+		// the new address space is loaded by the interrupt handler (not our helper)
+		frame->saved_registers.address_space = new_thread->saved_context.address_space;
+		new_frame->saved_registers.address_space = new_thread->saved_context.address_space;
+
 		FARCH_PER_CPU(current_thread) = new_thread;
 
 		// and that's it; we'll let the interrupt handler take care of the rest
@@ -166,11 +171,17 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 		frame.core.cs             = new_thread->saved_context.cs;
 		frame.core.ss             = new_thread->saved_context.ss;
 		frame.saved_registers.interrupt_disable = new_thread->saved_context.interrupt_disable;
+		frame.saved_registers.address_space = new_thread->saved_context.address_space;
 
-		// store the old interrupt-disable count
 		if (current_thread) {
+			// store the old interrupt-disable count
 			current_thread->saved_context.interrupt_disable = FARCH_PER_CPU(outstanding_interrupt_disable_count);
+			// and the old address space
+			current_thread->saved_context.address_space = (uintptr_t)FARCH_PER_CPU(address_space);
 		}
+
+		// swap in the new address space here (it's easier)
+		fpanic_status(fpage_space_swap((void*)new_thread->saved_context.address_space));
 
 		FARCH_PER_CPU(current_thread) = new_thread;
 
@@ -210,6 +221,10 @@ FERRO_NO_RETURN void fsched_bootstrap(fthread_t* new_thread) {
 	frame.core.cs             = new_thread->saved_context.cs;
 	frame.core.ss             = new_thread->saved_context.ss;
 	frame.saved_registers.interrupt_disable = new_thread->saved_context.interrupt_disable;
+	frame.saved_registers.address_space = new_thread->saved_context.address_space;
+
+	// swap in the new address space here (it's easier)
+	fpanic_status(fpage_space_swap((void*)new_thread->saved_context.address_space));
 
 	FARCH_PER_CPU(current_thread) = new_thread;
 

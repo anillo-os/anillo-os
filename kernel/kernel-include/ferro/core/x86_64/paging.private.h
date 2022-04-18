@@ -26,6 +26,7 @@
 #define _FERRO_CORE_X86_64_PAGING_PRIVATE_H_
 
 #include <ferro/core/paging.private.h>
+#include <ferro/core/x86_64/per-cpu.private.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -147,6 +148,14 @@ FERRO_ALWAYS_INLINE uintptr_t fpage_fault_address(void) {
 	__asm__ volatile("mov %%cr2, %0" : "=r" (faulting_address));
 	return faulting_address;
 };
+
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void) {
+	uint64_t addr;
+	__asm__ volatile("mov %%cr3, %0" : "=r" (addr));
+	__asm__ volatile("mov %0, %%cr3\n" :: "r" (addr) : "memory");
+};
+
+#define fpage_space_current_pointer() (&FARCH_PER_CPU(address_space))
 
 FERRO_DECLARATIONS_END;
 

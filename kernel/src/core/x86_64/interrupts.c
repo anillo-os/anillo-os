@@ -258,6 +258,9 @@ static void fint_handler_common_begin(fint_handler_common_data_t* data, fint_fra
 	data->previous_exception_frame = FARCH_PER_CPU(current_exception_frame);
 	FARCH_PER_CPU(current_exception_frame) = frame;
 
+	// we also need to save the current address space
+	frame->saved_registers.address_space = (uintptr_t)FARCH_PER_CPU(address_space);
+
 	if (!safe_mode && FARCH_PER_CPU(current_thread)) {
 		fthread_interrupt_start(FARCH_PER_CPU(current_thread));
 	}
@@ -267,6 +270,8 @@ static void fint_handler_common_end(fint_handler_common_data_t* data, fint_frame
 	if (!safe_mode && FARCH_PER_CPU(current_thread)) {
 		fthread_interrupt_end(FARCH_PER_CPU(current_thread));
 	}
+
+	fpanic_status(fpage_space_swap((void*)frame->saved_registers.address_space));
 
 	FARCH_PER_CPU(current_exception_frame) = data->previous_exception_frame;
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = frame->saved_registers.interrupt_disable;
@@ -500,6 +505,7 @@ INTERRUPT_HANDLER(page_fault) {
 	if (handler) {
 		handler(handler_data);
 	} else {
+#if 0
 		fconsole_logf("page fault; code=%llu; faulting address=%p; frame:\n", frame->code, (void*)faulting_address);
 		fconsole_log("page fault code description: ");
 		print_page_fault_code(frame->code);
@@ -507,6 +513,7 @@ INTERRUPT_HANDLER(page_fault) {
 		print_frame(frame);
 		trace_stack((void*)frame->saved_registers.rbp);
 		fpanic("page fault");
+#endif
 	}
 
 	fint_handler_common_end(&data, frame, true);

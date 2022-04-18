@@ -52,7 +52,8 @@ static void log_context(fthread_saved_context_t* context) {
 		"r14=%llu; r15=%llu\n"
 		"rip=%llu; rflags=%llu\n"
 		"cs=%llu; ss=%llu\n"
-		"interrupt_disable=%llu\n",
+		"interrupt_disable=%llu\n"
+		"address_space=%llu\n",
 		context->rax, context->rcx,
 		context->rdx, context->rbx,
 		context->rsi, context->rdi,
@@ -63,7 +64,8 @@ static void log_context(fthread_saved_context_t* context) {
 		context->r14, context->r15,
 		context->rip, context->rflags,
 		context->cs, context->ss,
-		context->interrupt_disable
+		context->interrupt_disable,
+		context->address_space
 	);
 };
 

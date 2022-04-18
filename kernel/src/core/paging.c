@@ -90,10 +90,6 @@ static fpage_table_t offset_table = {0};
 static uint16_t root_offset_index = TABLE_ENTRY_COUNT - 2;
 #endif
 
-// TODO: this is not appropriate at all for a multi-core situation
-static fpage_space_t* current_address_space = NULL;
-static flock_spin_intsafe_t current_address_space_lock = FLOCK_SPIN_INTSAFE_INIT;
-
 static fpage_table_t kernel_address_space_root_table = {0};
 static fpage_space_t kernel_address_space = {
 	.l4_table = &kernel_address_space_root_table,
@@ -1121,6 +1117,9 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	size_t max_virt_page_count = 0;
 	size_t total_virt_page_count = 0;
 
+	// initialize the address space pointer with `NULL`
+	*fpage_space_current_pointer() = NULL;
+
 	root_table = table;
 	kernel_l4_index = FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START);
 	kernel_l3_index = FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START);
@@ -1651,6 +1650,7 @@ static void fpage_flush_table_internal(fpage_table_t* phys_table, size_t level_c
 	}
 };
 
+#if 0
 /**
  * Flushes the TLB for a range of virtual addresses.
  *
@@ -1674,6 +1674,7 @@ static void fpage_flush_table_internal(fpage_table_t* phys_table, size_t level_c
 static void fpage_flush_table(fpage_table_t* phys_table, size_t level_count, uint16_t l4, uint16_t l3, uint16_t l2, bool flush_recursive_too) {
 	return fpage_flush_table_internal(phys_table, level_count, l4, l3, l2, true, flush_recursive_too, false, false);
 };
+#endif
 
 static void fpage_space_flush_mapping_internal(fpage_space_t* space, void* address, size_t page_count, bool needs_flush, bool also_break) {
 	while (page_count > 0) {
@@ -1964,26 +1965,28 @@ void fpage_space_destroy(fpage_space_t* space) {
 
 	space->head = NULL;
 
-	flock_spin_intsafe_lock(&current_address_space_lock);
-	if (current_address_space == space) {
-		current_address_space = NULL;
+	// FIXME: we need to check all the CPU cores and see if any one of them is using this address space
+	fint_disable();
+	fpage_space_t** current_address_space = fpage_space_current_pointer();
+	if (*current_address_space == space) {
+		*current_address_space = NULL;
 	}
-	flock_spin_intsafe_unlock(&current_address_space_lock);
+	fint_enable();
 };
 
 FERRO_WUR ferr_t fpage_space_swap(fpage_space_t* space) {
 	fpage_table_t* l4_table = (void*)fpage_virtual_address_for_table(0, 0, 0, 0);
 
-	flock_spin_intsafe_lock(&current_address_space_lock);
+	fint_disable();
 
-	if (current_address_space == space) {
+	fpage_space_t** current_address_space = fpage_space_current_pointer();
+
+	if (*current_address_space == space) {
 		goto out_locked;
 	}
 
-	if (current_address_space) {
-		fpage_flush_table(current_address_space->l4_table, 0, 0, 0, 0, true);
-
-		fpage_table_t* temp_table = map_temporarily_auto(current_address_space->l4_table);
+	if (*current_address_space) {
+		fpage_table_t* temp_table = map_temporarily_auto((*current_address_space)->l4_table);
 		for (size_t i = 0; i < TABLE_ENTRY_COUNT; ++i) {
 			uint64_t entry = temp_table->entries[i];
 
@@ -1994,13 +1997,17 @@ FERRO_WUR ferr_t fpage_space_swap(fpage_space_t* space) {
 			l4_table->entries[i] = 0;
 		}
 
-		current_address_space->active = false;
+		(*current_address_space)->active = false;
+
+		// FIXME: the precise table flush (fpage_flush_table()) isn't working, so we're doing a full table flush as a workaround for now.
+		//        on x86_64, we could mitigate the performance impact by making kernel addresses "global" entries in the page tables.
+		fpage_invalidate_tlb_for_active_space();
 	}
 
-	current_address_space = space;
+	*current_address_space = space;
 
-	if (current_address_space) {
-		fpage_table_t* temp_table = map_temporarily_auto(current_address_space->l4_table);
+	if ((*current_address_space)) {
+		fpage_table_t* temp_table = map_temporarily_auto((*current_address_space)->l4_table);
 		for (size_t i = 0; i < TABLE_ENTRY_COUNT; ++i) {
 			uint64_t entry = temp_table->entries[i];
 
@@ -2011,20 +2018,20 @@ FERRO_WUR ferr_t fpage_space_swap(fpage_space_t* space) {
 			l4_table->entries[i] = entry;
 		}
 
-		current_address_space->active = true;
+		(*current_address_space)->active = true;
 	}
 
 out_locked:
-	flock_spin_intsafe_unlock(&current_address_space_lock);
+	fint_enable();
 
 	return ferr_ok;
 };
 
 fpage_space_t* fpage_space_current(void) {
-	flock_spin_intsafe_lock(&current_address_space_lock);
-	fpage_space_t* space = current_address_space;
-	flock_spin_intsafe_unlock(&current_address_space_lock);
-	return space;
+	fint_disable();
+	fpage_space_t* current_address_space = *fpage_space_current_pointer();
+	fint_enable();
+	return current_address_space;
 };
 
 ferr_t fpage_space_map_any(fpage_space_t* space, void* physical_address, size_t page_count, void** out_virtual_address, fpage_flags_t flags) {

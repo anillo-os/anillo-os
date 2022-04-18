@@ -166,6 +166,17 @@ FERRO_ALWAYS_INLINE uintptr_t fpage_fault_address(void) {
 	return UINTPTR_MAX;
 };
 
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void) {
+	__asm__ volatile(
+		"tlbi vmalle1\n"
+		"isb sy\n"
+		:::
+		"memory"
+	);
+};
+
+#define fpage_space_current_pointer() (&FARCH_PER_CPU(address_space))
+
 /**
  * @}
  */

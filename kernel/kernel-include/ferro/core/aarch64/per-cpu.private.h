@@ -31,6 +31,7 @@ FERRO_DECLARATIONS_BEGIN;
 
 FERRO_STRUCT_FWD(fthread);
 FERRO_STRUCT_FWD(fint_frame);
+FERRO_STRUCT_FWD(fpage_space);
 
 FERRO_STRUCT(farch_per_cpu_data) {
 	farch_per_cpu_data_t* base;
@@ -38,6 +39,7 @@ FERRO_STRUCT(farch_per_cpu_data) {
 	fthread_t* current_thread;
 	fint_frame_t* current_exception_frame;
 	fper_cpu_main_table_t main_table;
+	fpage_space_t* address_space;
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void);

@@ -62,6 +62,8 @@ FERRO_PACKED_STRUCT(farch_int_saved_registers) {
 
 	// not actually a register, but is per-CPU and should be saved and restored
 	uint64_t interrupt_disable;
+	// ditto
+	uint64_t address_space;
 
 	// here's a bit of packing; these 4 `uint16_t`s fit nicely here
 	uint16_t ds;
@@ -107,6 +109,7 @@ FERRO_PACKED_STRUCT(farch_int_frame_flat_registers) {
 	uint64_t r14;
 	uint64_t r15;
 	uint64_t interrupt_disable;
+	uint64_t address_space;
 	uint16_t ds;
 	uint16_t es;
 	uint16_t fs;

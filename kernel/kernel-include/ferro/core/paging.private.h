@@ -193,6 +193,11 @@ FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_privileged(uint64_t entry, bool pr
 FERRO_ALWAYS_INLINE uintptr_t fpage_fault_address(void);
 
 /**
+ * Invalidates all TLB entries for the current address space.
+ */
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void);
+
+/**
  * @}
  */
 

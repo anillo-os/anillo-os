@@ -68,6 +68,8 @@ FERRO_STRUCT(fthread_saved_context) {
 
 	// the per-CPU interrupt-disable count
 	uint64_t interrupt_disable;
+	// the per-CPU address space pointer
+	uint64_t address_space;
 };
 
 /**
