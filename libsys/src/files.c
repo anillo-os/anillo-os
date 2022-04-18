@@ -41,6 +41,8 @@ static void sys_file_destroy(sys_object_t* object) {
 	if (file->fd) {
 		sys_abort_status(libsyscall_wrapper_fd_close(file->fd));
 	}
+
+	sys_object_destroy(object);
 };
 
 ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file) {

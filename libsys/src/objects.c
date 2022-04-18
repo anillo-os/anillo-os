@@ -109,6 +109,8 @@ ferr_t sys_object_new(const sys_object_class_t* object_class, size_t extra_bytes
 		goto out;
 	}
 
+	object->flags = sys_object_flag_free_on_destroy;
+
 out:
 	if (status == ferr_ok) {
 		*out_object = object;

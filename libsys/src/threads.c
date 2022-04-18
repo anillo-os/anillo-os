@@ -78,6 +78,8 @@ static void sys_thread_destroy(sys_thread_t* object) {
 	if (thread->id != SYS_THREAD_ID_INVALID) {
 		sys_abort_status(libsyscall_wrapper_thread_kill(thread->id));
 	}
+
+	sys_object_destroy(object);
 };
 
 ferr_t sys_thread_create(void* stack, size_t stack_size, sys_thread_entry_f entry, void* context, sys_thread_flags_t flags, sys_thread_t** out_thread) {

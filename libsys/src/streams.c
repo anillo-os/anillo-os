@@ -20,6 +20,8 @@ static void sys_stream_destroy(sys_object_t* object) {
 	if (stream->handle != SYS_STREAM_HANDLE_INVALID) {
 		sys_abort_status(libsyscall_wrapper_fd_close(stream->handle));
 	}
+
+	sys_object_destroy(object);
 };
 
 ferr_t sys_stream_open_special(sys_stream_special_id_t special_id, sys_stream_t** out_stream) {
