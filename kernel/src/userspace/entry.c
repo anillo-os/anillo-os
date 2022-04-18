@@ -25,11 +25,14 @@
 #include <ferro/userspace/processes.h>
 #include <ferro/syscalls/syscalls.h>
 #include <ferro/core/console.h>
+#include <ferro/userspace/process-registry.h>
 
 void ferro_userspace_entry(void) {
 	futhread_init();
 
 	fsyscall_init();
+
+	fprocreg_init();
 
 	fconsole_log("Loading init process...\n");
 
@@ -39,6 +42,8 @@ void ferro_userspace_entry(void) {
 
 	fproc_t* proc = NULL;
 	fpanic_status(fproc_new(sysman_desc, &proc));
+
+	fpanic_status(fprocreg_register(proc));
 
 	fpanic_status(fproc_resume(proc));
 

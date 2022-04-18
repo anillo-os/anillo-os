@@ -48,6 +48,11 @@ ferr_t fsyscall_handler_thread_suspend(uint64_t thread_id, uint64_t timeout, uin
 		goto out;
 	}
 
+	if (thread == fthread_current()) {
+		// no need to hold a reference to ourselves while we sleep
+		fthread_release(thread);
+	}
+
 	// TODO: check whether the calling thread has the ability to suspend the given thread
 
 	if (timeout_type == 0) {
@@ -57,7 +62,7 @@ ferr_t fsyscall_handler_thread_suspend(uint64_t thread_id, uint64_t timeout, uin
 	}
 
 out:
-	if (thread) {
+	if (thread && thread != fthread_current()) {
 		fthread_release(thread);
 	}
 	return status;

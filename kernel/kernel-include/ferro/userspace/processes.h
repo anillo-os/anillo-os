@@ -35,6 +35,9 @@ FERRO_DECLARATIONS_BEGIN;
 typedef uint64_t fproc_fd_t;
 #define FPROC_FD_MAX UINT64_MAX
 
+typedef uint64_t fproc_id_t;
+#define FPROC_ID_INVALID UINT64_MAX
+
 FERRO_STRUCT_FWD(futhread_data_private);
 
 /**
@@ -129,6 +132,13 @@ FERRO_STRUCT(fproc) {
 	flock_mutex_t per_proc_mutex;
 
 	futex_table_t futex_table;
+
+	/**
+	 * The unique ID for this process within the process registry.
+	 *
+	 * This should only be assigned by the process registry.
+	 */
+	fproc_id_t id;
 };
 
 /**
@@ -316,6 +326,8 @@ ferr_t fproc_suspend(fproc_t* process);
  * @retval ferr_forbidden Resuming the threads in the given process was not allowed.
  */
 ferr_t fproc_resume(fproc_t* process);
+
+ferr_t fproc_kill(fproc_t* process);
 
 /**
  * Attaches the given uthread to the given process.

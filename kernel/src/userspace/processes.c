@@ -267,6 +267,8 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 
 	flock_mutex_init(&proc->per_proc_mutex);
 
+	proc->id = FPROC_ID_INVALID;
+
 out:
 	if (status == ferr_ok) {
 		*out_proc = proc;
@@ -697,6 +699,27 @@ static bool resume_each_thread(void* context, fproc_t* process, fthread_t* threa
 	return true;
 };
 
+static bool kill_each_thread(void* context, fproc_t* process, fthread_t* thread) {
+	ferr_t* status_ptr = context;
+
+	if (thread == fthread_current()) {
+		// kill the current thread later
+		return true;
+	}
+
+	ferr_t tmp = fthread_kill(thread);
+	switch (tmp) {
+		case ferr_ok:
+		case ferr_already_in_progress:
+		case ferr_permanent_outage:
+			break;
+		default:
+			fpanic_status(tmp);
+	}
+
+	return true;
+};
+
 ferr_t fproc_suspend(fproc_t* process) {
 	ferr_t status = ferr_ok;
 	fproc_for_each_thread(process, suspend_each_thread, &status);
@@ -713,6 +736,15 @@ ferr_t fproc_resume(fproc_t* process) {
 	//if (process == fproc_current()) {
 	//	fthread_suspend_self();
 	//}
+	return status;
+};
+
+ferr_t fproc_kill(fproc_t* process) {
+	ferr_t status = ferr_ok;
+	fproc_for_each_thread(process, kill_each_thread, &status);
+	if (process == fproc_current()) {
+		fthread_kill_self();
+	}
 	return status;
 };
 

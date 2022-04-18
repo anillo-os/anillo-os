@@ -26,4 +26,9 @@ syscalls.extend([
 	Syscall(common_base + 18, 'futex_wait', address='*[u64]', channel='u64', expected_value='u64', timeout='u64', timeout_type='u8', flags='u64'),
 	Syscall(common_base + 19, 'futex_wake', address='*[u64]', channel='u64', wakeup_count='u64', flags='u64'),
 	Syscall(common_base + 20, 'futex_associate', address='*[u64]', channel='u64', event='u64', value='u64'),
+	Syscall(common_base + 21, 'process_create', fd='u64', context_block='*c', context_block_size='u64', out_process_id='*[u64]'),
+	Syscall(common_base + 22, 'process_id', out_process_id='*[u64]'),
+	Syscall(common_base + 23, 'process_kill', process_id='u64'),
+	Syscall(common_base + 24, 'process_suspend', process_id='u64'),
+	Syscall(common_base + 25, 'process_resume', process_id='u64'),
 ])
