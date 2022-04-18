@@ -40,6 +40,19 @@ typedef uint64_t sys_fd_t;
 
 LIBSYS_WUR ferr_t sys_file_fd(sys_file_t* file, sys_fd_t* out_fd);
 
+/**
+ * Create a new file object from an existing descriptor.
+ * Ownership of the descriptor is transferred to the new file object.
+ *
+ * @retval ferr_ok               The file object was successfully created and the caller has been granted a single reference on it.
+ * @retval ferr_invalid_argument One or more of: 1) @p fd was an invalid descriptor, 2) @p out_file was `NULL`.
+ * @retval ferr_temporary_outage There were insufficient resources to create the file object.
+ *
+ * @note Upon successful creation, ownership of the descriptor is moved into the file object.
+ *       The caller must NOT close the descriptor.
+ */
+LIBSYS_WUR ferr_t sys_file_from_fd(sys_fd_t fd, sys_file_t** out_file);
+
 LIBSYS_WUR ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file);
 LIBSYS_WUR ferr_t sys_file_open_special_fd(sys_file_special_id_t id, sys_fd_t* out_fd);
 

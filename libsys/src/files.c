@@ -108,7 +108,36 @@ ferr_t sys_file_fd(sys_file_t* xfile, sys_fd_t* out_fd) {
 	}
 
 out:
-	return ferr_ok;
+	return status;
+};
+
+ferr_t sys_file_from_fd(sys_fd_t fd, sys_file_t** out_file) {
+	ferr_t status = ferr_ok;
+	sys_file_t* xfile = NULL;
+	sys_file_object_t* file = NULL;
+
+	if (!out_file || fd == SYS_FD_INVALID) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = sys_object_new(&file_class, sizeof(sys_file_object_t) - sizeof(sys_object_t), &xfile);
+	if (status != ferr_ok) {
+		goto out;
+	}
+	file = (void*)xfile;
+
+	file->fd = fd;
+
+out:
+	if (status == ferr_ok) {
+		*out_file = xfile;
+	} else {
+		if (xfile) {
+			sys_release(xfile);
+		}
+	}
+	return status;
 };
 
 ferr_t sys_file_read(sys_file_t* xfile, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count) {
