@@ -42,7 +42,12 @@ set(libsimple_kernel_compile_options
 	-mno-implicit-float
 )
 
-target_compile_options(libsimple_static_kernel PRIVATE ${libsimple_kernel_compile_options})
+set(libsimple_general_compile_options
+	-fno-omit-frame-pointer
+)
+
+target_compile_options(libsimple_static_kernel PRIVATE ${libsimple_kernel_compile_options} ${libsimple_general_compile_options})
+target_compile_options(libsimple_static PRIVATE ${libsimple_general_compile_options})
 
 set_target_properties(libsimple_static PROPERTIES
 	OUTPUT_NAME simple

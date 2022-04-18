@@ -50,6 +50,7 @@ target_link_libraries(libdymple INTERFACE libsys_headers)
 target_compile_options(dymple PRIVATE
 	-fPIC
 	-fno-stack-protector
+	-fno-omit-frame-pointer
 )
 
 target_link_options(dymple PRIVATE

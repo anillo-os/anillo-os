@@ -63,6 +63,14 @@ target_link_options(libsys PRIVATE
 	"-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/exported-symbols.txt"
 )
 
+target_compile_options(libsys PRIVATE
+	-fno-omit-frame-pointer
+)
+
+target_compile_options(libsys_static PRIVATE
+	-fno-omit-frame-pointer
+)
+
 target_include_directories(libsys PUBLIC ${libsys_includes})
 target_include_directories(libsys_static PUBLIC ${libsys_includes})
 
