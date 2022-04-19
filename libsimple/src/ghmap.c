@@ -352,6 +352,11 @@ static ferr_t simple_ghmap_clear_internal(simple_ghmap_t* hashmap, simple_ghmap_
 			}
 
 			hashmap->free(hashmap->callback_context, entry, simple_ghmap_entry_size(hashmap, entry));
+
+			--hashmap->in_use;
+
+			simple_ghmap_resize(hashmap);
+
 			return ferr_ok;
 		}
 	}
