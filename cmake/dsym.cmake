@@ -13,4 +13,4 @@ endfunction()
 
 function(find_dsymutil)
 	find_program(DSYMUTIL_PATH NAMES "llvm-dsymutil" "dsymutil")
-endfunction(FindDsymutil)
+endfunction()
