@@ -61,6 +61,8 @@
 
 #include <ferro/userspace/entry.h>
 
+#include <ferro/drivers/init.h>
+
 static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2_identity FERRO_PAGE_ALIGNED = {0};
@@ -218,26 +220,6 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 	}
 };
 
-#if 0
-static void do_work1(void* data) {
-	for (size_t i = 0; i < 5; ++i) {
-		fconsole_logf("Doing some work in worker 1: %zu\n", i);
-		FERRO_WUR_IGNORE(fthread_suspend_timeout(NULL, 1000000000ULL, fthread_timeout_type_ns_relative));
-	}
-};
-
-static void do_work2(void* data) {
-	for (size_t i = 0; i < 10; ++i) {
-		fconsole_logf("Doing some work in worker 2: %zu\n", i);
-		FERRO_WUR_IGNORE(fthread_suspend_timeout(NULL, 1000000000ULL / 2, fthread_timeout_type_ns_relative));
-	}
-};
-
-static void do_work3(void* data) {
-	fconsole_log("The third worker was called!\n");
-};
-#endif
-
 static ferro_ramdisk_t* ramdisk = NULL;
 
 static void ferro_entry_threaded(void* data) {
@@ -253,169 +235,7 @@ static void ferro_entry_threaded(void* data) {
 		fpanic("No ramdisk found!");
 	}
 
-#if TEST_WORKERS
-	fwork_t* worker1;
-	fwork_t* worker2;
-
-	if (fwork_new(do_work1, NULL, &worker1) != ferr_ok) {
-		fpanic("Failed to create first worker");
-	}
-
-	if (fwork_new(do_work2, NULL, &worker2) != ferr_ok) {
-		fpanic("Failed to create second worker");
-	}
-
-	if (fwork_schedule(worker1, 0) != ferr_ok) {
-		fpanic("Failed to schedule first worker");
-	}
-
-	if (fwork_schedule(worker2, 0) != ferr_ok) {
-		fpanic("Failed to schedule second worker");
-	}
-
-	fwork_wait(worker1);
-	fwork_wait(worker2);
-
-	fwork_release(worker1);
-	fwork_release(worker2);
-
-	fconsole_log("Both work items have completed, now we'll schedule a third to run in 3 seconds.\n");
-
-	if (fwork_schedule_new(do_work3, NULL, 1000000000ULL * 3, NULL) != ferr_ok) {
-		fpanic("Failed to schedule third worker");
-	}
-#endif
-
-#if TEST_VFS
-	fvfs_descriptor_t* desc;
-
-	fpanic_status(fvfs_open("/test1.txt", fvfs_descriptor_flag_read, &desc));
-	fconsole_log("Successfully opened descriptor for \"/test.txt\"!\n");
-
-	#define BUFFER_SIZE 10
-	#define ABSOLUTE_PATHS false
-	char path[BUFFER_SIZE];
-	size_t path_len = 0;
-	switch (fvfs_copy_path(desc, ABSOLUTE_PATHS, path, sizeof(path), &path_len)) {
-		case ferr_ok: {
-			fconsole_logf("Path is \"%.*s\"\n", (int)path_len, path);
-		} break;
-		case ferr_too_big: {
-			fconsole_log("Path was too big for buffer\n");
-		} break;
-		default: {
-			fpanic("fvfs_copy_path failed for unexpected reason");
-		} break;
-	}
-
-	fvfs_release(desc);
-
-	#define ARRAY_LENGTH 1
-
-	fvfs_path_t children[ARRAY_LENGTH];
-	size_t count = 0;
-	fvfs_list_children_context_t context;
-	fpanic_status(fvfs_open("/", fvfs_descriptor_flag_read, &desc));
-	fconsole_log("Succesfully opened descriptor for \"/\"!\n");
-
-	for (ferr_t status = fvfs_list_children_init(desc, children, sizeof(children) / sizeof(*children), ABSOLUTE_PATHS, &count, &context); status == ferr_ok; status = fvfs_list_children(desc, children, sizeof(children) / sizeof(*children), ABSOLUTE_PATHS, &count, &context)) {
-		fconsole_logf("Found %zu child%s\n", count, count == 1 ? "" : "ren");
-
-		for (size_t i = 0; i < count; ++i) {
-			fvfs_descriptor_t* child;
-			fvfs_node_info_t info;
-
-			fpanic_status(fvfs_open_rn(desc, children[i].path, children[i].length, fvfs_descriptor_flag_read, &child));
-
-			fpanic_status(fvfs_copy_info(child, &info));
-
-			fconsole_logf("Opened descriptor for child: %.*s (which is %s)\n", (int)children[i].length, children[i].path, info.type == fvfs_node_type_directory ? "a directory" : (info.type == fvfs_node_type_file ? "a file" : "unknown"));
-
-			fvfs_release(child);
-		}
-	}
-
-	fconsole_log("Finished iterating children\n");
-
-	fpanic_status(fvfs_list_children_finish(desc, children, count, &context));
-
-	fvfs_release(desc);
-
-	fpanic_status(fvfs_open("/subdir", fvfs_descriptor_flag_read, &desc));
-
-	fvfs_descriptor_t* desc2;
-
-	fpanic_status(fvfs_open_r(desc, "./.././test2.txt", fvfs_descriptor_flag_read, &desc2));
-
-	fconsole_logf("Successfully opened descriptor using relative path!\n");
-
-	char buf[5] = {0};
-	size_t offset = 0;
-	size_t read_count = 0;
-	while (fvfs_read(desc2, offset, buf, sizeof(buf) - 1, &read_count) == ferr_ok) {
-		fconsole_logf("Chunk: %.*s\n", (int)read_count, buf);
-		offset += read_count;
-	}
-
-	fvfs_release(desc2);
-
-	fvfs_release(desc);
-#endif
-
-#if TEST_SPACES
-	fpage_space_t space1;
-	fpage_space_t space2;
-	volatile uint8_t* virt1;
-	volatile uint8_t* virt2;
-
-	fpanic_status(fpage_space_init(&space1));
-	fconsole_log("Initialized space 1\n");
-
-	fpanic_status(fpage_space_init(&space2));
-	fconsole_log("Initialized space 2\n");
-
-	fpanic_status(fpage_space_allocate(&space1, 1, (void*)&virt1, 0));
-	fconsole_logf("Allocate within space 1: %p\n", virt1);
-
-	fpanic_status(fpage_space_allocate(&space2, 1, (void*)&virt2, 0));
-	fconsole_logf("Allocated within space 2: %p\n", virt2);
-
-	fpanic_status(fpage_space_swap(&space1));
-	fconsole_log("Switched to space 1\n");
-
-	*virt1 = 1;
-	fconsole_log("Wrote within space 1\n");
-
-	fpanic_status(fpage_space_swap(&space2));
-	fconsole_log("Switched to space 2\n");
-
-	*virt2 = 2;
-	fconsole_log("Wrote within space 2\n");
-
-	fpanic_status(fpage_space_swap(&space1));
-	fconsole_log("Switched to space 1\n");
-
-	fassert(*virt1 == 1);
-	fconsole_log("Read from space 1 correctly\n");
-
-	fpanic_status(fpage_space_swap(&space2));
-	fconsole_log("Switched to space 2\n");
-
-	fassert(*virt2 == 2);
-	fconsole_log("Read from space 2 correctly\n");
-
-	fpanic_status(fpage_space_free(&space1, (void*)virt1, 1));
-	fconsole_log("Freed back to space 1\n");
-
-	fpanic_status(fpage_space_free(&space2, (void*)virt2, 1));
-	fconsole_log("Freed back to space 2\n");
-
-	fpage_space_destroy(&space1);
-	fconsole_log("Destroyed space 1\n");
-
-	fpage_space_destroy(&space2);
-	fconsole_log("Destroyed space 2\n");
-#endif
+	fdrivers_init();
 
 	ferro_userspace_entry();
 };

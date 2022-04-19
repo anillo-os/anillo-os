@@ -30,6 +30,7 @@ add_subdirectory(src/gdbstub)
 add_subdirectory(src/ubsan)
 add_subdirectory(src/userspace)
 add_subdirectory(src/syscalls)
+add_subdirectory(src/drivers)
 
 add_executable(ferro
 	src/dummy.c
@@ -41,6 +42,7 @@ target_link_libraries(ferro PUBLIC
 	ferro_ubsan
 	ferro_userspace
 	ferro_syscalls
+	ferro_drivers
 	compiler-rt-builtins
 )
 
