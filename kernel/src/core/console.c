@@ -288,13 +288,30 @@ ferr_t fconsole_log(const char* string) {
 	return fconsole_logn(string, simple_strlen(string));
 };
 
+static void print_padding(size_t actual_width, size_t expected_width, bool zero_pad) {
+	if (zero_pad) {
+		for (size_t i = actual_width; i < expected_width; ++i) {
+			fconsole_log_code_point('0');
+		}
+	} else {
+		for (size_t i = actual_width; i < expected_width; ++i) {
+			fconsole_log_code_point(' ');
+		}
+	}
+};
+
 // 32 characters is enough for all three of these variations
 
-static void print_hex(uintmax_t value, bool uppercase) {
+static void print_hex(uintmax_t value, bool uppercase, size_t width, bool zero_pad) {
 	size_t index = 0;
 	char buffer[32] = {0};
 
+	if (width == SIZE_MAX) {
+		width = 0;
+	}
+
 	if (value == 0) {
+		print_padding(1, width, zero_pad);
 		fconsole_log_code_point('0');
 		return;
 	}
@@ -309,17 +326,24 @@ static void print_hex(uintmax_t value, bool uppercase) {
 		value /= 16;
 	}
 
+	print_padding(index, width, zero_pad);
+
 	// the buffer is in reverse order, so print it in reverse (to get it forwards)
 	for (size_t i = index; i > 0; --i) {
 		fconsole_log_code_point(buffer[i - 1]);
 	}
 };
 
-static void print_octal(uintmax_t value) {
+static void print_octal(uintmax_t value, size_t width, bool zero_pad) {
 	size_t index = 0;
 	char buffer[32] = {0};
 
+	if (width == SIZE_MAX) {
+		width = 0;
+	}
+
 	if (value == 0) {
+		print_padding(1, width, zero_pad);
 		fconsole_log_code_point('0');
 		return;
 	}
@@ -329,17 +353,24 @@ static void print_octal(uintmax_t value) {
 		value /= 8;
 	}
 
+	print_padding(index, width, zero_pad);
+
 	// the buffer is in reverse order, so print it in reverse (to get it forwards)
 	for (size_t i = index; i > 0; --i) {
 		fconsole_log_code_point(buffer[i - 1]);
 	}
 };
 
-static void print_decimal(uintmax_t value) {
+static void print_decimal(uintmax_t value, size_t width, bool zero_pad) {
 	size_t index = 0;
 	char buffer[32] = {0};
 
+	if (width == SIZE_MAX) {
+		width = 0;
+	}
+
 	if (value == 0) {
+		print_padding(1, width, zero_pad);
 		fconsole_log_code_point('0');
 		return;
 	}
@@ -348,6 +379,8 @@ static void print_decimal(uintmax_t value) {
 		buffer[index++] = (char)(value % 10) + '0';
 		value /= 10;
 	}
+
+	print_padding(index, width, zero_pad);
 
 	// the buffer is in reverse order, so print it in reverse (to get it forwards)
 	for (size_t i = index; i > 0; --i) {
@@ -389,6 +422,36 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 
 			printf_length_t length = printf_length_default;
 			size_t precision = SIZE_MAX;
+			size_t width = SIZE_MAX;
+			bool zero_pad = false;
+
+			if (code_point == '0') {
+				READ_NEXT;
+
+				zero_pad = true;
+			}
+
+			if (code_point >= '0' && code_point <= '9') {
+				--format;
+				++format_size;
+
+				const char* num_start = format;
+				const char* num_end = num_start;
+
+				while (*num_end >= '0' && *num_end <= '9') {
+					++num_end;
+					++format;
+					--format_size;
+				}
+
+				READ_NEXT;
+
+				if (num_end != num_start) {
+					if (simple_string_to_integer_unsigned(num_start, num_end - num_start, NULL, 10, &width) != ferr_ok) {
+						goto err_out;
+					}
+				}
+			}
 
 			if (code_point == '.') {
 				READ_NEXT;
@@ -398,6 +461,9 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 
 					precision = va_arg(args, int);
 				} else {
+					--format;
+					++format_size;
+
 					const char* num_start = format;
 					const char* num_end = num_start;
 
@@ -482,9 +548,11 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 					if (value < 0) {
 						fconsole_log_code_point('-');
 						value *= -1;
+
+						width = (width < 1) ? 0 : (width - 1);
 					}
 
-					print_decimal(value);
+					print_decimal(value, width, zero_pad);
 				} break;
 
 				case 'u':
@@ -517,11 +585,11 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 					}
 
 					if (code_point == 'x' || code_point == 'X') {
-						print_hex(value, code_point == 'X');
+						print_hex(value, code_point == 'X', width, zero_pad);
 					} else if (code_point == 'o') {
-						print_octal(value);
+						print_octal(value, width, zero_pad);
 					} else {
-						print_decimal(value);
+						print_decimal(value, width, zero_pad);
 					}
 				} break;
 
@@ -538,10 +606,13 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 				case 'p': {
 					const void* value = va_arg(args, const void*);
 
-					// in reality, this should pad to 16 characters (not including "0x")
+					if (width == SIZE_MAX) {
+						width = 18;
+					}
+
 					fconsole_log_code_point('0');
 					fconsole_log_code_point('x');
-					print_hex((uintmax_t)(uintptr_t)value, false);
+					print_hex((uintmax_t)(uintptr_t)value, false, (width < 2) ? 0 : (width - 2), zero_pad);
 				} break;
 
 				default: {
