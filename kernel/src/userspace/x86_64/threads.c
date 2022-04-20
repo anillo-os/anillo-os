@@ -124,3 +124,8 @@ void futhread_arch_init(void) {
 	// enable SCE (System Call Extensions) in the EFER (Extended Feature Enable Register)
 	farch_msr_write(farch_msr_efer, farch_msr_read(farch_msr_efer) | (1ULL << 0));
 };
+
+void futhread_arch_init_private_data(futhread_data_private_t* data) {
+	data->arch.fs_base = 0;
+	data->arch.gs_base = 0;
+};

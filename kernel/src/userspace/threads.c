@@ -225,6 +225,8 @@ retry_lookup:
 	private_data->uthread_death_futex = NULL;
 	private_data->uthread_death_futex_value = 0;
 
+	futhread_arch_init_private_data(private_data);
+
 out_locked:
 	if (status != ferr_ok) {
 		if (release_stack_on_fail) {

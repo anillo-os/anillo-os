@@ -32,3 +32,7 @@ void futhread_ending_interrupt_arch(fthread_t* uthread, futhread_data_t* udata) 
 void futhread_arch_init(void) {
 	// TODO
 };
+
+void futhread_arch_init_private_data(futhread_data_private_t* data) {
+	// TODO
+};
