@@ -64,7 +64,7 @@ efi_code_source_path = None
 efi_vars_source_path = None
 
 disk_path = os.path.join(args.build_dir, 'disk.img')
-qemu_args = ['-net', 'none']
+qemu_args = ['-nic', 'user,model=e1000e']
 
 def try_find_path(search_list):
 	for path in search_list:
