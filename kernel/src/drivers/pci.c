@@ -119,6 +119,7 @@ ferr_t fpci_device_lookup(fpci_bus_info_t* bus, uint8_t device, bool create_if_a
 		status = fpci_function_lookup(info, 0, true, &info->function0);
 		if (status != ferr_ok) {
 			// function doesn't exist (and therefore neither does the device)
+			simple_ghmap_destroy(&info->functions);
 			FERRO_WUR_IGNORE(simple_ghmap_clear_h(&bus->devices, device));
 			goto out;
 		}
@@ -137,7 +138,7 @@ out_unlocked:
 	return status;
 };
 
-ferr_t fpci_function_lookup(fpci_device_info_t* device, uint8_t function, bool create_if_absent, fpci_function_info_t** out_function) {
+ferr_t __attribute__((optnone)) fpci_function_lookup(fpci_device_info_t* device, uint8_t function, bool create_if_absent, fpci_function_info_t** out_function) {
 	ferr_t status = ferr_ok;
 	bool created = false;
 	fpci_function_info_t* info = NULL;
@@ -152,6 +153,11 @@ ferr_t fpci_function_lookup(fpci_device_info_t* device, uint8_t function, bool c
 	if (created) {
 		info->device = device;
 		info->location = function;
+
+		flock_spin_intsafe_init(&info->capabilities_lock);
+
+		info->capabilities = NULL;
+		info->capability_count = 0;
 
 		void* phys = fpci_function_physical_address(info->device->bus->mcfg_entry, info->device->bus->location, info->device->location, function);
 
@@ -177,6 +183,46 @@ ferr_t fpci_function_lookup(fpci_device_info_t* device, uint8_t function, bool c
 		info->class_code = tmp >> 24;
 		info->subclass_code = (tmp >> 16) & 0xff;
 		info->programming_interface = (tmp >> 8) & 0xff;
+
+		// populate capabilities
+		if ((info->mmio_base[1] & (1 << 20)) != 0) {
+			uint8_t offset = info->mmio_base[13] & 0xff;
+			uint8_t index = offset / sizeof(uint32_t);
+
+			while (index != 0) {
+				volatile uint32_t* base = &info->mmio_base[index];
+
+				++info->capability_count;
+
+				offset = (base[0] >> 8) & 0xff;
+				index = offset / sizeof(uint32_t);
+			}
+
+			status = fmempool_allocate(sizeof(fpci_capability_info_t) * info->capability_count, NULL, (void*)&info->capabilities);
+			if (status != ferr_ok) {
+				FERRO_WUR_IGNORE(fpage_unmap_kernel((void*)info->mmio_base, 1));
+				FERRO_WUR_IGNORE(simple_ghmap_clear_h(&device->functions, function));
+				goto out;
+			}
+
+			offset = info->mmio_base[13] & 0xff;
+			index = offset / sizeof(uint32_t);
+
+			size_t i = 0;
+
+			while (index != 0) {
+				volatile uint32_t* base = &info->mmio_base[index];
+				uint8_t id = base[0] & 0xff;
+				fpci_capability_info_t* cap = &info->capabilities[i++];
+
+				cap->id = id;
+				cap->function = info;
+				cap->mmio_base = base;
+
+				offset = (base[0] >> 8) & 0xff;
+				index = offset / sizeof(uint32_t);
+			}
+		}
 	}
 
 out:
@@ -302,6 +348,9 @@ static bool fpci_root_bus_function_iterator(void* context, simple_ghmap_t* hashm
 static bool fpci_debug_function_iterator(void* context, simple_ghmap_t* hashmap, simple_ghmap_hash_t hash, const void* key, size_t key_size, void* entry, size_t entry_size) {
 	fpci_function_info_t* function = entry;
 	fconsole_logf("Found %02x:%02x.%x (VID = 0x%04x, DID = 0x%04x, class code = 0x%02x, subclass code = 0x%02x, programming interface = 0x%02x)\n", function->device->bus->location, function->device->location, function->location, function->vendor_id, function->device_id, function->class_code, function->subclass_code, function->programming_interface);
+	for (size_t i = 0; i < function->capability_count; ++i) {
+		fconsole_logf("  Capability: 0x%02x\n", function->capabilities[i].id);
+	}
 	return true;
 };
 

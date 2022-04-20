@@ -76,6 +76,8 @@ FERRO_STRUCT(fpci_device_info) {
 	fpci_function_info_t* function0;
 };
 
+FERRO_STRUCT_FWD(fpci_capability_info);
+
 FERRO_STRUCT(fpci_function_info) {
 	uint8_t location;
 	fpci_device_info_t* device;
@@ -85,6 +87,15 @@ FERRO_STRUCT(fpci_function_info) {
 	uint8_t class_code;
 	uint8_t subclass_code;
 	uint8_t programming_interface;
+	fpci_capability_info_t* capabilities;
+	size_t capability_count;
+	flock_spin_intsafe_t capabilities_lock;
+};
+
+FERRO_STRUCT(fpci_capability_info) {
+	uint8_t id;
+	fpci_function_info_t* function;
+	volatile uint32_t* mmio_base;
 };
 
 ferr_t fpci_bus_lookup(uint8_t bus, bool create_if_absent, fpci_bus_info_t** out_bus);
