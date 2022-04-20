@@ -895,7 +895,7 @@ static void space_insert_virtual_free_block(fpage_space_t* space, fpage_region_h
 	block_temp->next = virt_parent_region->buckets[order];
 
 	if (block_temp->next) {
-		block_temp->next->prev = &space_block->next;
+		space_map_temporarily_auto_type(space, block_temp->next)->prev = &space_block->next;
 	}
 
 	virt_parent_region->buckets[order] = space_block;
@@ -908,7 +908,7 @@ static void space_remove_virtual_free_block(fpage_space_t* space, fpage_region_h
 
 	*space_map_temporarily_auto_type(space, block_temp->prev) = block_temp->next;
 	if (block_temp->next) {
-		block_temp->next->prev = block_temp->prev;
+		space_map_temporarily_auto_type(space, block_temp->next)->prev = block_temp->prev;
 	}
 
 	free_frame((void*)fpage_space_virtual_to_physical(space, (uintptr_t)space_block), fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE);
