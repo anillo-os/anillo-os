@@ -1572,7 +1572,10 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	}
 
 	// register our page fault handler
+	// DISABLED FOR DEBUGGING
+#if 0
 	fpanic_status(fint_register_special_handler(fint_special_interrupt_page_fault, page_fault_handler, NULL));
+#endif
 };
 
 // NOTE: the table used with the first call to this function is not freed by it, no matter if `also_free` is used
