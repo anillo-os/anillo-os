@@ -8,9 +8,9 @@ add_custom_command(
 	OUTPUT
 		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/font.h"
 	COMMAND
-		"${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/process-font.py" "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/Lat15-TerminusBold32x16.psf" "${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/font.h"
+		"${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/process-font.py" "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/ter-u16n.psf" "${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/font.h"
 	MAIN_DEPENDENCY
-		"${CMAKE_CURRENT_SOURCE_DIR}/../../resources/Lat15-TerminusBold32x16.psf"
+		"${CMAKE_CURRENT_SOURCE_DIR}/../../resources/ter-u16n.psf"
 	DEPENDS
 		"${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/process-font.py"
 )
