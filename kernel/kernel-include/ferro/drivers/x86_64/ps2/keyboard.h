@@ -16,18 +16,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <ferro/drivers/init.h>
-#include <ferro/drivers/pci.h>
-#include <ferro/platform.h>
+#ifndef _FERRO_DRIVERS_x86_64_PS2_KEYBOARD_H_
+#define _FERRO_DRIVERS_x86_64_PS2_KEYBOARD_H_
 
-#if FERRO_ARCH == FERRO_ARCH_x86_64
-	#include <ferro/drivers/x86_64/ps2/keyboard.h>
-#endif
+#include <ferro/base.h>
 
-void fdrivers_init(void) {
-	fpci_init();
+FERRO_DECLARATIONS_BEGIN;
 
-#if FERRO_ARCH == FERRO_ARCH_x86_64
-	ferro_ps2_keyboard_init();
-#endif
-};
+void ferro_ps2_keyboard_init(void);
+
+FERRO_DECLARATIONS_END;
+
+#endif // _FERRO_DRIVERS_x86_64_PS2_KEYBOARD_H_

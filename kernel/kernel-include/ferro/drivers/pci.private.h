@@ -51,7 +51,6 @@ FERRO_PACKED_STRUCT(fpci_mcfg) {
 FERRO_STRUCT(fpci_bus_info) {
 	uint8_t location;
 	simple_ghmap_t devices;
-	flock_spin_intsafe_t devices_lock;
 	const fpci_mcfg_entry_t* mcfg_entry;
 };
 
@@ -61,7 +60,6 @@ FERRO_STRUCT(fpci_device_info) {
 	uint8_t location;
 	fpci_bus_info_t* bus;
 	simple_ghmap_t functions;
-	flock_spin_intsafe_t functions_lock;
 
 	/**
 	 * The first function of this device.
@@ -78,24 +76,55 @@ FERRO_STRUCT(fpci_device_info) {
 
 FERRO_STRUCT_FWD(fpci_capability_info);
 
+FERRO_ENUM(uint8_t, fpci_bar_type) {
+	fpci_bar_type_invalid = 0,
+	fpci_bar_type_memory,
+	fpci_bar_type_io,
+};
+
+FERRO_STRUCT(fpci_bar) {
+	uint8_t raw_index;
+	fpci_bar_type_t type;
+	uintptr_t physical_base;
+	volatile uint32_t* mapped_base;
+	fpage_mapping_t* mapping;
+	size_t size;
+};
+
+FERRO_STRUCT(fpci_function_interrupt_handler) {
+	fpci_device_interrupt_handler_f handler;
+	void* data;
+	bool setup;
+};
+
 FERRO_STRUCT(fpci_function_info) {
+	fpci_device_t public;
 	uint8_t location;
 	fpci_device_info_t* device;
 	volatile uint32_t* mmio_base;
-	uint16_t vendor_id;
-	uint16_t device_id;
-	uint8_t class_code;
-	uint8_t subclass_code;
-	uint8_t programming_interface;
 	fpci_capability_info_t* capabilities;
 	size_t capability_count;
-	flock_spin_intsafe_t capabilities_lock;
+	fpci_bar_t bars[6];
+	fpci_function_interrupt_handler_t handler;
+	flock_spin_intsafe_t lock;
 };
 
 FERRO_STRUCT(fpci_capability_info) {
 	uint8_t id;
 	fpci_function_info_t* function;
 	volatile uint32_t* mmio_base;
+};
+
+FERRO_ENUM(uint8_t, fpci_capability_id) {
+	fpci_capability_id_msi   = 0x05,
+	fpci_capability_id_msi_x = 0x11,
+};
+
+FERRO_PACKED_STRUCT(fpci_msi_x_entry) {
+	volatile uint32_t message_address_low;
+	volatile uint32_t message_address_high;
+	volatile uint32_t message_data;
+	volatile uint32_t vector_control;
 };
 
 ferr_t fpci_bus_lookup(uint8_t bus, bool create_if_absent, fpci_bus_info_t** out_bus);
@@ -105,6 +134,13 @@ ferr_t fpci_function_lookup(fpci_device_info_t* device, uint8_t function, bool c
 ferr_t fpci_bus_scan(fpci_bus_info_t* bus);
 ferr_t fpci_device_scan(fpci_device_info_t* device);
 ferr_t fpci_function_scan(fpci_function_info_t* function);
+
+ferr_t fpci_function_register_interrupt_handler(fpci_function_info_t* function, fpci_device_interrupt_handler_f handler, void* data);
+
+// these are functions that we expect every architecture to implement
+
+ferr_t farch_pci_function_register_msi_handler(fpci_capability_info_t* msi);
+ferr_t farch_pci_function_register_msi_x_handler(fpci_function_info_t* function, volatile fpci_msi_x_entry_t* table, size_t entry_count);
 
 FERRO_DECLARATIONS_END;
 

@@ -16,18 +16,31 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <ferro/drivers/init.h>
-#include <ferro/drivers/pci.h>
-#include <ferro/platform.h>
+#ifndef _FERRO_DRIVERS_USB_H_
+#define _FERRO_DRIVERS_USB_H_
 
-#if FERRO_ARCH == FERRO_ARCH_x86_64
-	#include <ferro/drivers/x86_64/ps2/keyboard.h>
-#endif
+#include <ferro/base.h>
+#include <ferro/error.h>
 
-void fdrivers_init(void) {
-	fpci_init();
+#include <stdint.h>
+#include <stddef.h>
+#include <stdbool.h>
 
-#if FERRO_ARCH == FERRO_ARCH_x86_64
-	ferro_ps2_keyboard_init();
-#endif
-};
+FERRO_DECLARATIONS_BEGIN;
+
+FERRO_STRUCT_FWD(fusb_device);
+FERRO_STRUCT_FWD(fusb_interface);
+
+void fusb_init(void);
+
+FERRO_WUR ferr_t fusb_device_retain(fusb_device_t* device);
+void fusb_device_release(fusb_device_t* device);
+
+/**
+ * @note There may be multiple USB devices with the same vendor ID and product ID; this will only return one of them (with no guarantee as to which one).
+ */
+FERRO_WUR ferr_t fusb_device_lookup(uint16_t vendor_id, uint16_t product_id, fusb_device_t** out_device);
+
+FERRO_DECLARATIONS_END;
+
+#endif // _FERRO_DRIVERS_USB_H_
