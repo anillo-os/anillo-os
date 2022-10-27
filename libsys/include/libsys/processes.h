@@ -30,7 +30,7 @@
 
 LIBSYS_DECLARATIONS_BEGIN;
 
-LIBSYS_OBJECT_CLASS(sys_proc);
+LIBSYS_OBJECT_CLASS(proc);
 
 typedef uint64_t sys_proc_id_t;
 

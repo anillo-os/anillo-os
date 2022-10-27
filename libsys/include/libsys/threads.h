@@ -29,7 +29,7 @@
 
 LIBSYS_DECLARATIONS_BEGIN;
 
-LIBSYS_OBJECT_CLASS(sys_thread);
+LIBSYS_OBJECT_CLASS(thread);
 
 typedef uint64_t sys_thread_id_t;
 typedef void (*sys_thread_entry_f)(void* context, sys_thread_t* self);

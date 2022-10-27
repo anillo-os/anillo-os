@@ -28,7 +28,7 @@
 
 LIBSYS_DECLARATIONS_BEGIN;
 
-LIBSYS_OBJECT_CLASS(sys_stream);
+LIBSYS_OBJECT_CLASS(stream);
 
 typedef uint64_t sys_stream_handle_t;
 

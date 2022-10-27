@@ -32,7 +32,7 @@ LIBSYS_ENUM(uint64_t, sys_file_special_id) {
 	sys_file_special_id_process_binary,
 };
 
-LIBSYS_OBJECT_CLASS(sys_file);
+LIBSYS_OBJECT_CLASS(file);
 
 typedef uint64_t sys_fd_t;
 
