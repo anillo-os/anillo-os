@@ -38,8 +38,8 @@ sys.path.append(ARCH_MODULE_DIR)
 syscalls_module = importlib.import_module(ARCH)
 sys.path.pop()
 
-syscalls_module.sort_syscalls()
-syscalls_module.validate_syscalls()
+syscalls_module.syscalls.sort_syscalls()
+syscalls_module.syscalls.validate_syscalls()
 
 anillo_util.mkdir_p(os.path.dirname(OUTPUT_INDEX_PATH))
 anillo_util.mkdir_p(os.path.dirname(OUTPUT_HANDLER_DECLARATIONS_PATH))
@@ -62,9 +62,36 @@ with io.open(OUTPUT_HANDLER_DECLARATIONS_PATH, 'w', newline='\n') as outfile:
 
 	outfile.write('#include <ferro/base.h>\n')
 	outfile.write('#include <ferro/error.h>\n')
+	outfile.write('#include <ferro/api.h>\n')
 	outfile.write(f'#include <{INDEX_HEADER_INCLUDE}>\n\n')
 
 	outfile.write('FERRO_DECLARATIONS_BEGIN;\n\n')
+
+	for enum in syscalls_module.enums:
+		outfile.write(f'typedef {syscalls_module.syscall_type_to_c_type(enum.type, True)} fsyscall_{enum.name}_t;\n')
+
+	if len(syscalls_module.enums) > 0:
+		outfile.write('\n')
+
+	for enum in syscalls_module.enums:
+		values_string = ''.join([f'\tfsyscall_{enum.prefix}_{value.name} = {value.value},\n' for value in enum.values])
+		if len(values_string) == 0:
+			# to prevent the compiler from complaining about an empty enum
+			values_string = f'fsyscall_{enum.prefix}_xxx_dummy_value,\n'
+		values_string = '\n' + values_string
+		outfile.write(f'enum fsyscall_{enum.name} {{{values_string}}};\n\n')
+
+	for structure in syscalls_module.structures:
+		outfile.write(f'typedef struct fsyscall_{structure.name} fsyscall_{structure.name}_t;\n')
+
+	if len(syscalls_module.structures) > 0:
+		outfile.write('\n')
+
+	for structure in syscalls_module.structures:
+		members_string = ''.join([f'\t{syscalls_module.syscall_type_to_c_type(member.type, True)} {member.name};\n' for member in structure.members])
+		if len(members_string) != 0:
+			members_string = '\n' + members_string
+		outfile.write(f'struct fsyscall_{structure.name} {{{members_string}}};\n\n')
 
 	for syscall in syscalls_module.syscalls:
 		syscall_parameters = 'void'
@@ -79,7 +106,7 @@ with io.open(OUTPUT_HANDLER_DECLARATIONS_PATH, 'w', newline='\n') as outfile:
 				else:
 					syscall_parameters += ', '
 
-				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type(param.type)}{" " + param.name if param.name else ""}'
+				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type(param.type, True)}{" " + param.name if param.name else ""}'
 
 		outfile.write(f'ferr_t fsyscall_handler_{syscall.name}({syscall_parameters});\n')
 
@@ -119,18 +146,36 @@ with io.open(OUTPUT_WRAPPERS_HEADER_PATH, 'w', newline='\n') as outfile:
 
 	outfile.write('#include <ferro/base.h>\n')
 	outfile.write('#include <ferro/error.h>\n')
+	outfile.write('#include <ferro/api.h>\n')
 	outfile.write(f'#include <{INDEX_HEADER_INCLUDE}>\n\n')
 
 	outfile.write('FERRO_DECLARATIONS_BEGIN;\n\n')
 
-	for structure in syscalls_module.structures:
-		outfile.write(f'typedef struct {structure.name} {structure.name}_t;\n')
+	for enum in syscalls_module.enums:
+		outfile.write(f'typedef {syscalls_module.syscall_type_to_c_type(enum.type, False)} libsyscall_{enum.name}_t;\n')
 
-	outfile.write('\n')
+	if len(syscalls_module.enums) > 0:
+		outfile.write('\n')
+
+	for enum in syscalls_module.enums:
+		values_string = ''.join([f'\tlibsyscall_{enum.prefix}_{value.name} = {value.value},\n' for value in enum.values])
+		if len(values_string) == 0:
+			# to prevent the compiler from complaining about an empty enum
+			values_string = f'fsyscall_{enum.prefix}_xxx_dummy_value,\n'
+		values_string = '\n' + values_string
+		outfile.write(f'enum libsyscall_{enum.name} {{{values_string}}};\n\n')
 
 	for structure in syscalls_module.structures:
-		members_string = ''.join([f'\t{syscalls_module.syscall_type_to_c_type(member.type)} {member.name};\n' for member in structure.members])
-		outfile.write(f'struct {structure.name} {{{members_string}}};\n\n')
+		outfile.write(f'typedef struct libsyscall_{structure.name} libsyscall_{structure.name}_t;\n')
+
+	if len(syscalls_module.structures) > 0:
+		outfile.write('\n')
+
+	for structure in syscalls_module.structures:
+		members_string = ''.join([f'\t{syscalls_module.syscall_type_to_c_type(member.type, False)} {member.name};\n' for member in structure.members])
+		if len(members_string) != 0:
+			members_string = '\n' + members_string
+		outfile.write(f'struct libsyscall_{structure.name} {{{members_string}}};\n\n')
 
 	for syscall in syscalls_module.syscalls:
 		syscall_parameters = 'void'
@@ -145,7 +190,7 @@ with io.open(OUTPUT_WRAPPERS_HEADER_PATH, 'w', newline='\n') as outfile:
 				else:
 					syscall_parameters += ', '
 
-				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type(param.type)}{" " + param.name if param.name else ""}'
+				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type(param.type, False)}{" " + param.name if param.name else ""}'
 
 		outfile.write(f'ferr_t libsyscall_wrapper_{syscall.name}({syscall_parameters});\n')
 
@@ -156,7 +201,7 @@ with io.open(OUTPUT_WRAPPERS_HEADER_PATH, 'w', newline='\n') as outfile:
 with io.open(OUTPUT_WRAPPERS_SOURCE_PATH, 'w', newline='\n') as outfile:
 	outfile.write(f'#include <{WRAPPERS_HEADER_INCLUDE}>\n\n')
 
-	outfile.write('ferr_t libsyscall_invoke(uint64_t syscall_number, ...);\n')
+	outfile.write('ferr_t libsyscall_invoke(uint64_t syscall_number, uint64_t arg1, uint64_t arg2, uint64_t arg3, uint64_t arg4, uint64_t arg5, uint64_t arg6);\n')
 
 	for syscall in syscalls_module.syscalls:
 		syscall_parameters = 'void'
@@ -175,8 +220,8 @@ with io.open(OUTPUT_WRAPPERS_SOURCE_PATH, 'w', newline='\n') as outfile:
 
 				param_name = param.name if param.name else f'arg{index}'
 
-				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type(param.type)} {param_name}'
-				syscall_arguments += f', {param_name}'
+				syscall_parameters += f'{syscalls_module.syscall_type_to_c_type(param.type, False)} {param_name}'
+				syscall_arguments += f', (uint64_t){param_name}'
 
 				index += 1
 
