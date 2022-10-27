@@ -20,6 +20,7 @@ set(libsys_sources
 	src/processes.c
 	src/channels.c
 	src/monitors.c
+	src/counters.c
 
 	src/${ANILLO_ARCH}/threads.S
 	src/${ANILLO_ARCH}/threads.c
