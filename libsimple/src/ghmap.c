@@ -502,3 +502,15 @@ ferr_t simple_ghmap_store_key_string(void* context, const void* key_to_store, si
 ferr_t simple_ghmap_init_string_to_generic(simple_ghmap_t* hashmap, size_t initial_size, size_t data_size, simple_ghmap_allocate_f allocate, simple_ghmap_free_f free, void* callback_context) {
 	return simple_ghmap_init(hashmap, initial_size, data_size, allocate, free, simple_ghmap_hash_string, simple_ghmap_compares_equal_string, simple_ghmap_stored_key_size_string, simple_ghmap_store_key_string, NULL, callback_context);
 };
+
+simple_ghmap_hash_t simple_ghmap_hash_data(void* context, const void* key, size_t key_size) {
+	return simple_ghmap_hash_string(context, key, key_size);
+};
+
+bool simple_ghmap_compares_equal_data(void* context, const void* stored_key, size_t stored_key_size, const void* key, size_t key_size) {
+	if (stored_key_size != key_size) {
+		return false;
+	}
+
+	return simple_memcmp(stored_key, key, stored_key_size) == 0;
+};

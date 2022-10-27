@@ -250,6 +250,10 @@ ferr_t simple_ghmap_store_key_string(void* context, const void* key_to_store, si
 
 LIBSIMPLE_WUR ferr_t simple_ghmap_init_string_to_generic(simple_ghmap_t* hashmap, size_t initial_size, size_t data_size, simple_ghmap_allocate_f allocate, simple_ghmap_free_f free, void* callback_context);
 
+simple_ghmap_hash_t simple_ghmap_hash_data(void* context, const void* key, size_t key_size);
+
+bool simple_ghmap_compares_equal_data(void* context, const void* stored_key, size_t stored_key_size, const void* key, size_t key_size);
+
 LIBSIMPLE_DECLARATIONS_END;
 
 #endif // _LIBSIMPLE_GHMAP_H_
