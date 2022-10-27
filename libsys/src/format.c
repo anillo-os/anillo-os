@@ -178,14 +178,41 @@ LIBSYS_WUR static ferr_t write_code_point(sys_format_write_context_t* context, u
 	return write_buffer(context, utf8, bytes);
 };
 
+static ferr_t format_out_padding(sys_format_write_context_t* context, size_t actual_width, size_t expected_width, bool zero_pad) {
+	if (zero_pad) {
+		for (size_t i = actual_width; i < expected_width; ++i) {
+			ferr_t status = write_code_point(context, '0');
+			if (status != ferr_ok) {
+				return status;
+			}
+		}
+	} else {
+		for (size_t i = actual_width; i < expected_width; ++i) {
+			ferr_t status = write_code_point(context, ' ');
+			if (status != ferr_ok) {
+				return status;
+			}
+		}
+	}
+	return ferr_ok;
+};
+
 // 32 characters is enough for all three of these variations
 
-LIBSYS_WUR static ferr_t format_out_hex(sys_format_write_context_t* context, uintmax_t value, bool uppercase) {
+LIBSYS_WUR static ferr_t format_out_hex(sys_format_write_context_t* context, uintmax_t value, bool uppercase, size_t width, bool zero_pad) {
 	size_t index = 0;
 	char buffer[32] = {0};
 	ferr_t status = ferr_ok;
 
+	if (width == SIZE_MAX) {
+		width = 0;
+	}
+
 	if (value == 0) {
+		status = format_out_padding(context, 1, width, zero_pad);
+		if (status != ferr_ok) {
+			goto out;
+		}
 		status = write_code_point(context, '0');
 		goto out;
 	}
@@ -200,6 +227,11 @@ LIBSYS_WUR static ferr_t format_out_hex(sys_format_write_context_t* context, uin
 		value /= 16;
 	}
 
+	status = format_out_padding(context, index, width, zero_pad);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
 	// the buffer is in reverse order, so write it in reverse (to get it forwards)
 	for (size_t i = index; i > 0; --i) {
 		status = write_code_point(context, buffer[i - 1]);
@@ -212,12 +244,20 @@ out:
 	return status;
 };
 
-LIBSYS_WUR static ferr_t format_out_octal(sys_format_write_context_t* context, uintmax_t value) {
+LIBSYS_WUR static ferr_t format_out_octal(sys_format_write_context_t* context, uintmax_t value, size_t width, bool zero_pad) {
 	size_t index = 0;
 	char buffer[32] = {0};
 	ferr_t status = ferr_ok;
 
+	if (width == SIZE_MAX) {
+		width = 0;
+	}
+
 	if (value == 0) {
+		status = format_out_padding(context, 1, width, zero_pad);
+		if (status != ferr_ok) {
+			goto out;
+		}
 		status = write_code_point(context, '0');
 		goto out;
 	}
@@ -225,6 +265,11 @@ LIBSYS_WUR static ferr_t format_out_octal(sys_format_write_context_t* context, u
 	while (value > 0) {
 		buffer[index++] = (char)(value % 8) + '0';
 		value /= 8;
+	}
+
+	status = format_out_padding(context, index, width, zero_pad);
+	if (status != ferr_ok) {
+		goto out;
 	}
 
 	// the buffer is in reverse order, so print it in reverse (to get it forwards)
@@ -239,12 +284,20 @@ out:
 	return status;
 };
 
-LIBSYS_WUR static ferr_t format_out_decimal(sys_format_write_context_t* context, uintmax_t value) {
+LIBSYS_WUR static ferr_t format_out_decimal(sys_format_write_context_t* context, uintmax_t value, size_t width, bool zero_pad) {
 	size_t index = 0;
 	char buffer[32] = {0};
 	ferr_t status = ferr_ok;
 
+	if (width == SIZE_MAX) {
+		width = 0;
+	}
+
 	if (value == 0) {
+		status = format_out_padding(context, 1, width, zero_pad);
+		if (status != ferr_ok) {
+			goto out;
+		}
 		status = write_code_point(context, '0');
 		goto out;
 	}
@@ -252,6 +305,11 @@ LIBSYS_WUR static ferr_t format_out_decimal(sys_format_write_context_t* context,
 	while (value > 0) {
 		buffer[index++] = (char)(value % 10) + '0';
 		value /= 10;
+	}
+
+	status = format_out_padding(context, index, width, zero_pad);
+	if (status != ferr_ok) {
+		goto out;
 	}
 
 	// the buffer is in reverse order, so print it in reverse (to get it forwards)
@@ -268,6 +326,42 @@ out:
 
 LIBSYS_WUR static ferr_t format_out_string(sys_format_write_context_t* context, const char* string, size_t length) {
 	return write_buffer(context, string, length);
+};
+
+LIBSYS_WUR static ferr_t format_out_floating(sys_format_write_context_t* context, double value) {
+	int64_t truncated = (int64_t)value;
+	ferr_t status = ferr_ok;
+	uint64_t truncated_positive;
+	uint64_t remaining;
+
+	if (truncated < 0) {
+		status = write_code_point(context, '-');
+		if (status != ferr_ok) {
+			goto out;
+		}
+		truncated_positive = truncated * -1;
+	} else {
+		truncated_positive = truncated;
+	}
+
+	status = format_out_decimal(context, truncated_positive, SIZE_MAX, false);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = write_code_point(context, '.');
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	remaining = (uint64_t)((value - truncated) * 1e16);
+	status = format_out_decimal(context, remaining, SIZE_MAX, false);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	return status;
 };
 
 LIBSYS_WUR static ferr_t sys_format_out(void* context, sys_format_write_f write, size_t* out_written_count, const char* format, size_t format_length, va_list args) {
@@ -321,6 +415,37 @@ LIBSYS_WUR static ferr_t sys_format_out(void* context, sys_format_write_f write,
 
 			format_length_t length = format_length_default;
 			size_t precision = SIZE_MAX;
+			size_t width = SIZE_MAX;
+			bool zero_pad = false;
+
+			if (code_point == '0') {
+				READ_NEXT;
+
+				zero_pad = true;
+			}
+
+			if (code_point >= '0' && code_point <= '9') {
+				--format;
+				++format_length;
+
+				const char* num_start = format;
+				const char* num_end = num_start;
+
+				while (*num_end >= '0' && *num_end <= '9') {
+					++num_end;
+					++format;
+					--format_length;
+				}
+
+				READ_NEXT;
+
+				if (num_end != num_start) {
+					if (simple_string_to_integer_unsigned(num_start, num_end - num_start, NULL, 10, &width) != ferr_ok) {
+						status = ferr_invalid_argument;
+						goto out;
+					}
+				}
+			}
 
 			if (code_point == '.') {
 				READ_NEXT;
@@ -415,9 +540,13 @@ LIBSYS_WUR static ferr_t sys_format_out(void* context, sys_format_write_f write,
 					if (value < 0) {
 						WRITE_CODE_POINT('-');
 						value *= -1;
+
+						if (width != SIZE_MAX) {
+							width = (width < 1) ? 0 : (width - 1);
+						}
 					}
 
-					status = format_out_decimal(&write_context, value);
+					status = format_out_decimal(&write_context, value, width, zero_pad);
 					if (status != ferr_ok) {
 						goto out;
 					}
@@ -453,11 +582,11 @@ LIBSYS_WUR static ferr_t sys_format_out(void* context, sys_format_write_f write,
 					}
 
 					if (code_point == 'x' || code_point == 'X') {
-						status = format_out_hex(&write_context, value, code_point == 'X');
+						status = format_out_hex(&write_context, value, code_point == 'X', width, zero_pad);
 					} else if (code_point == 'o') {
-						status = format_out_octal(&write_context, value);
+						status = format_out_octal(&write_context, value, width, zero_pad);
 					} else {
-						status = format_out_decimal(&write_context, value);
+						status = format_out_decimal(&write_context, value, width, zero_pad);
 					}
 
 					if (status != ferr_ok) {
@@ -472,7 +601,7 @@ LIBSYS_WUR static ferr_t sys_format_out(void* context, sys_format_write_f write,
 
 				case 's': {
 					const char* value = va_arg(args, const char*);
-					status = format_out_string(&write_context, value, precision == SIZE_MAX ? simple_strlen(value) : precision);
+					status = format_out_string(&write_context, value, precision == SIZE_MAX ? simple_strlen(value) : simple_strnlen(value, precision));
 					if (status != ferr_ok) {
 						goto out;
 					}
@@ -481,13 +610,27 @@ LIBSYS_WUR static ferr_t sys_format_out(void* context, sys_format_write_f write,
 				case 'p': {
 					const void* value = va_arg(args, const void*);
 
+					if (width == SIZE_MAX) {
+						width = 18;
+						zero_pad = true;
+					}
+
 					// in reality, this should pad to 16 characters (not including "0x")
 					WRITE_CODE_POINT('0');
 					WRITE_CODE_POINT('x');
-					status = format_out_hex(&write_context, (uintmax_t)(uintptr_t)value, false);
+					status = format_out_hex(&write_context, (uintmax_t)(uintptr_t)value, false, width, zero_pad);
 					if (status != ferr_ok) {
 						goto out;
 					}
+				} break;
+
+				case 'f':
+				case 'F': {
+					double value = va_arg(args, double);
+
+					// TODO: support zero-padding for this format
+
+					status = format_out_floating(&write_context, value);
 				} break;
 
 				default: {
@@ -559,12 +702,13 @@ SYS_FORMAT_VARIANT_WRAPPER(stream_handle, { sys_stream_handle_t stream_handle; }
 
 SYS_FORMAT_VARIANT_WRAPPER(buffer, { char* buffer; size_t buffer_size; }, SYS_FORMAT_CONTEXT_INIT(buffer, buffer_size), void* buffer, size_t buffer_size) {
 	SYS_FORMAT_WRITE_HEADER(buffer);
+	size_t size_to_write = (buffer_length < context->buffer_size) ? buffer_length : context->buffer_size;
 
-	for (size_t i = 0; i < buffer_length && context->buffer_size > 0; ++i) {
-		*context->buffer = ((char*)buffer)[i];
-		++context->buffer;
-		--context->buffer_size;
-	}
+	*out_written_count += buffer_length;
+
+	simple_memcpy(context->buffer, buffer, size_to_write);
+	context->buffer += size_to_write;
+	context->buffer_size -= size_to_write;
 
 	return ferr_ok;
 };
