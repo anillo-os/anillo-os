@@ -35,14 +35,15 @@ set(CMAKE_STRIP "${LLVM_STRIP_PATH}" CACHE INTERNAL "")
 set(CMAKE_EXE_LINKER_FLAGS_INIT "--ld-path=${LD_PATH} -Wl,-platform_version,macos,10.15,10.15 -Wl,-Z -Wl,-arch,x86_64")
 set(CMAKE_SHARED_LINKER_FLAGS_INIT "--ld-path=${LD_PATH} -Wl,-platform_version,macos,10.15,10.15 -Wl,-Z -Wl,-arch,x86_64")
 
-set(ANILLO_TARGET_TRIPLE x86_64-unknown-none-macho)
+# TODO: modify LLDB to support x86_64-unknown-none-macho
+#       (it can't find symbols properly when the ABI is set to "none")
+set(ANILLO_TARGET_TRIPLE x86_64-unknown-darwin-macho)
 
-# TODO: get rid of `-mno-implicit-float`
-set(CMAKE_C_FLAGS "-ffreestanding -mno-implicit-float -nostdlib -target ${ANILLO_TARGET_TRIPLE} -U__APPLE__ -D__ANILLO__=1 -mmacosx-version-min=10.15" CACHE INTERNAL "")
+set(CMAKE_C_FLAGS "-ffreestanding -nostdlib -target ${ANILLO_TARGET_TRIPLE} -U__APPLE__ -D__ANILLO__=1 -mmacosx-version-min=10.15" CACHE INTERNAL "")
 set(CMAKE_CXX_FLAGS "${CMAKE_C_FLAGS}" CACHE INTERNAL "")
 set(CMAKE_ASM_FLAGS "-nostdlib -target ${ANILLO_TARGET_TRIPLE} -mmacosx-version-min=10.15" CACHE INTERNAL "")
 
-set(CMAKE_C_FLAGS_DEBUG "-Og -g3 -gfull" CACHE INTERNAL "")
+set(CMAKE_C_FLAGS_DEBUG "-O0 -g3 -gfull" CACHE INTERNAL "")
 set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG=1" CACHE INTERNAL "")
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_C_FLAGS_DEBUG}" CACHE INTERNAL "")
 set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE}" CACHE INTERNAL "")
