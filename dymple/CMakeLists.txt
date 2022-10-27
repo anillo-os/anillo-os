@@ -4,6 +4,9 @@ project(dymple C ASM)
 # (even in debug builds)
 option(DYMPLE_LOG_DEBUG_ENABLED "Whether to enable debug output in Dymple" OFF)
 
+# only "ON" for debugging
+option(DYMPLE_PRINT_LOAD_ADDRESSES "Whether to print library load addresses when they are loaded" ON)
+
 include_directories(
 	include
 	private-include
@@ -51,6 +54,7 @@ target_compile_options(dymple PRIVATE
 	-fPIC
 	-fno-stack-protector
 	-fno-omit-frame-pointer
+	-mno-implicit-float
 )
 
 target_link_options(dymple PRIVATE
@@ -58,14 +62,20 @@ target_link_options(dymple PRIVATE
 	-Wl,-dylinker_install_name,/sys/support/dymple
 	-fvisibility=hidden
 
-	# shift __TEXT over so that NULL is actually an invalid address (and produces a segfault)
-	-Wl,-segaddr,__TEXT,0x1000
+	# shift the base over so that NULL is actually an invalid address (and produces a segfault)
+	-Wl,-image_base,0x1000
 )
 
 if (DYMPLE_LOG_DEBUG_ENABLED)
 	target_compile_definitions(dymple PRIVATE DYMPLE_LOG_DEBUG_ENABLED=1)
 else()
 	target_compile_definitions(dymple PRIVATE DYMPLE_LOG_DEBUG_ENABLED=0)
+endif()
+
+if (DYMPLE_PRINT_LOAD_ADDRESSES)
+	target_compile_definitions(dymple PRIVATE DYMPLE_PRINT_LOAD_ADDRESSES=1)
+else()
+	target_compile_definitions(dymple PRIVATE DYMPLE_PRINT_LOAD_ADDRESSES=0)
 endif()
 
 dsym(dymple)

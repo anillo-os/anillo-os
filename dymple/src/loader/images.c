@@ -623,6 +623,9 @@ out:
 		if (out_image) {
 			*out_image = image;
 		}
+		if (created) {
+			dymple_log_debug(dymple_log_category_image_load_address, "Image \"%.*s\" loaded at %p\n", (int)image->name_length, (const char*)image->name, image->base);
+		}
 	} else {
 		if (image && created) {
 			if (image->lazy_bind_instructions) {

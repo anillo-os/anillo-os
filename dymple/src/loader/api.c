@@ -20,12 +20,12 @@
 #include <libsys/libsys.h>
 
 // TODO: make this a mutex
-static sys_spinlock_t global_api_lock = SYS_SPINLOCK_INIT;
+static sys_mutex_t global_api_lock = SYS_MUTEX_INIT;
 
 void dymple_api_lock(void) {
-	sys_spinlock_lock(&global_api_lock);
+	sys_mutex_lock(&global_api_lock);
 };
 
 void dymple_api_unlock(void) {
-	sys_spinlock_unlock(&global_api_lock);
+	sys_mutex_unlock(&global_api_lock);
 };

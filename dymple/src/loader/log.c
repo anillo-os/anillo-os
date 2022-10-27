@@ -44,6 +44,11 @@ void dymple_log(dymple_log_type_t type, dymple_log_category_t category, const ch
 
 bool dymple_log_is_enabled(dymple_log_type_t type, dymple_log_category_t category) {
 	if (type == dymple_log_type_debug) {
+#if DYMPLE_PRINT_LOAD_ADDRESSES
+		if (category == dymple_log_category_image_load_address) {
+			return true;
+		}
+#endif
 		return dymple_log_debug_enabled;
 	}
 

@@ -30,6 +30,7 @@ DYMPLE_ENUM(uint64_t, dymple_log_category) {
 	dymple_log_category_image_loading = 1,
 	dymple_log_category_relocations = 2,
 	dymple_log_category_resolution = 3,
+	dymple_log_category_image_load_address = 4,
 };
 
 DYMPLE_ENUM(uint8_t, dymple_log_type) {

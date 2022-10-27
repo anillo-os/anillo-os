@@ -1,3 +1,25 @@
+/*
+ * This file is part of Anillo OS
+ * Copyright (C) 2022 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
+// TODO: we also need to xsave here so dymple can use floating point registers.
+//       in the current state, if we try to call memset and friends (which are optimized with SSE),
+//       we may corrupt the function call.
+
 //
 // layout of rsp on entry:
 //   [0..8]   = image handle address (typically the address of `_dyld_private` in the image)
@@ -9,6 +31,7 @@
 .globl _dymple_bind_stub_raw // defined here
 _dymple_bind_stub_raw:
 	// save rbp (for debugging purposes)
+	// (this also aligns the stack back to 16 bytes)
 	pushq %rbp
 	mov %rsp, %rbp
 
@@ -44,15 +67,69 @@ _dymple_bind_stub_raw:
 	// but Apple's dyld saves them, so we do, too.
 	//
 
-	// now set arg 1 (rdi) to a pointer to the info structure
+	// determine the size of the xsave area
+	// TODO: cache this value somehow
+	mov $0x0d, %eax
+	xor %ecx, %ecx
+	cpuid
+
+	// set arg 1 (rdi) to a pointer to the info structure
 	lea 0x48(%rsp), %rdi
 
-	// and call our actual binder
+	// the xsave area size is in ecx;
+	// let's make room for it now
+	// also temporarily save the stack pointer to restore to in r11
+	mov %rsp, %r11
+	subq %rcx, %rsp
+
+	// align the stack for the xsave area
+	andq $-64, %rsp
+
+	// clear out the XSAVE area header
+	movq $0, 512(%rsp)
+	movq $0, 520(%rsp)
+	movq $0, 528(%rsp)
+	movq $0, 536(%rsp)
+	movq $0, 544(%rsp)
+	movq $0, 552(%rsp)
+	movq $0, 560(%rsp)
+	movq $0, 568(%rsp)
+
+	// perform the xsave
+	xsave64 (%rsp)
+
+	// make space for the saved stack pointer and feature flags
+	subq $16, %rsp
+
+	// save the stack pointer to restore after the xrstor
+	movq %r11, 0x00(%rsp)
+
+	// save the feature flags
+	movl %eax, 0x08(%rsp)
+	movl %edx, 0x0c(%rsp)
+
+	// call our actual binder
 	call _dymple_bind_stub
 
 	// our binder returns the address where we should jump.
 	// load it into r11 (which is guaranteed not to be used for parameters).
 	movq %rax, %r11
+
+	// load the xsave feature flags
+	movl 0x08(%rsp), %eax
+	movl 0x0c(%rsp), %edx
+
+	// temporarily save the stack pointer to restore to into r8
+	movq 0x00(%rsp), %r8
+
+	// remove the saved stack pointer and feature flags
+	addq $16, %rsp
+
+	// perform the xrstor
+	xrstor64 (%rsp)
+
+	// restore the stack pointer
+	mov %r8, %rsp
 
 	// let's restore our saved parameters
 	movq 0x00(%rsp), %rdi

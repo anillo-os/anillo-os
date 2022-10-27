@@ -30,6 +30,7 @@
 
 void start(void) __asm__("start");
 
+__attribute__((force_align_arg_pointer))
 void start(void) {
 	dymple_image_t* main_image = NULL;
 	dymple_image_t* libsys_image = NULL;
