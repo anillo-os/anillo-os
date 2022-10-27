@@ -138,7 +138,7 @@ static void ftimers_priority_queue_remove_locked(void) {
 
 	// if the queue is now a fourth of the allocated size, we should shrink it to half its size
 	if (queue.size > 4 && queue.length < queue.size / 4) {
-		if (fmempool_reallocate(queue.timers, sizeof(ftimers_timer_t) * (queue.size / 2), NULL, (void**)&queue.timers) != ferr_ok) {
+		if (fmempool_reallocate_advanced(queue.timers, sizeof(ftimers_timer_t) * (queue.size / 2), 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void**)&queue.timers) != ferr_ok) {
 			// this should be impossible; shrinking is always possible
 			fpanic("failed to shrink timer priority queue");
 		}
@@ -220,7 +220,7 @@ static ftimers_id_t ftimers_priority_queue_add_locked(uint64_t delay, ftimers_ca
 			new_size = queue.size * 2;
 		}
 
-		if (fmempool_reallocate(queue.timers, sizeof(ftimers_timer_t) * new_size, NULL, (void**)&queue.timers) != ferr_ok) {
+		if (fmempool_reallocate_advanced(queue.timers, sizeof(ftimers_timer_t) * new_size, 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void**)&queue.timers) != ferr_ok) {
 			goto out;
 		}
 
@@ -428,6 +428,42 @@ ferr_t ftimers_cancel(ftimers_id_t id) {
 	}
 
 	flock_spin_intsafe_unlock(&queue_lock);
+
+out:
+	flock_spin_intsafe_unlock(&backend_lock);
+out_unlocked:
+	return status;
+};
+
+ferr_t ftimers_timestamp_read(ftimers_timestamp_t* out_timestamp) {
+	ferr_t status = ferr_ok;
+
+	flock_spin_intsafe_lock(&backend_lock);
+
+	if (backend_count == 0) {
+		status = ferr_temporary_outage;
+		goto out;
+	}
+
+	*out_timestamp = backends[backend]->current_timestamp();
+
+out:
+	flock_spin_intsafe_unlock(&backend_lock);
+out_unlocked:
+	return status;
+};
+
+ferr_t ftimers_timestamp_delta_to_ns(ftimers_timestamp_t start, ftimers_timestamp_t end, uint64_t* out_ns) {
+	ferr_t status = ferr_ok;
+
+	flock_spin_intsafe_lock(&backend_lock);
+
+	if (backend_count == 0) {
+		status = ferr_temporary_outage;
+		goto out;
+	}
+
+	*out_ns = backends[backend]->delta_to_ns(start, end);
 
 out:
 	flock_spin_intsafe_unlock(&backend_lock);

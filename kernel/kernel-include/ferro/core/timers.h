@@ -52,6 +52,8 @@ typedef void (*ftimers_callback_f)(void* data);
  */
 typedef uintptr_t ftimers_id_t;
 
+typedef uint64_t ftimers_timestamp_t;
+
 #define FTIMERS_ID_INVALID UINTPTR_MAX
 
 /**
@@ -90,6 +92,10 @@ FERRO_WUR ferr_t ftimers_oneshot_blocking(uint64_t delay, ftimers_callback_f cal
  * @retval ferr_temporary_outage No timer backend is currently available to fulfill the request.
  */
 FERRO_WUR ferr_t ftimers_cancel(ftimers_id_t id);
+
+FERRO_WUR ferr_t ftimers_timestamp_read(ftimers_timestamp_t* out_timestamp);
+
+FERRO_WUR ferr_t ftimers_timestamp_delta_to_ns(ftimers_timestamp_t start, ftimers_timestamp_t end, uint64_t* out_ns);
 
 /**
  * @}
