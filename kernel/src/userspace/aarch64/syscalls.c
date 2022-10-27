@@ -20,6 +20,18 @@
 #include <ferro/userspace/threads.h>
 #include <ferro/core/panic.h>
 
+extern uint64_t farch_syscall_handler_invoke(void* handler, fthread_saved_context_t* user_context);
+
 void fsyscall_table_handler(void* context, fthread_t* uthread, fthread_saved_context_t* user_context) {
-	fpanic("TODO");
+	const fsyscall_table_t* table = context;
+
+	if (table->count < 1) {
+		fpanic("Syscall table must have at least one entry");
+	}
+
+	if (user_context->x8 == 0 || user_context->x8 >= table->count) {
+		user_context->x0 = ((fsyscall_handler_lookup_error_f)table->handlers[0])(user_context->x8);
+	} else {
+		user_context->x0 = farch_syscall_handler_invoke(table->handlers[user_context->x8], user_context);
+	}
 };

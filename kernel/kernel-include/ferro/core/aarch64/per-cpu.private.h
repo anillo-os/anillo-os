@@ -32,6 +32,7 @@ FERRO_DECLARATIONS_BEGIN;
 FERRO_STRUCT_FWD(fthread);
 FERRO_STRUCT_FWD(fint_frame);
 FERRO_STRUCT_FWD(fpage_space);
+FERRO_STRUCT_FWD(futhread_data);
 
 FERRO_STRUCT(farch_per_cpu_data) {
 	farch_per_cpu_data_t* base;
@@ -39,7 +40,9 @@ FERRO_STRUCT(farch_per_cpu_data) {
 	fthread_t* current_thread;
 	fint_frame_t* current_exception_frame;
 	fper_cpu_main_table_t main_table;
+	void* switching_stack;
 	fpage_space_t* address_space;
+	futhread_data_t* current_uthread_data;
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void);
@@ -49,6 +52,8 @@ farch_per_cpu_data_t* farch_per_cpu_base_address(void);
 FERRO_ALWAYS_INLINE fper_cpu_main_table_t* fper_cpu_main_table_pointer(void) {
 	return &FARCH_PER_CPU(main_table);
 };
+
+void farch_per_cpu_init(void);
 
 FERRO_DECLARATIONS_END;
 

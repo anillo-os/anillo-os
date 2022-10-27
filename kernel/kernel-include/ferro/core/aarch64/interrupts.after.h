@@ -44,6 +44,24 @@ FERRO_DECLARATIONS_BEGIN;
 	#define FARCH_INT_NO_INTERRUPTS_IN_INTERRUPT_CONTEXT 1
 #endif
 
+FERRO_ENUM(uint8_t, farch_int_esr_code) {
+	farch_int_esr_code_svc64                      = 0x15,
+	farch_int_esr_code_instruction_abort_lower_el = 0x20,
+	farch_int_esr_code_instruction_abort_same_el  = 0x21,
+	farch_int_esr_code_pc_alignment_fault         = 0x22,
+	farch_int_esr_code_data_abort_lower_el        = 0x24,
+	farch_int_esr_code_data_abort_same_el         = 0x25,
+	farch_int_esr_code_sp_alignment_fault         = 0x26,
+	farch_int_esr_code_serror                     = 0x2f,
+	farch_int_esr_code_breakpoint_lower_el        = 0x40,
+	farch_int_esr_code_breakpoint_same_el         = 0x41,
+	farch_int_esr_code_software_step_lower_el     = 0x32,
+	farch_int_esr_code_software_step_same_el      = 0x33,
+	farch_int_esr_code_watchpoint_lower_el        = 0x34,
+	farch_int_esr_code_watchpoint_same_el         = 0x35,
+	farch_int_esr_code_brk                        = 0x3c,
+};
+
 FERRO_ALWAYS_INLINE void fint_disable(void) {
 	// '\043' == '#'
 	__asm__ volatile("msr daifset, \04315" ::: "memory");
@@ -100,6 +118,20 @@ FERRO_ALWAYS_INLINE bool fint_is_interrupt_context(void) {
 FERRO_ALWAYS_INLINE fint_frame_t* fint_current_frame(void) {
 	return FARCH_PER_CPU(current_exception_frame);
 };
+
+FERRO_ALWAYS_INLINE uint8_t farch_int_current_exception_level(void) {
+	uint64_t current_el;
+	__asm__ volatile("mrs %0, currentel" : "=r" (current_el));
+	return (current_el >> 2) & 3;
+};
+
+typedef void (*farch_int_lower_el_handler_f)(fint_frame_t* frame, farch_int_esr_code_t code, uint32_t iss);
+
+void farch_int_set_lower_el_handler(farch_int_lower_el_handler_f handler);
+
+void farch_int_print_frame(const fint_frame_t* frame);
+
+bool farch_int_invoke_special_handler(fint_special_interrupt_common_t id);
 
 /**
  * @}

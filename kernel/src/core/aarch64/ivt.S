@@ -98,6 +98,29 @@
 		mrs x1, spsr_el1
 		stp x0, x1, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_sp)]
 
+		// now save the floating point control and status
+		mrs x0, fpsr
+		mrs x1, fpcr
+		stp x0, x1, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fpsr)]
+
+		// and finally, save all the floating point registers
+		stp  q0,  q1, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 *  0)]
+		stp  q2,  q3, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 *  2)]
+		stp  q4,  q5, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 *  4)]
+		stp  q6,  q7, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 *  6)]
+		stp  q8,  q9, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 *  8)]
+		stp q10, q11, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 10)]
+		stp q12, q13, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 12)]
+		stp q14, q15, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 14)]
+		stp q16, q17, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 16)]
+		stp q18, q19, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 18)]
+		stp q20, q21, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 20)]
+		stp q22, q23, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 22)]
+		stp q24, q25, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 24)]
+		stp q26, q27, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 26)]
+		stp q28, q29, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 28)]
+		stp q30, q31, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 30)]
+
 		// move a pointer to the structure (the stack pointer) into the first argument register
 		// and then call the function
 		mov x0, sp
@@ -106,6 +129,29 @@
 		//
 		// great, now let's load stuff
 		//
+
+		// load the floating point control and status
+		ldp x0, x1, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fpsr)]
+		msr fpsr, x0
+		msr fpcr, x1
+
+		// now load the floating point registers
+		ldp  q0,  q1, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 *  0)]
+		ldp  q2,  q3, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 *  2)]
+		ldp  q4,  q5, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 *  4)]
+		ldp  q6,  q7, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 *  6)]
+		ldp  q8,  q9, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 *  8)]
+		ldp q10, q11, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 10)]
+		ldp q12, q13, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 12)]
+		ldp q14, q15, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 14)]
+		ldp q16, q17, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 16)]
+		ldp q18, q19, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 18)]
+		ldp q20, q21, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 20)]
+		ldp q22, q23, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 22)]
+		ldp q24, q25, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 24)]
+		ldp q26, q27, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 26)]
+		ldp q28, q29, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 28)]
+		ldp q30, q31, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_fp_registers) + (16 * 30)]
 
 		// load the stack pointer and processor state
 		ldp x0, x1, [sp, MAKE_IMMEDIATE(FOFFSET_fint_frame_sp)]
@@ -141,14 +187,14 @@
 .endm
 
 // create stubs for the C handlers for these
-.irp prefix, current_with_sp0, current_with_spx
+.irp prefix, current_with_sp0, current_with_spx, lower_with_aarch64
 	.irp type, sync, irq, fiq, serror
 		handler_stub \prefix, \type, fint_handler_\prefix\()_\type
 	.endr
 .endr
 
 // these handler types are currently unused, so just loop forever if they're triggered
-.irp prefix, lower_with_aarch64, lower_with_aarch32
+.irp prefix, lower_with_aarch32
 	loop_handlers \prefix
 .endr
 

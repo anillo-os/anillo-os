@@ -32,7 +32,9 @@ static farch_per_cpu_data_t data = {
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void) {
-	return &data;
+	uint64_t addr = 0;
+	__asm__ volatile("mrs %0, tpidr_el1" : "=r" (addr));
+	return (void*)addr;
 };
 
 uint64_t fcpu_id(void) {
@@ -41,4 +43,8 @@ uint64_t fcpu_id(void) {
 
 uint64_t fcpu_count(void) {
 	return 1;
+};
+
+void farch_per_cpu_init(void) {
+	__asm__ volatile("msr tpidr_el1, %0" :: "r" (&data));
 };

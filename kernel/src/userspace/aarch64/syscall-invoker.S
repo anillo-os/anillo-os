@@ -16,25 +16,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * @file
- *
- * Userspace Threads subsystem, private components; architecture-specific before-header.
- */
+#include <gen/ferro/offsets.h>
+#include <ferro/asm/aarch64/helpers.hS>
 
-#ifndef _FERRO_USERSPACE_AARCH64_THREADS_PRIVATE_BEFORE_H_
-#define _FERRO_USERSPACE_AARCH64_THREADS_PRIVATE_BEFORE_H_
+// arg 1 (x0) is `void* handler`
+// arg 2 (x1) is `fthread_saved_context_t* user_context`
+.align 4
+.text
+.global _farch_syscall_handler_invoke
+_farch_syscall_handler_invoke:
+	// save the handler address to x9
+	mov x9, x0
+	// and the saved context pointer to x10
+	mov x10, x1
 
-#include <stdint.h>
+	// load arguments
+	ldp x0, x1, [x10, MAKE_IMMEDIATE(FOFFSET_fthread_saved_context_x0)]
+	ldp x2, x3, [x10, MAKE_IMMEDIATE(FOFFSET_fthread_saved_context_x2)]
+	ldp x4, x5, [x10, MAKE_IMMEDIATE(FOFFSET_fthread_saved_context_x4)]
+	ldp x6, x7, [x10, MAKE_IMMEDIATE(FOFFSET_fthread_saved_context_x6)]
 
-#include <ferro/base.h>
-
-FERRO_DECLARATIONS_BEGIN;
-
-FERRO_STRUCT(futhread_data_private_arch) {
-	uint64_t tpidr_el0;
-};
-
-FERRO_DECLARATIONS_END;
-
-#endif // _FERRO_USERSPACE_AARCH64_THREADS_PRIVATE_BEFORE_H_
+	// branch to the handler (without linking)
+	br x9

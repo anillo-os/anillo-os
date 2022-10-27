@@ -26,6 +26,7 @@
 #define _FERRO_CORE_AARCH64_PAGING_PRIVATE_H_
 
 #include <ferro/core/paging.private.h>
+#include <ferro/core/interrupts.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -75,16 +76,27 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 	stack_pointer = (void*)fpage_virtual_to_physical_early((uintptr_t)stack_pointer);
 	stack_diff = (uintptr_t)old_stack_bottom - (uintptr_t)stack_pointer;
 
+	__asm__ volatile("mrs %0, tcr_el1" : "=r"(tcr_el1));
+
+	// clear EPD1
+	tcr_el1 &= ~(1ull << 23);
+
+	// set TG{0,1}SZ to 16
+	tcr_el1 = (tcr_el1 & ~(0x3full << 16)) | (16ull << 16);
+	tcr_el1 = (tcr_el1 & ~(0x3full <<  0)) | (16ull << 0);
+
+	// set TG{0,1} to 4KiB
+	tcr_el1 = (tcr_el1 & ~(3ull << 30)) | (2ull << 30);
+	tcr_el1 = (tcr_el1 & ~(3ull << 14)) | (0ull << 14);
+
 	__asm__ volatile(
-		// make sure ttbr1_el1 is enabled/usable by clearing epd1
-		"mrs %0, tcr_el1\n"
-		// '\043' == '#'
-		"bic %0, %0, \0430x800000\n"
 		"msr tcr_el1, %0\n"
 
 		"dsb sy\n"
 
 		// load the new page table
+		// TODO: use two separate tables for each TTBR
+		"msr ttbr0_el1, %1\n"
 		"msr ttbr1_el1, %1\n"
 
 		// ensure the new page table is seen and used
@@ -97,9 +109,8 @@ FERRO_ALWAYS_INLINE void fpage_begin_new_mapping(void* l4_address, void* old_sta
 
 		// load the new stack pointer
 		"mov sp, %3\n"
-		:
-		"+r" (tcr_el1)
-		:
+		::
+		"r" (tcr_el1),
 		"r" (l4_address),
 		"r" (new_stack_bottom),
 		"r" ((uintptr_t)new_stack_bottom - stack_diff)
@@ -162,8 +173,11 @@ FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_privileged(uint64_t entry, bool pr
 };
 
 FERRO_ALWAYS_INLINE uintptr_t fpage_fault_address(void) {
-	// TODO
-	return UINTPTR_MAX;
+	fint_frame_t* frame = fint_current_frame();
+	if (!frame) {
+		return UINTPTR_MAX;
+	}
+	return frame->far;
 };
 
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void) {
@@ -173,6 +187,20 @@ FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void) {
 		:::
 		"memory"
 	);
+};
+
+FERRO_ALWAYS_INLINE void fpage_prefault_stack(size_t page_count) {
+	extern bool fpage_prefaulting_enabled;
+	if (!fpage_prefaulting_enabled) {
+		return;
+	}
+	uint64_t sp;
+	volatile uint8_t* ptr;
+	__asm__ volatile("mov %0, sp" : "=r" (sp));
+	ptr = (volatile void*)fpage_round_down_page(sp);
+	for (size_t i = 0; i < page_count; ++i) {
+		*(ptr - i * FPAGE_PAGE_SIZE);
+	}
 };
 
 #define fpage_space_current_pointer() (&FARCH_PER_CPU(address_space))

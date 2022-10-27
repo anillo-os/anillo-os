@@ -29,6 +29,7 @@
 #include <ferro/core/console.h>
 #include <ferro/core/paging.h>
 #include <ferro/core/locks.h>
+#include <libsimple/libsimple.h>
 
 #define RESERVED_HELPER2(x, y) uint8_t reserved ## y [x]
 #define RESERVED_HELPER(x, y) RESERVED_HELPER2(x, y)
@@ -305,10 +306,32 @@ VERIFY_OFFSET_ITS(read, 0x90);
 VERIFY_OFFSET_ITS(translation_table_descriptors, 0x100);
 VERIFY_OFFSET_ITS(identifiers, 0xffd0);
 
+// this block probably has more registers, but we don't need them
+// and i couldn't find any documentation on them anywhere
+FERRO_PACKED_STRUCT(farch_gic_msi_block) {
+	RESERVED(8);
+	volatile uint32_t type;
+	RESERVED(52);
+	volatile uint32_t set_spi;
+	RESERVED(3976);
+	volatile uint32_t iidr;
+};
+
 FERRO_STRUCT(farch_gic_interrupt_handler_entry) {
 	farch_gic_interrupt_handler_f handler;
+	void* context;
 	flock_spin_intsafe_t lock;
 	bool for_group_0;
+};
+
+#define FARCH_GIC_SPI_MIN 32
+#define FARCH_GIC_INTERRUPT_COUNT 1020
+
+FERRO_STRUCT(farch_gic_msi_frame) {
+	volatile farch_gic_msi_block_t* block;
+	volatile farch_gic_msi_block_t* physical_block;
+	uint32_t spi_base;
+	uint32_t spi_count;
 };
 
 static bool needs_separate_deactivate = false;
@@ -318,7 +341,11 @@ static farch_gic_gicd_block_t* gicd = NULL;
 static farch_gic_gicr_block_t* gicr = NULL;
 static farch_gic_cpu_interface_block_t* cpu_interface = NULL;
 static uint8_t gic_version = 0;
-static farch_gic_interrupt_handler_entry_t handlers[1020] = {0};
+static farch_gic_interrupt_handler_entry_t handlers[FARCH_GIC_INTERRUPT_COUNT] = {0};
+static farch_gic_msi_frame_t msi_frames[64] = {0};
+static size_t msi_frame_count = 0;
+static flock_spin_intsafe_t allocated_spi_bitmap_lock = FLOCK_SPIN_INTSAFE_INIT;
+static uint8_t allocated_spi_bitmap[(FARCH_GIC_INTERRUPT_COUNT - FARCH_GIC_SPI_MIN + 7) / 8] = {0};
 
 static void signal_eoi(uint64_t interrupt_number, bool is_group_0) {
 	if (use_system_registers) {
@@ -508,54 +535,15 @@ ferr_t farch_gic_interrupt_configuration_write(uint64_t interrupt, farch_gic_int
 	return ferr_ok;
 };
 
-ferr_t farch_gic_interrupt_group_read(uint64_t interrupt, bool* out_is_group_0) {
-	size_t index = interrupt / 32;
-	uint32_t bit = 1 << (interrupt % 32);
-
-	if (interrupt > 1019) {
-		return ferr_invalid_argument;
-	}
-
-	if (out_is_group_0) {
-		*out_is_group_0 = (gicd->groups[index] & bit) == 0;
-	}
-
-	return ferr_ok;
-};
-
-ferr_t farch_gic_interrupt_group_write(uint64_t interrupt, bool is_group_0) {
-	size_t index = interrupt / 32;
-	uint32_t bit = 1 << (interrupt % 32);
-	bool changed;
-
-	if (interrupt > 1019) {
-		return ferr_invalid_argument;
-	}
-
-	if (is_group_0) {
-		gicd->groups[index] &= ~bit;
-	} else {
-		gicd->groups[index] |= bit;
-	}
-
-	changed = (gicd->groups[index] & bit) == 0;
-
-	// if it didn't change, that means it doesn't support being changed
-	if (changed != is_group_0) {
-		return ferr_unsupported;
-	}
-
-	return ferr_ok;
-};
-
 static void irq_handler(bool is_fiq, fint_frame_t* frame) {
 	uint64_t interrupt_number;
-		// if it's an FIQ, it's a group 0 interrupt
-	bool is_group_0 = is_fiq;
+	// we only use group 0 interrupts for now
+	bool is_group_0 = true;
 
 	while (true) {
 		farch_gic_interrupt_handler_entry_t* entry;
 		farch_gic_interrupt_handler_f handler = NULL;
+		void* context = NULL;
 		interrupt_number = read_interrupt_number(is_group_0);
 
 		if (interrupt_number >= 1020 && interrupt_number <= 1023) {
@@ -571,14 +559,15 @@ static void irq_handler(bool is_fiq, fint_frame_t* frame) {
 		flock_spin_intsafe_lock(&entry->lock);
 		if (entry->handler && entry->for_group_0 == is_group_0) {
 			handler = entry->handler;
+			context = entry->context;
 		}
 		flock_spin_intsafe_unlock(&entry->lock);
 
 		if (!handler) {
-			fpanic("No handler for interrupt %lu on group %s", interrupt_number, is_group_0 ? "0" : "1");
+			fpanic("No handler for interrupt %llu on group %s", interrupt_number, is_group_0 ? "0" : "1");
 		}
 
-		handler(frame);
+		handler(context, frame);
 
 		signal_eoi(interrupt_number, is_group_0);
 	}
@@ -607,7 +596,7 @@ static void set_system_register_access_is_enabled(bool enabled) {
 	__asm__ volatile("msr icc_sre_el1, %0" :: "r" (value));
 };
 
-ferr_t farch_gic_register_handler(uint64_t interrupt, bool for_group_0, farch_gic_interrupt_handler_f handler) {
+ferr_t farch_gic_register_handler(uint64_t interrupt, bool for_group_0, farch_gic_interrupt_handler_f handler, void* context) {
 	ferr_t status = ferr_ok;
 	farch_gic_interrupt_handler_entry_t* entry;
 
@@ -626,6 +615,7 @@ ferr_t farch_gic_register_handler(uint64_t interrupt, bool for_group_0, farch_gi
 	}
 
 	entry->handler = handler;
+	entry->context = context;
 	entry->for_group_0 = for_group_0;
 
 out:
@@ -653,6 +643,7 @@ ferr_t farch_gic_unregister_handler(uint64_t interrupt, bool for_group_0) {
 	}
 
 	entry->handler = NULL;
+	entry->context = NULL;
 
 out:
 	flock_spin_intsafe_unlock(&entry->lock);
@@ -706,6 +697,26 @@ void farch_gic_init(void) {
 			gic_version = entry->gic_version;
 
 			fconsole_logf("info: Found a GICv%u controller\n", gic_version);
+		} else if (header->type == facpi_madt_entry_type_gic_msi) {
+			facpi_madt_entry_gic_msi_t* entry = (void*)header;
+
+			fconsole_logf("info: Found GICv2m MSI frame @ %p\n", (void*)entry->base);
+
+			if (msi_frame_count >= sizeof(msi_frames) / sizeof(*msi_frames)) {
+				fconsole_log("warning: Reached maximum number of GICv2m MSI frames; ignoring new frame\n");
+			} else if (fpage_map_kernel_any((void*)entry->base, fpage_round_up_to_page_count(sizeof(farch_gic_msi_block_t)), (void*)&msi_frames[msi_frame_count].block, fpage_flag_no_cache) != ferr_ok) {
+				fconsole_log("warning: Failed to map MSI frame\n");
+			} else {
+				farch_gic_msi_frame_t* msi_frame = &msi_frames[msi_frame_count];
+
+				++msi_frame_count;
+
+				msi_frame->physical_block = (void*)entry->base;
+				msi_frame->spi_base = (entry->flags & facpi_madt_entry_gic_msi_flag_spi_select) != 0 ? entry->spi_base : ((msi_frame->block->type >> 16) & 0x3ff);
+				msi_frame->spi_count = (entry->flags & facpi_madt_entry_gic_msi_flag_spi_select) != 0 ? entry->spi_count : ((msi_frame->block->type >> 0) & 0x3ff);
+
+				fconsole_logf("GICv2m MSI frame base=%u, count=%u\n", msi_frame->spi_base, msi_frame->spi_count);
+			}
 		}
 
 		offset += header->length;
@@ -736,12 +747,8 @@ void farch_gic_init(void) {
 		}
 	}
 
-	gicd->control |= (1 << 0) | (1 << 1);
-	cpu_interface->control |= (1 << 0) | (1 << 1) | (1 << 3);
-
-	if ((cpu_interface->control & (1 << 3)) == 0) {
-		fpanic("Failed to set group-0-to-FIQ bit");
-	}
+	gicd->control |= (1 << 0);
+	cpu_interface->control |= (1 << 0);
 
 	cpu_interface->priority_mask = 0xff;
 	cpu_interface->binary_point = 0;
@@ -758,5 +765,67 @@ void farch_gic_init(void) {
 		flock_spin_intsafe_init(&handlers[i].lock);
 	}
 
+	// assign all interrupts to group 0
+	for (size_t i = 0; i < sizeof(gicd->groups) / sizeof(*gicd->groups); ++i) {
+		gicd->groups[i] = 0;
+	}
+
 	farch_int_set_irq_handler(irq_handler);
+};
+
+ferr_t farch_gic_allocate_msi_interrupt(uint64_t* out_interrupt, uint32_t* out_msi_data, uint64_t* out_msi_address) {
+	ferr_t status = ferr_ok;
+	uint64_t interrupt = UINT64_MAX;
+	farch_gic_msi_frame_t* msi_frame = NULL;
+	uint32_t msi_data = 0;
+	uint64_t msi_address = 0;
+
+	flock_spin_intsafe_lock(&allocated_spi_bitmap_lock);
+
+	for (uint64_t i = 0; i < FARCH_GIC_INTERRUPT_COUNT - FARCH_GIC_SPI_MIN; ++i) {
+		uint64_t interrupt_number = i + FARCH_GIC_SPI_MIN;
+
+		if ((allocated_spi_bitmap[i / 8] & (1 << (i % 8))) != 0) {
+			continue;
+		}
+
+		// find the MSI frame for this interrupt
+		for (size_t j = 0; j < msi_frame_count; ++j) {
+			farch_gic_msi_frame_t* this_frame = &msi_frames[j];
+
+			if (this_frame->spi_base <= interrupt_number && this_frame->spi_base + this_frame->spi_count > interrupt_number) {
+				msi_frame = this_frame;
+				break;
+			}
+		}
+
+		// we always mark the interrupt as in-use once we get here because either:
+		//   * we found the MSI frame and we're going to use it now, or
+		//   * this interrupt doesn't actually exist, so we mark it as in-use so we don't waste our time checking it again later
+		allocated_spi_bitmap[i / 8] |= (1 << (i % 8));
+
+		if (!msi_frame) {
+			continue;
+		}
+
+		interrupt = interrupt_number;
+		break;
+	}
+
+	flock_spin_intsafe_unlock(&allocated_spi_bitmap_lock);
+
+	if (interrupt == UINT64_MAX) {
+		status = ferr_resource_unavailable;
+		goto out;
+	}
+
+	msi_address = (uintptr_t)&msi_frame->physical_block->set_spi;
+	msi_data = interrupt;
+
+	*out_interrupt = interrupt;
+	*out_msi_data = msi_data;
+	*out_msi_address = msi_address;
+
+out:
+	return status;
 };

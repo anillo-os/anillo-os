@@ -46,7 +46,7 @@ FERRO_DECLARATIONS_BEGIN;
  *
  * The handler is called with interrupts disabled.
  */
-typedef void (*farch_gic_interrupt_handler_f)(fint_frame_t* frame);
+typedef void (*farch_gic_interrupt_handler_f)(void* context, fint_frame_t* frame);
 
 /**
  * Initializes the AARCH64 Generic Interrupt Controller subsystem.
@@ -65,7 +65,7 @@ void farch_gic_init(void);
  * @retval ferr_invalid_argument One or more of: 1) the given interrupt number is outside the permitted range (0-1019, inclusive), 2) the handler is `NULL`.
  * @retval ferr_temporary_outage A handler for the given interrupt is already registered and must be explicitly unregistered with farch_gic_unregister_handler().
  */
-FERRO_WUR ferr_t farch_gic_register_handler(uint64_t interrupt, bool for_group_0, farch_gic_interrupt_handler_f handler);
+FERRO_WUR ferr_t farch_gic_register_handler(uint64_t interrupt, bool for_group_0, farch_gic_interrupt_handler_f handler, void* context);
 
 /**
  * Unregisters the handler for the given interrupt number.
@@ -169,36 +169,13 @@ FERRO_OPTIONS(uint8_t, farch_gic_interrupt_configuration) {
  */
 FERRO_WUR ferr_t farch_gic_interrupt_configuration_write(uint64_t interrupt, farch_gic_interrupt_configuration_t configuration);
 
-/**
- * Checks the given interrupt's current group membership.
- *
- * @param interrupt      The number of the interrupt on which to operate.
- * @param out_is_group_0 A pointer in which the result will be written. May be `NULL`.
- *
- * Return values:
- * @retval ferr_ok               The given interrupt's current group membership has been successfully retrieved.
- * @retval ferr_invalid_argument The given interrupt number is outside the permitted range (0-1019, inclusive).
- */
-FERRO_WUR ferr_t farch_gic_interrupt_group_read(uint64_t interrupt, bool* out_is_group_0);
-
-/**
- * Sets the given interrupt's group membership.
- *
- * @param interrupt  The number of the interrupt on which to operate.
- * @param is_group_0 If `true`, the interrupt should belong to group 0. Otherwise, it should belong to group 1.
- *
- * Return values:
- * @retval ferr_ok               The given interrupt's group membership has been successfully modified.
- * @retval ferr_invalid_argument The given interrupt number is outside the permitted range (0-1019, inclusive).
- * @retval ferr_unsupported      The given interrupt's group membership cannot be changed. This is only returned if the interrupt's current membership is not the desired one AND its membership cannot be modified.
- */
-FERRO_WUR ferr_t farch_gic_interrupt_group_write(uint64_t interrupt, bool is_group_0);
-
 FERRO_ALWAYS_INLINE uint8_t farch_gic_current_core_id(void) {
 	uint64_t value;
 	__asm__ volatile("mrs %0, mpidr_el1" : "=r" (value));
 	return (value >> 8) & 0xff;
 };
+
+FERRO_WUR ferr_t farch_gic_allocate_msi_interrupt(uint64_t* out_interrupt, uint32_t* out_msi_data, uint64_t* out_msi_address);
 
 /**
   * @}

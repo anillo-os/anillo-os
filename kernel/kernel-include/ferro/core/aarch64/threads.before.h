@@ -75,8 +75,12 @@ FERRO_STRUCT(fthread_saved_context) {
 	// actually spsr
 	uint64_t pstate;
 
-	uint16_t interrupt_disable;
-	uint64_t reserved;
+	uint64_t interrupt_disable;
+	uint64_t address_space;
+
+	uint64_t fpsr;
+	uint64_t fpcr;
+	__uint128_t fp_registers[32];
 };
 
 // needs to be 16-byte aligned so we can push it onto the stack

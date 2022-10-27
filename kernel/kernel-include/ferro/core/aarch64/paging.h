@@ -34,6 +34,11 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
+FERRO_ALWAYS_INLINE bool fpage_address_is_canonical(uintptr_t virtual_address) {
+	// TODO
+	return true;
+};
+
 FERRO_DECLARATIONS_END;
 
 #endif // _FERRO_CORE_AARCH64_PAGING_H_

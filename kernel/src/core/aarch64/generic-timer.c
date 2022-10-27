@@ -63,7 +63,7 @@ static ftimers_backend_t generic_timer_backend = {
 	.cancel = generic_timer_cancel,
 };
 
-static void generic_timer_interrupt_handler(fint_frame_t* frame) {
+static void generic_timer_interrupt_handler(void* context, fint_frame_t* frame) {
 	ftimers_backend_fire();
 };
 
@@ -74,9 +74,11 @@ void farch_generic_timer_init(void) {
 		fpanic("No GTDT ACPI table found");
 	}
 
-	fconsole_logf("info: Generic timer frequency is %luHz\n", farch_generic_timer_read_frequency());
+	fconsole_logf("info: Generic timer frequency is %lluHz\n", farch_generic_timer_read_frequency());
 
 	generic_timer_interrupt_number = gtdt->non_secure_el1_gsiv;
+
+	fconsole_logf("info: Generic timer interrupt number is %llu\n", generic_timer_interrupt_number);
 
 	generic_timer_backend.precision = farch_generic_timer_offset_to_ns(1);
 
@@ -96,11 +98,7 @@ void farch_generic_timer_init(void) {
 		fpanic("Failed to clear timer interrupt pending status");
 	}
 
-	if (farch_gic_interrupt_group_write(generic_timer_interrupt_number, true) != ferr_ok) {
-		fpanic("Failed to set timer interrupt group to 0");
-	}
-
-	if (farch_gic_register_handler(generic_timer_interrupt_number, true, generic_timer_interrupt_handler) != ferr_ok) {
+	if (farch_gic_register_handler(generic_timer_interrupt_number, true, generic_timer_interrupt_handler, NULL) != ferr_ok) {
 		fpanic("Failed to register timer interrupt handler");
 	}
 

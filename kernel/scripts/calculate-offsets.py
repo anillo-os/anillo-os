@@ -67,7 +67,9 @@ STRUCTS_PER_ARCH = {
 		'farch_int_frame_with_code',
 		'farch_per_cpu_data',
 	],
-	'aarch64': [],
+	'aarch64': [
+		'farch_per_cpu_data',
+	],
 }
 
 data = {}
