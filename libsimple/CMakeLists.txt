@@ -3,6 +3,8 @@ project(libsimple C)
 set(libsimple_sources
 	src/libsimple.c
 	src/ghmap.c
+	src/ring.c
+	#src/vector.c
 	src/mempool.c
 )
 

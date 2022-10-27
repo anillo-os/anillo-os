@@ -25,6 +25,7 @@
 
 #include <libsimple/general.h>
 #include <libsimple/ghmap.h>
+#include <libsimple/ring.h>
 #include <libsimple/mempool.h>
 
 #endif // _LIBSIMPLE_LIBSIMPLE_H_
