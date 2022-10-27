@@ -25,6 +25,10 @@
 #include <ferro/core/x86_64/paging.private.h>
 
 uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
+	if (!fpage_address_is_canonical(virtual_address)) {
+		return UINTPTR_MAX;
+	}
+
 	size_t l4_index = FPAGE_VIRT_L4(virtual_address);
 	size_t l3_index = FPAGE_VIRT_L3(virtual_address);
 	size_t l2_index = FPAGE_VIRT_L2(virtual_address);

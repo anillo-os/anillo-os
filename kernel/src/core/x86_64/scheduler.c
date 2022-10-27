@@ -39,7 +39,7 @@ void farch_sched_init(void) {
 		fpanic("Failed to register scheduler auxillary interrupt");
 	}
 
-	if (fpage_allocate_kernel(fpage_round_up_to_page_count(SWITCHING_STACK_SIZE), &FARCH_PER_CPU(switching_stack), 0) != ferr_ok) {
+	if (fpage_allocate_kernel(fpage_round_up_to_page_count(SWITCHING_STACK_SIZE), &FARCH_PER_CPU(switching_stack), fpage_flag_prebound) != ferr_ok) {
 		fpanic("Failed to allocate a switching stack");
 	}
 
