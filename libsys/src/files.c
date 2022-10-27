@@ -32,8 +32,11 @@ LIBSYS_STRUCT(sys_file_object) {
 static void sys_file_destroy(sys_object_t* object);
 
 static const sys_object_class_t file_class = {
+	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
 	.destroy = sys_file_destroy,
 };
+
+LIBSYS_OBJECT_CLASS_GETTER(file, file_class);
 
 static void sys_file_destroy(sys_object_t* object) {
 	sys_file_object_t* file = (void*)object;
@@ -156,7 +159,12 @@ out:
 };
 
 ferr_t sys_file_read_fd(sys_fd_t fd, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count) {
-	return libsyscall_wrapper_fd_read(fd, offset, buffer_size, out_buffer, out_read_count);
+	uint64_t read_count = 0;
+	ferr_t status = libsyscall_wrapper_fd_read(fd, offset, buffer_size, out_buffer, &read_count);
+	if (out_read_count) {
+		*out_read_count = read_count;
+	}
+	return status;
 };
 
 ferr_t sys_file_read_retry(sys_file_t* xfile, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count) {
@@ -239,7 +247,12 @@ out:
 };
 
 ferr_t sys_file_write_fd(sys_fd_t fd, uint64_t offset, size_t buffer_size, const void* buffer, size_t* out_written_count) {
-	return libsyscall_wrapper_fd_write(fd, offset, buffer_size, buffer, out_written_count);
+	uint64_t written_count = 0;
+	ferr_t status = libsyscall_wrapper_fd_write(fd, offset, buffer_size, buffer, &written_count);
+	if (out_written_count) {
+		*out_written_count = written_count;
+	}
+	return status;
 };
 
 
@@ -259,7 +272,12 @@ out:
 };
 
 ferr_t sys_file_copy_path_fd(sys_fd_t fd, size_t buffer_size, void* out_buffer, size_t* out_actual_size) {
-	return libsyscall_wrapper_fd_copy_path(fd, buffer_size, out_buffer, out_actual_size);
+	uint64_t actual_size = 0;
+	ferr_t status = libsyscall_wrapper_fd_copy_path(fd, buffer_size, out_buffer, &actual_size);
+	if (out_actual_size) {
+		*out_actual_size = actual_size;
+	}
+	return status;
 };
 
 ferr_t sys_file_copy_path_allocate(sys_file_t* xfile, char** out_string, size_t* out_string_length) {

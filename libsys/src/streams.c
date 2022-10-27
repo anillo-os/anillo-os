@@ -11,8 +11,11 @@ LIBSYS_STRUCT(sys_stream_object) {
 static void sys_stream_destroy(sys_object_t* object);
 
 static const sys_object_class_t stream_class = {
+	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
 	.destroy = sys_stream_destroy,
 };
+
+LIBSYS_OBJECT_CLASS_GETTER(stream, stream_class);
 
 static void sys_stream_destroy(sys_object_t* object) {
 	sys_stream_object_t* stream = (void*)object;
@@ -108,7 +111,12 @@ out:
 };
 
 ferr_t sys_stream_read_handle(sys_stream_handle_t stream_handle, size_t buffer_length, void* out_buffer, size_t* out_read_count) {
-	return libsyscall_wrapper_fd_read(stream_handle, 0, buffer_length, out_buffer, out_read_count);
+	uint64_t read_count = 0;
+	ferr_t status = libsyscall_wrapper_fd_read(stream_handle, 0, buffer_length, out_buffer, &read_count);
+	if (out_read_count) {
+		*out_read_count = read_count;
+	}
+	return status;
 };
 
 ferr_t sys_stream_write(sys_stream_t* xstream, size_t buffer_length, const void* buffer, size_t* out_written_count) {
@@ -127,5 +135,10 @@ out:
 };
 
 ferr_t sys_stream_write_handle(sys_stream_handle_t stream_handle, size_t buffer_length, const void* buffer, size_t* out_written_count) {
-	return libsyscall_wrapper_fd_write(stream_handle, 0, buffer_length, buffer, out_written_count);
+	uint64_t written_count = 0;
+	ferr_t status = libsyscall_wrapper_fd_write(stream_handle, 0, buffer_length, buffer, &written_count);
+	if (out_written_count) {
+		*out_written_count = written_count;
+	}
+	return status;
 };

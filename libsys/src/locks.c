@@ -111,7 +111,7 @@ void sys_semaphore_down(sys_semaphore_t* semaphore) {
 		if (count > 0) {
 			// there might a chance for us to decrement
 
-			bool new_up_needs_to_wake_bit = old_state & sys_semaphore_state_up_needs_to_wake_bit;
+			uint64_t new_up_needs_to_wake_bit = old_state & sys_semaphore_state_up_needs_to_wake_bit;
 			bool going_to_wake = false;
 
 			if (have_waited && new_up_needs_to_wake_bit == 0) {

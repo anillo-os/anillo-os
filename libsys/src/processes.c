@@ -25,8 +25,11 @@ static sys_proc_object_t* this_process = NULL;
 static void sys_proc_destroy(sys_proc_t* object);
 
 static const sys_object_class_t proc_class = {
+	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
 	.destroy = sys_proc_destroy,
 };
+
+LIBSYS_OBJECT_CLASS_GETTER(proc, proc_class);
 
 static void sys_proc_destroy(sys_proc_t* object) {
 	sys_proc_object_t* proc = (void*)object;
