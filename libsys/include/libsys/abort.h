@@ -33,6 +33,17 @@ LIBSYS_NO_RETURN void sys_abort(void);
 		(void)0; \
 	})
 
+#define sys_abort_status_log_helper2(_line) #_line
+#define sys_abort_status_log_helper1(_line) sys_abort_status_log_helper2(_line)
+#define sys_abort_status_log(_expression) ({ \
+		ferr_t status = (_expression); \
+		if (status != ferr_ok) { \
+			sys_console_log_f(__FILE__ ":" sys_abort_status_log_helper1(__LINE__) ": Expression (\"" #_expression "\") returned non-ok status: %d (%s: %s)", status, ferr_name(status), ferr_description(status)); \
+			sys_abort(); \
+		} \
+		(void)0; \
+	})
+
 LIBSYS_DECLARATIONS_END;
 
 #endif // _LIBSYS_ABORT_H_
