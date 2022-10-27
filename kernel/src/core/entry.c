@@ -225,6 +225,10 @@ static ferro_ramdisk_t* ramdisk = NULL;
 static void ferro_entry_threaded(void* data) {
 	fconsole_log("Entering threaded kernel startup\n");
 
+	//fpage_log_early();
+
+	fpage_prefault_enable();
+
 	fworkers_init();
 
 	fvfs_init();
@@ -346,6 +350,9 @@ jump_here_for_virtual:;
 	// initialize the paging subsystem so that we can start paging freely
 	fpage_init(next_l2, &page_table_level_4, memory_map, memory_map_length, image_base);
 
+	// now initialize the memory pool subsystem (that's what we use for most allocations)
+	fmempool_init();
+
 	for (size_t i = 0; i < boot_data_count; ++i) {
 		ferro_boot_data_info_t* curr = &boot_data[i];
 		if (curr->type == ferro_boot_data_type_framebuffer_info) {
@@ -360,10 +367,8 @@ jump_here_for_virtual:;
 		}
 	}
 
-	// map the framebuffer
-	if (fpage_map_kernel_any(fb_info->base, round_up_div(fb_info->scan_line_size * fb_info->height, FPAGE_PAGE_SIZE), &fb_info->base, 0) == ferr_ok) {
-		ferro_fb_init(fb_info);
-	}
+	// initialize the framebuffer
+	FERRO_WUR_IGNORE(ferro_fb_init(fb_info));
 
 	// initialize the console subsystem
 	fconsole_init();
@@ -399,6 +404,8 @@ jump_here_for_virtual:;
 
 	// initialize the interrupts subsystem
 	fint_init();
+
+	// from this point forward, memory can now be bound-on-demand
 
 	// initialize the ACPI subsystem
 	facpi_init(rsdp);

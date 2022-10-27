@@ -200,6 +200,7 @@ void fconsole_init_serial(fserial_t* serial) {
 static void fconsole_log_code_point(uint32_t code_point) {
 	const ferro_fb_info_t* fb_info = ferro_fb_get_info();
 	bool print_it = true;
+	bool needs_flush = false;
 
 	if (serial_port) {
 		char utf8[4];
@@ -221,10 +222,15 @@ static void fconsole_log_code_point(uint32_t code_point) {
 	if (code_point == '\n' || next_location.x + font->glyph_width >= fb_info->width) {
 		next_location.x = 0;
 		next_location.y += font->glyph_height + line_padding;
+		needs_flush = true;
 	}
 	if (next_location.y + font->glyph_height >= fb_info->height) {
 		(void)ferro_fb_shift(true, font->glyph_height + line_padding, &black_pixel);
 		next_location.y -= font->glyph_height + line_padding;
+	}
+
+	if (needs_flush) {
+		FERRO_WUR_IGNORE(ferro_fb_flush());
 	}
 
 	if (print_it) {
@@ -281,6 +287,9 @@ ferr_t fconsole_logn(const char* string, size_t size) {
 	flock_spin_intsafe_lock(&log_lock);
 	status = fconsole_logn_locked(string, size);
 	flock_spin_intsafe_unlock(&log_lock);
+
+	FERRO_WUR_IGNORE(ferro_fb_flush());
+
 	return status;
 };
 
@@ -549,7 +558,9 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 						fconsole_log_code_point('-');
 						value *= -1;
 
-						width = (width < 1) ? 0 : (width - 1);
+						if (width != SIZE_MAX) {
+							width = (width < 1) ? 0 : (width - 1);
+						}
 					}
 
 					print_decimal(value, width, zero_pad);
@@ -608,6 +619,7 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 
 					if (width == SIZE_MAX) {
 						width = 18;
+						zero_pad = true;
 					}
 
 					fconsole_log_code_point('0');
@@ -627,8 +639,10 @@ ferr_t fconsole_lognfv(const char* format, size_t format_size, va_list args) {
 		#undef READ_NEXT
 	}
 
-
 	flock_spin_intsafe_unlock(&log_lock);
+
+	FERRO_WUR_IGNORE(ferro_fb_flush());
+
 	return ferr_ok;
 err_out:
 	flock_spin_intsafe_unlock(&log_lock);

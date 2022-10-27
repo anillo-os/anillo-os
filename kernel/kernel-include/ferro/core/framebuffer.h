@@ -53,6 +53,8 @@ struct ferro_fb_info {
 	uint32_t green_mask;
 	uint32_t blue_mask;
 	uint32_t other_mask;
+	size_t total_byte_size;
+	uint8_t bytes_per_pixel;
 };
 
 typedef struct ferro_fb_pixel ferro_fb_pixel_t;
@@ -85,7 +87,7 @@ struct ferro_fb_rect {
  * 
  * @param fb_info Pointer to structure containing information about the graphics framebuffer. May be NULL if no framebuffer is available.
  */
-void ferro_fb_init(ferro_fb_info_t* fb_info);
+FERRO_WUR ferr_t ferro_fb_init(ferro_fb_info_t* fb_info);
 
 /**
  * Determines whether there is a framebuffer available.
@@ -158,6 +160,8 @@ FERRO_WUR ferr_t ferro_fb_move(const ferro_fb_rect_t* old_area, const ferro_fb_r
 /**
  * Shifts the entire framebuffer up or down by the given number of rows, optionally filling in the cleared rows.
  *
+ * This function should be preferred over ferro_fb_move() if shifting entire rows as it can be more efficient.
+ *
  * @param     up_if_true If this is `true`, the framebuffer is shifted up. Otherwise, if `false`, it's shifted down.
  * @param      row_count Number of rows to shift the framebuffer up or down by.
  * @param[in] fill_value Optional pointer to a pixel structure to fill in the rows left "empty" after the shift is done. If this is `NULL`, the "empty" rows are left unmodified.
@@ -167,6 +171,8 @@ FERRO_WUR ferr_t ferro_fb_move(const ferro_fb_rect_t* old_area, const ferro_fb_r
  * @retval ferr_temporary_outage No framebuffer is available. @p fill_value is never accessed.
  */
 FERRO_WUR ferr_t ferro_fb_shift(bool up_if_true, size_t row_count, const ferro_fb_pixel_t* fill_value);
+
+FERRO_WUR ferr_t ferro_fb_flush(void);
 
 /**
  * @}
