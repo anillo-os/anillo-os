@@ -31,7 +31,22 @@ typedef ferr_t (*sys_object_retain_f)(sys_object_t* object);
 typedef void (*sys_object_release_f)(sys_object_t* object);
 typedef void (*sys_object_destroy_f)(sys_object_t* object);
 
+LIBSYS_ENUM(uint32_t, sys_object_interface_namespace) {
+	sys_object_interface_namespace_libsys = 0,
+};
+
+LIBSYS_ENUM(uint32_t, sys_object_interface_type) {
+	sys_object_interface_type_class = 0,
+};
+
+LIBSYS_STRUCT(sys_object_interface) {
+	sys_object_interface_namespace_t namespace;
+	sys_object_interface_type_t type;
+	const sys_object_interface_t* next;
+};
+
 LIBSYS_STRUCT(sys_object_class) {
+	sys_object_interface_t interface;
 	sys_object_retain_f retain;
 	sys_object_release_f release;
 	sys_object_destroy_f destroy;
@@ -52,7 +67,30 @@ void sys_object_destroy(sys_object_t* object);
 ferr_t sys_object_retain(sys_object_t* object);
 void sys_object_release(sys_object_t* object);
 
+// for global/static objects
+ferr_t sys_object_retain_noop(sys_object_t* object);
+void sys_object_release_noop(sys_object_t* object);
+
 ferr_t sys_object_new(const sys_object_class_t* object_class, size_t extra_bytes, sys_object_t** out_object);
+
+#define LIBSYS_OBJECT_CLASS_GETTER(_name, _class_variable) const sys_object_class_t* sys_object_class_ ## _name (void) { return &_class_variable; };
+
+LIBSYS_ALWAYS_INLINE
+const sys_object_interface_t* sys_object_interface_find(const sys_object_interface_t* interface, sys_object_interface_namespace_t namespace, sys_object_interface_type_t type) {
+	for (; interface != NULL; interface = interface->next) {
+		if (interface->namespace == namespace && interface->type == type) {
+			return interface;
+		}
+	}
+	return NULL;
+};
+
+#define LIBSYS_OBJECT_CLASS_INTERFACE(_next) \
+	.interface = { \
+		.namespace = sys_object_interface_namespace_libsys, \
+		.type = sys_object_interface_type_class, \
+		.next = (_next), \
+	}
 
 LIBSYS_DECLARATIONS_END;
 

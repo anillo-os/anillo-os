@@ -25,11 +25,16 @@
 LIBSYS_DECLARATIONS_BEGIN;
 
 LIBSYS_STRUCT_FWD(sys_object);
+LIBSYS_STRUCT_FWD(sys_object_class);
 
 LIBSYS_WUR ferr_t sys_retain(sys_object_t* object);
 void sys_release(sys_object_t* object);
 
-#define LIBSYS_OBJECT_CLASS(_name) typedef sys_object_t _name ## _t;
+#define LIBSYS_OBJECT_CLASS(_name) \
+	typedef sys_object_t sys_ ## _name ## _t; \
+	const sys_object_class_t* sys_object_class_ ## _name (void);
+
+const sys_object_class_t* sys_object_class(sys_object_t* object);
 
 LIBSYS_DECLARATIONS_END;
 

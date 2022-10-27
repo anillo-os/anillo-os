@@ -121,3 +121,15 @@ out:
 	}
 	return status;
 };
+
+const sys_object_class_t* sys_object_class(sys_object_t* object) {
+	return object->object_class;
+};
+
+ferr_t sys_object_retain_noop(sys_object_t* object) {
+	return ferr_ok;
+};
+
+void sys_object_release_noop(sys_object_t* object) {
+	return;
+};
