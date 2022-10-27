@@ -85,6 +85,35 @@ void fwaitq_wait(fwaitq_t* waitq, fwaitq_waiter_t* waiter) {
 };
 
 void fwaitq_wake_many_locked(fwaitq_t* waitq, size_t count) {
+	// determine how many waiters we currently have to know our limit for how many to wake up
+	//
+	// we need to know this because some waiters re-add themselves to the waitq (to wait for future wakeups)
+	// and we need to know not to wake them up again in this pass
+	//
+	// FIXME: this currently doesn't handle the case of a waiter we want to wake up being removed before we can
+	//        wake it up in this pass. for example, suppose this is the waitq upon entry:
+	//            A, B, C (limit = 3)
+	//        then, we wake A up.
+	//            B, C (limit = 2)
+	//        however, during the time in which the lock is dropped, B removes itself.
+	//            C (limit = 2)
+	//        we then wake C up.
+	//            <nothing> (limit = 1)
+	//        however, C decided to re-add itself when we woke it up.
+	//            C (limit = 1)
+	//        since our limit is still 1, we wake C up again.
+	//        granted, waiters are allowed to be woken up spuriously, so this isn't too big of a deal.
+	//        still, if we could avoid this somehow, that'd be better.
+	size_t limit = 0;
+
+	for (fwaitq_waiter_t* waiter = waitq->head; waiter != NULL; waiter = waiter->next) {
+		++limit;
+	}
+
+	if (count > limit) {
+		count = limit;
+	}
+
 	while (waitq->head && count > 0) {
 		fwaitq_waiter_t* waiter = waitq->head;
 
@@ -112,4 +141,8 @@ void fwaitq_unwait(fwaitq_t* waitq, fwaitq_waiter_t* waiter) {
 void fwaitq_wake_specific(fwaitq_t* waitq, fwaitq_waiter_t* waiter) {
 	fwaitq_unwait(waitq, waiter);
 	waiter->wakeup(waiter->data);
+};
+
+bool fwaitq_empty_locked(fwaitq_t* waitq) {
+	return !waitq->head;
 };

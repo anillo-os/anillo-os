@@ -52,6 +52,8 @@ void fwaitq_remove_locked(fwaitq_t* waitq, fwaitq_waiter_t* waiter);
  */
 void fwaitq_wake_many_locked(fwaitq_t* waitq, size_t count);
 
+bool fwaitq_empty_locked(fwaitq_t* waitq);
+
 /**
  * @}
  */
