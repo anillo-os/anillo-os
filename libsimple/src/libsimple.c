@@ -26,24 +26,6 @@
 
 #include <libsimple/libsimple.h>
 
-#define LIBSIMPLE_ALIAS(orig_name) __attribute__((alias(#orig_name)))
-
-void* simple_memcpy(void* restrict destination, const void* restrict source, size_t n) {
-	if (destination == source) {
-		return destination;
-	}
-	char* destbuf = destination;
-	const char* srcbuf = source;
-	while (n-- > 0) {
-		*(destbuf++) = *(srcbuf++);
-	}
-	return destination;
-};
-
-#if LIBSIMPLE_UEFI_COMPAT
-	void* memcpy(void* restrict destination, const void* restrict source, size_t n) LIBSIMPLE_ALIAS(simple_memcpy);
-#endif
-
 void* simple_memclone(void* restrict destination, const void* restrict source, size_t n, size_t m) {
 	char* destbuf = destination;
 	while (m-- > 0) {
@@ -70,34 +52,6 @@ size_t simple_strnlen(const char* string, size_t max_length) {
 	}
 	return count;
 };
-
-void* simple_memmove(void* destination, const void* source, size_t n) {
-	if (destination == source || n == 0) {
-		return destination;
-	} else if (destination < source) {
-		char* destbuf = destination;
-		const char* srcbuf = source;
-		while (n-- > 0)
-			*(destbuf++) = *(srcbuf++);
-	} else if (destination > source) {
-		char* destbuf = (char*)destination + n - 1;
-		const char* srcbuf = (char*)source + n - 1;
-		while (n-- > 0)
-			*(destbuf--) = *(srcbuf--);
-	}
-	return destination;
-};
-
-void* simple_memset(void* destination, int value, size_t n) {
-	unsigned char* destbuf = destination;
-	while (n-- > 0)
-		*(destbuf++) = (unsigned char)value;
-	return destination;
-};
-
-#if LIBSIMPLE_UEFI_COMPAT
-	void* memset(void* destination, int value, size_t n) LIBSIMPLE_ALIAS(simple_memset);
-#endif
 
 int simple_strncmp(const char* first, const char* second, size_t n) {
 	while (n-- > 0) {
