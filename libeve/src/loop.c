@@ -22,6 +22,12 @@
 #include <libsys/locks.private.h>
 #include <gen/libsyscall/syscall-wrappers.h>
 
+// TODO:
+//   * Handle the case where a work item is resumed before a futex is awoken
+//   * Get a new work ID on every suspension, to prevent old events from resuming work items
+//     (e.g. a timer that was scheduled but then the work item was resumed before the timer expired)
+//   * Properly implement nested execution
+
 LIBEVE_STRUCT(eve_futex_suspension_context) {
 	sys_event_t suspension_event;
 	eve_loop_work_id_t work_id;
