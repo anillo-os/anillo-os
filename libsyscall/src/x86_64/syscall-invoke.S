@@ -19,6 +19,9 @@
 .text
 .global _libsyscall_invoke
 _libsyscall_invoke:
+	pushq %rbp
+	mov %rsp, %rbp
+
 	// load the syscall number into rax
 	mov %rdi, %rax
 
@@ -34,4 +37,5 @@ _libsyscall_invoke:
 	syscall
 
 	// the return value is already in rax
+	popq %rbp
 	ret

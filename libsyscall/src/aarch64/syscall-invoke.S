@@ -20,5 +20,19 @@
 .text
 .global _libsyscall_invoke
 _libsyscall_invoke:
-	# TODO
-	udf #0
+	// move the syscall number into x8
+	mov x8, x0
+
+	// shift all the arguments left
+	mov x0, x1
+	mov x1, x2
+	mov x2, x3
+	mov x3, x4
+	mov x4, x5
+	mov x5, x6
+
+	// perform the syscall
+	svc #0
+
+	// the return value is already in x0
+	ret
