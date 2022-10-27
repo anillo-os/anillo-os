@@ -89,6 +89,42 @@ FERRO_ALWAYS_INLINE FERRO_WUR ferr_t frefcount_decrement(frefcount_t* refcount) 
 	return ferr_permanent_outage;
 };
 
+#define FREFCOUNT_DEF(_type, _suffix, _uppercase_suffix) \
+	typedef _type frefcount ## _suffix ## _t; \
+	FERRO_ALWAYS_INLINE void frefcount ## _suffix ## _init(frefcount ## _suffix ## _t* refcount) { \
+		*refcount = FREFCOUNT ## _uppercase_suffix ## _INITIALIZER; \
+	}; \
+	FERRO_ALWAYS_INLINE FERRO_WUR ferr_t frefcount ## _suffix ## _increment(frefcount ## _suffix ## _t* refcount) { \
+		_type old_value = __atomic_load_n(refcount, __ATOMIC_RELAXED); \
+		do { \
+			if (old_value == 0) { \
+				return ferr_permanent_outage; \
+			} \
+		} while (!__atomic_compare_exchange_n(refcount, &old_value, old_value + 1, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)); \
+		return ferr_ok; \
+	}; \
+	FERRO_ALWAYS_INLINE FERRO_WUR ferr_t frefcount ## _suffix ## _decrement(frefcount ## _suffix ## _t* refcount) { \
+		_type old_value = __atomic_load_n(refcount, __ATOMIC_RELAXED); \
+		do { \
+			if (old_value == 0) { \
+				return ferr_already_in_progress; \
+			} \
+		} while (!__atomic_compare_exchange_n(refcount, &old_value, old_value - 1, false, __ATOMIC_ACQ_REL, __ATOMIC_RELAXED)); \
+		if (old_value != 1) { \
+			return ferr_ok; \
+		} \
+		return ferr_permanent_outage; \
+	};
+
+#define FREFCOUNT32_INITIALIZER 1
+FREFCOUNT_DEF(uint32_t, 32, 32);
+
+#define FREFCOUNT16_INITIALIZER 1
+FREFCOUNT_DEF(uint16_t, 16, 16);
+
+#define FREFCOUNT8_INITIALIZER 1
+FREFCOUNT_DEF(uint8_t, 8, 8);
+
 FERRO_DECLARATIONS_END;
 
 #endif // _FERRO_CORE_REFCOUNT_H_
