@@ -221,6 +221,14 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 
 static ferro_ramdisk_t* ramdisk = NULL;
 
+// TESTING/DEBUGGING
+extern void ferro_testing_entry(void);
+
+static void ferro_testing_thread(void* data) {
+	while (true) {
+		fconsole_log("2");
+	}
+};
 
 extern void fpage_prefault_enable(void);
 extern void fpage_logging_mark_available(void);
@@ -247,6 +255,8 @@ static void ferro_entry_threaded(void* data) {
 	fdrivers_init();
 
 	ferro_userspace_entry();
+
+	ferro_testing_entry();
 };
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
@@ -342,9 +352,7 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 	fentry_jump_to_virtual((void*)(FERRO_KERNEL_STATIC_TO_OFFSET(&&jump_here_for_virtual) + FERRO_KERNEL_VIRTUAL_START));
 jump_here_for_virtual:;
 
-#if FERRO_ARCH == FERRO_ARCH_x86_64
 	farch_per_cpu_init();
-#endif
 
 	// interrupts are already disabled, but let our interrupt handler code know that
 	fint_disable();

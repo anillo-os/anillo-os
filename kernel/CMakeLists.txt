@@ -13,7 +13,6 @@ add_compile_options(
 	-fno-stack-protector
 	-fno-stack-check
 	-mno-red-zone
-	-mno-implicit-float
 )
 
 include_directories(
@@ -34,6 +33,7 @@ add_subdirectory(src/drivers)
 
 add_executable(ferro
 	src/dummy.c
+	src/testing.c
 )
 
 target_link_libraries(ferro PUBLIC
@@ -44,6 +44,11 @@ target_link_libraries(ferro PUBLIC
 	ferro_syscalls
 	ferro_drivers
 	compiler-rt-builtins
+)
+
+target_link_libraries(ferro PRIVATE
+	libsimple_static_kernel
+	libsimple_static_compat
 )
 
 target_link_options(ferro PUBLIC
