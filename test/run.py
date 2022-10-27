@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
 
+from asyncio.subprocess import DEVNULL, PIPE
 import os
+from pathlib import Path
 import subprocess
 import sys
 import argparse
 import shutil
+import platform
 
 SCRIPT_DIR = os.path.dirname(__file__)
 SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..')
@@ -13,6 +16,10 @@ sys.path.append(os.path.join(SOURCE_ROOT, 'scripts'))
 import anillo_util
 
 VALID_ARCHES = ['x86_64', 'aarch64']
+VALID_NETDEVS = ['none', 'user', 'tap', 'vmnet-shared', 'socket_vmnet', 'socket_vmnet-bridged']
+VALID_TRACES = ['net', 'usb', 'ps2', 'ioapic', 'gic']
+
+QEMU_TCG_HOTBLOCKS_PLUGIN_PATH='/usr/local/lib/qemu/contrib/plugins/libhotblocks.so'
 
 EFI_CODE_PATHS_TO_TRY = {
 	'x86_64': [
@@ -42,20 +49,33 @@ parser = argparse.ArgumentParser(description='Run Anillo OS inside QEMU')
 
 parser.add_argument('-qd', '--qemu-debug', action='store_true', help='Enable QEMU-based debugging')
 parser.add_argument('-cr', '--cpu-reset', action='store_true', help='Enable QEMU debugging information on virtual CPU reset')
-parser.add_argument('-k', '--kvm', action='store_true', help='Enable KVM')
+parser.add_argument('-k', '--kvm', action='store_true', help='Enable hardware acceleration (if available). This is KVM on Linux and Hypervisor.framework on macOS')
 parser.add_argument('-s', '--serial', choices=['pty', 'stdio', 'none'], default='pty', help='Where to connect the serial console (or whether to connect it at all)')
 parser.add_argument('-b', '--build', action='store_true', help='Build Anillo OS automatically before running it')
 parser.add_argument('-d', '--debug', action='store_true', help='Enable Anillo OS gdbstub-based debugging')
 parser.add_argument('-a', '--arch', choices=VALID_ARCHES, default=os.environ.get('ARCH'), help='Architecture to run Anillo OS under')
 parser.add_argument('-bd', '--build-dir', type=str, default=None, help='Directory where Anillo OS has been/will be built')
+parser.add_argument('-n', '--net', choices=VALID_NETDEVS, default='user', help='Network device connection type to configure QEMU to use')
+parser.add_argument('--net-dump', type=str, default=None, help='Generate a dump of the network traffic to the given file')
+parser.add_argument('--wireshark', action='store_true', help='Open Wireshark to view the network dump in real-time')
+parser.add_argument('-t', '--trace', nargs='+', choices=VALID_TRACES, help='List of QEMU subsystems to trace')
+parser.add_argument('-H', '--headless', action='store_true', help='Starts QEMU in headless mode (no graphics)')
+parser.add_argument('--hotblocks', action='store_true', help='Run QEMU with the Hotblocks plugin to find hot code paths')
+parser.add_argument('-r', '--release', action='store_true', help='Test a release build of Anillo OS rather than a debug build')
+parser.add_argument('-u', '--usb', nargs='+', help='Pass a USB device from the host to the guest (format is `bus.addr`)')
+parser.add_argument('-m', '--memory', help='The amount of memory to give to the VM (128M by default)')
 
 args = parser.parse_args()
+
+use_sudo = False
 
 if not (args.arch in VALID_ARCHES):
 	raise RuntimeError(f'Invalid architecture "{args.arch}"; expected one of {VALID_ARCHES}')
 
 if not args.build_dir:
 	args.build_dir = os.path.join(SOURCE_ROOT, 'build', args.arch)
+	if args.release:
+		args.build_dir += '-release'
 
 efi_code_path = os.path.join(args.build_dir, 'efi-code.fd')
 efi_vars_path = os.path.join(args.build_dir, 'efi-vars.fd')
@@ -64,7 +84,43 @@ efi_code_source_path = None
 efi_vars_source_path = None
 
 disk_path = os.path.join(args.build_dir, 'disk.img')
-qemu_args = ['-nic', 'user,model=e1000e']
+qemu_args = []
+prefix_args = []
+
+accel_name = "tcg"
+
+if args.kvm:
+	if platform.system() == 'Linux':
+		accel_name = 'kvm'
+	elif platform.system() == 'Darwin':
+		accel_name = 'hvf'
+
+qemu_debug_args = []
+
+if args.trace != None and 'net' in args.trace:
+	qemu_args += [
+		'--trace', 'e1000e*',
+	]
+
+if args.trace != None and 'usb' in args.trace:
+	qemu_args += [
+		'--trace', '*usb*',
+	]
+
+if args.trace != None and 'ps2' in args.trace:
+	qemu_args += ['--trace', '*ps2*', '--trace', '*pckbd*']
+
+if args.trace != None and 'ioapic' in args.trace:
+	qemu_args += ['--trace', '*ioapic*']
+
+if args.trace != None and 'gic' in args.trace:
+	qemu_args += ['--trace', 'gic*']
+
+if args.net_dump != None:
+	qemu_args += ['-object', f'filter-dump,id=netdump0,netdev=netdev0,file={os.path.join(os.getcwd(), args.net_dump)},maxlen=104857600']
+
+if args.memory != None:
+	qemu_args += ['-m', args.memory]
 
 def try_find_path(search_list):
 	for path in search_list:
@@ -82,9 +138,9 @@ if args.arch == 'aarch64':
 		'-blockdev', f'{{"node-name":"anillo-pflash0-format","read-only":true,"driver":"raw","file":"anillo-pflash0-storage"}}',
 		'-blockdev', f'{{"driver":"file","filename":"{efi_vars_path}","node-name":"anillo-pflash1-storage","auto-read-only":true,"discard":"unmap"}}',
 		'-blockdev', '{"node-name":"anillo-pflash1-format","read-only":false,"driver":"raw","file":"anillo-pflash1-storage"}',
-		'-machine', 'virt-4.2,accel=tcg,usb=off,gic-version=2,pflash0=anillo-pflash0-format,pflash1=anillo-pflash1-format',
+		'-machine', f'virt-4.2,accel={accel_name},usb=off,gic-version=2,pflash0=anillo-pflash0-format,pflash1=anillo-pflash1-format',
 
-		'-cpu', 'cortex-a57',
+		'-cpu', 'host' if args.kvm else 'max',
 
 		#'-m', '1024',
 		#'-overcommit', 'mem-lock=off',
@@ -95,7 +151,7 @@ if args.arch == 'aarch64':
 		'-nodefaults',
 
 		'-chardev', f'socket,id=charmonitor,path={os.path.join(args.build_dir, "serial-monitor")},server=on,wait=off',
-		'-mon', 'chardev=charmonitor,id=monitor,mode=control',
+		'-mon', 'chardev=charmonitor,id=monitor',
 
 		'-rtc', 'base=utc',
 
@@ -122,18 +178,56 @@ if args.arch == 'aarch64':
 		'-device', 'virtserialport,bus=virtio-serial0.0,nr=1,chardev=charchannel0,id=channel0,name=org.qemu.guest_agent.0',
 
 		#'-spice', 'port=0,disable-ticketing,image-compression=off,seamless-migration=on',
-		'-device', 'ramfb',
-		'-device', 'virtio-gpu-pci,id=video0,max_outputs=1,bus=pci.5,addr=0x0',
+		#'-device', 'virtio-gpu-pci,id=video0,max_outputs=1,bus=pci.5,addr=0x0',
 
 		'-device', 'usb-kbd',
+		'-device', 'usb-mouse',
 	]
+
+	qemu_debug_args += ['mmu', 'guest_errors']
+
+	if not args.headless:
+		qemu_args += [
+			'-device', 'ramfb',
+		]
 elif args.arch == 'x86_64':
 	qemu_args += [
 		'-drive', f'if=pflash,format=raw,unit=0,file={efi_code_path}',
 		'-drive', f'if=pflash,format=raw,unit=1,file={efi_vars_path}',
 		'-drive', f'if=virtio,format=raw,file={disk_path}',
-		'-machine', 'type=q35',
+		'-machine', f'type=q35,accel={accel_name}',
+		'-device', 'qemu-xhci',
+		'-device', 'usb-kbd',
+		'-device', 'usb-mouse',
+		'-cpu', 'host' if args.kvm else 'max',
 	]
+
+	if args.headless:
+		qemu_args += [
+			'-chardev', f'socket,id=charmonitor,path={os.path.join(args.build_dir, "serial-monitor")},server=on,wait=off',
+			'-mon', 'chardev=charmonitor,id=monitor,mode=control',
+		]
+
+if args.net == 'none':
+	qemu_args += ['-net', 'none']
+else:
+	net_name = args.net
+	net_args = ''
+	if args.net == 'tap':
+		net_args = ',ifname=anillo-tap0,script=no,downscript=no'
+	elif args.net == 'vmnet-shared':
+		# we unfortunately need to be root to use vmnet-shared on macOS right now
+		use_sudo = True
+	elif args.net == 'socket_vmnet' or args.net == 'socket_vmnet-bridged':
+		net_name = 'socket'
+		net_args = ',fd=3'
+	qemu_args += [
+		'-netdev', f'{net_name},id=netdev0{net_args}',
+		'-device', 'e1000e,netdev=netdev0,id=net0',
+	]
+
+if args.headless:
+	qemu_args += ['-nographic']
 
 if args.serial == 'pty':
 	qemu_args += [
@@ -150,7 +244,28 @@ if args.qemu_debug:
 	qemu_args += ['-s', '-S']
 
 if args.cpu_reset:
-	qemu_args += ['-d', 'cpu_reset']
+	qemu_debug_args += ['cpu_reset']
+
+if args.hotblocks:
+	qemu_args += ['-plugin', QEMU_TCG_HOTBLOCKS_PLUGIN_PATH]
+	qemu_debug_args += ['plugin']
+
+if len(qemu_debug_args) > 0:
+	qemu_args += ['-d', ','.join(set(qemu_debug_args))]
+
+if args.usb != None:
+	dev: str
+	for dev in args.usb:
+		[bus, addr] = dev.split('.')
+		qemu_args += ['-device', f'usb-host,hostbus={bus},hostaddr={addr}']
+
+if args.net == 'socket_vmnet':
+	prefix_args = ['/opt/socket_vmnet/bin/socket_vmnet_client', '/var/run/socket_vmnet'] + prefix_args
+elif args.net == 'socket_vmnet-bridged':
+	prefix_args = ['/opt/socket_vmnet/bin/socket_vmnet_client', '/var/run/socket_vmnet.bridged.en0'] + prefix_args
+
+if use_sudo:
+	prefix_args = ['sudo'] + prefix_args
 
 #
 # this is where the heart of the logic begins
@@ -184,7 +299,15 @@ if not os.path.exists(efi_vars_path):
 # build the OS if we were told to
 if args.build:
 	if not os.path.exists(os.path.join(args.build_dir, 'CMakeCache.txt')):
-		anillo_util.run_or_fail(['cmake', '-B', args.build_dir, '-S', SOURCE_ROOT, '-DCMAKE_BUILD_TYPE=Debug', '-DCMAKE_EXPORT_COMPILE_COMMANDS=1', f'-DANILLO_ARCH={args.arch}'], cwd=args.build_dir)
+		anillo_util.run_or_fail(['cmake', '-B', args.build_dir, '-S', SOURCE_ROOT, f'-DCMAKE_BUILD_TYPE={"Release" if args.release else "Debug"}', '-DCMAKE_EXPORT_COMPILE_COMMANDS=1', f'-DANILLO_ARCH={args.arch}'], cwd=args.build_dir)
 	anillo_util.run_or_fail(['cmake', '--build', args.build_dir], cwd=args.build_dir)
 
-subprocess.run([f'qemu-system-{args.arch}'] + qemu_args, cwd=args.build_dir)
+if args.net_dump != None and args.wireshark:
+	cap_file = os.path.join(os.getcwd(), args.net_dump)
+	if Path(cap_file).exists():
+		Path(cap_file).unlink()
+	Path(cap_file).touch()
+	proc1 = subprocess.Popen([shutil.which('tail'), '-f', '-c', '+0', cap_file], stdin=PIPE, stdout=PIPE, stderr=DEVNULL)
+	proc2 = subprocess.Popen([shutil.which('wireshark'), '-k', '-i', '-'], stdin=proc1.stdout, stdout=DEVNULL, stderr=DEVNULL)
+
+subprocess.run(prefix_args + [f'qemu-system-{args.arch}'] + qemu_args, cwd=args.build_dir, stdin=sys.stdin)
