@@ -34,6 +34,12 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
+FERRO_ALWAYS_INLINE bool fpage_address_is_canonical(uintptr_t virtual_address) {
+	uint16_t high_16 = virtual_address >> 48;
+	uint16_t expected = (virtual_address & (1ull << 47)) ? 0xffff : 0;
+	return high_16 == expected;
+};
+
 FERRO_DECLARATIONS_END;
 
 #endif // _FERRO_CORE_X86_64_PAGING_H_

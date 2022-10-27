@@ -26,6 +26,7 @@
 #define _FERRO_CORE_PAGING_PRIVATE_H_
 
 #include <ferro/core/paging.h>
+#include <ferro/core/refcount.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -44,6 +45,7 @@ FERRO_STRUCT(fpage_free_block) {
 };
 
 #define FPAGE_MAX_ORDER 32
+#define FPAGE_MIN_ALIGNMENT 12
 
 FERRO_STRUCT(fpage_region_header) {
 	fpage_region_header_t** prev;
@@ -55,9 +57,79 @@ FERRO_STRUCT(fpage_region_header) {
 	// this lock protects the region and all of its blocks from reads and writes (for the bookkeeping info; not the actual content itself, obviously)
 	flock_spin_intsafe_t lock;
 
+	// padding to ensure the address of #bitmap is at the end of structure
+	char reserved[7];
+
 	// if a bit is 0, the block corresponding to that bit is free.
 	// if a bit is 1, the block corresponding to that bit is in use.
 	uint8_t bitmap[];
+};
+
+FERRO_OPTIONS(uint32_t, fpage_mapping_portion_flags) {
+	// The physical memory backing this portion has been allocated and
+	// should be freed when the mapping is destroyed.
+	// This will usually be set, but it may be absent in cases where
+	// e.g. device memory has been mapped into a mapping.
+	fpage_mapping_portion_flag_allocated = 1 << 0,
+
+	// The physical memory for this mapping portion is actually contained
+	// within another mapping.
+	fpage_mapping_portion_flag_backing_mapping = 1 << 1,
+};
+
+// this structure should remain as small as possible.
+// it is currently 48 bytes, which results in a maximum overhead of
+// 1.17% of the memory allocated for a portion (if the portion contains
+// a single frame, 4KiB).
+FERRO_STRUCT(fpage_mapping_portion) {
+	fpage_mapping_portion_t** prev;
+	fpage_mapping_portion_t* next;
+	union {
+		uintptr_t physical_address;
+		fpage_mapping_t* backing_mapping;
+	};
+
+	// making this 32 bits wide (rather than the usual 64 bits) imposes a limit of
+	// `16TiB - 4KiB` on a single mapping portion. i'd say that's definitely sufficient
+	// for our needs, especially since it allows us to use another 32 bits for flags and
+	// avoid additional overhead per portion.
+	uint32_t page_count;
+
+	fpage_mapping_portion_flags_t flags;
+
+	// like `page_count`, making this 32 bits limits us to a maximum offset of `16TiB - 4KiB`.
+	// however, this also has the effect of limiting mappings to a maximum of 16TiB total.
+	// again, this is plenty for our needs right now and this allows us to use the other 32 bits
+	// for a 32-bit reference count (which allows us to free individual portions of a mapping
+	// once no one needs them anymore).
+	uint32_t virtual_page_offset;
+	frefcount32_t refcount;
+
+	uint32_t backing_mapping_page_offset;
+	uint32_t reserved;
+};
+
+// try to keep this structure small if possible, but this one is not as critical as fpage_mapping_portion_t.
+// it is currently 32 bytes.
+FERRO_STRUCT(fpage_mapping) {
+	frefcount32_t refcount;
+	uint32_t page_count;
+	fpage_mapping_flags_t flags;
+	flock_spin_intsafe_t lock;
+	fpage_mapping_portion_t* portions;
+};
+
+// like fpage_mapping, try to keep this structure small if possible, but this one is not as critical as fpage_mapping_portion_t.
+// it is currently 56 bytes.
+FERRO_STRUCT(fpage_space_mapping) {
+	fpage_space_mapping_t** prev;
+	fpage_space_mapping_t* next;
+	fpage_mapping_t* mapping;
+	uintptr_t virtual_address;
+	uint32_t page_count;
+	uint32_t page_offset;
+	fpage_flags_t flags;
+	fpage_permissions_t permissions;
 };
 
 FERRO_STRUCT(fpage_space) {
@@ -67,13 +139,6 @@ FERRO_STRUCT(fpage_space) {
 	 * The present entries in this table are loaded when the address space is activated and unloaded when the address space is deactivated.
 	 */
 	fpage_table_t* l4_table;
-
-	/**
-	 * The head of the list of page mappings in this address space.
-	 *
-	 * @todo Actually implement this. Right now, it gets initialized, but nothing ever gets added to it.
-	 */
-	fpage_mapping_t* head;
 
 	flock_spin_intsafe_t regions_head_lock;
 
@@ -92,6 +157,9 @@ FERRO_STRUCT(fpage_space) {
 	 * These waiters are notified right before any destruction is actually performed.
 	 */
 	fwaitq_t space_destruction_waiters;
+
+	flock_spin_intsafe_t mappings_lock;
+	fpage_space_mapping_t* mappings;
 };
 
 /**
@@ -196,6 +264,14 @@ FERRO_ALWAYS_INLINE uintptr_t fpage_fault_address(void);
  * Invalidates all TLB entries for the current address space.
  */
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void);
+
+/**
+ * Prefault the given number of stack pages (starting from the current stack page).
+ *
+ * This is used to avoid page faulting due to a stack access while holding an important paging lock.
+ * Faulting while holding said lock would result in a deadlock.
+ */
+FERRO_ALWAYS_INLINE void fpage_prefault_stack(size_t page_count);
 
 /**
  * @}
