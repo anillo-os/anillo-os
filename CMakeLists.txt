@@ -175,6 +175,7 @@ add_subdirectory(libelf)
 add_subdirectory(libmacho)
 add_subdirectory(libeve)
 add_subdirectory(libspooky)
+add_subdirectory(libpci)
 
 add_custom_command(
 	OUTPUT
