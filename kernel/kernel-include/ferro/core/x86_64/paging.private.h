@@ -155,6 +155,20 @@ FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void) {
 	__asm__ volatile("mov %0, %%cr3\n" :: "r" (addr) : "memory");
 };
 
+FERRO_ALWAYS_INLINE void fpage_prefault_stack(size_t page_count) {
+	extern bool fpage_prefaulting_enabled;
+	if (!fpage_prefaulting_enabled) {
+		return;
+	}
+	uint64_t rsp;
+	volatile uint8_t* ptr;
+	__asm__ volatile("mov %%rsp, %0" : "=r" (rsp));
+	ptr = (volatile void*)fpage_round_down_page(rsp);
+	for (size_t i = 0; i < page_count; ++i) {
+		*(ptr - i * FPAGE_PAGE_SIZE);
+	}
+};
+
 #define fpage_space_current_pointer() (&FARCH_PER_CPU(address_space))
 
 FERRO_DECLARATIONS_END;

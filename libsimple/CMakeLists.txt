@@ -3,6 +3,7 @@ project(libsimple C)
 set(libsimple_sources
 	src/libsimple.c
 	src/ghmap.c
+	src/mempool.c
 )
 
 set(libsimple_includes
@@ -29,6 +30,7 @@ target_link_options(libsimple_static_compat INTERFACE
 
 target_link_libraries(libsimple PRIVATE
 	libsimple_static_compat
+	libdymple
 )
 
 set(libsimple_kernel_compile_options
