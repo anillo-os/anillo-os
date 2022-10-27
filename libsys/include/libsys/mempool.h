@@ -27,6 +27,13 @@
 
 LIBSYS_DECLARATIONS_BEGIN;
 
+FERRO_OPTIONS(uint64_t, sys_mempool_flags) {
+	/**
+	 * Allocated memory must be physically contiguous.
+	 */
+	sys_mempool_flag_physically_contiguous = 1 << 0,
+};
+
 /**
  * Allocates some memory in the memory pool (a.k.a. the heap).
  *
@@ -43,7 +50,11 @@ LIBSYS_DECLARATIONS_BEGIN;
  */
 LIBSYS_WUR ferr_t sys_mempool_allocate(size_t byte_count, size_t* out_allocated_byte_count, void** out_address);
 
+LIBSYS_WUR ferr_t sys_mempool_allocate_advanced(size_t byte_count, uint8_t alignment_power, uint8_t boundary_alignment_power, sys_mempool_flags_t flags, size_t* out_allocated_byte_count, void** out_allocated_start);
+
 LIBSYS_WUR ferr_t sys_mempool_reallocate(void* old_address, size_t new_byte_count, size_t* out_reallocated_byte_count, void** out_reallocated_start);
+
+LIBSYS_WUR ferr_t sys_mempool_reallocate_advanced(void* old_address, size_t new_byte_count, uint8_t alignment_power, uint8_t boundary_alignment_power, sys_mempool_flags_t flags, size_t* out_reallocated_byte_count, void** out_reallocated_start);
 
 LIBSYS_WUR ferr_t sys_mempool_free(void* address);
 
