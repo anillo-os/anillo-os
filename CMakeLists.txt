@@ -177,6 +177,7 @@ add_subdirectory(libeve)
 add_subdirectory(libspooky)
 add_subdirectory(netman)
 add_subdirectory(libpci)
+add_subdirectory(usbman)
 
 add_custom_command(
 	OUTPUT
