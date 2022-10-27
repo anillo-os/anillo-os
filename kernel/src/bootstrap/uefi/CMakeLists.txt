@@ -32,6 +32,9 @@ add_executable(uefi-bootstrap
 	main.c
 	wrappers.c
 	../../../../libsimple/src/libsimple.c
+	../../../../libsimple/src/generic/memcpy.c
+	../../../../libsimple/src/generic/memset.c
+	../../../../libsimple/src/generic/memmove.c
 )
 
 target_compile_definitions(uefi-bootstrap PRIVATE
