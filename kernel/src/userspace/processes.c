@@ -31,6 +31,16 @@ FERRO_STRUCT(fper_proc_entry) {
 	char data[];
 };
 
+FERRO_STRUCT(fproc_descriptor_entry) {
+	void* descriptor;
+	const fproc_descriptor_class_t* descriptor_class;
+};
+
+const fproc_descriptor_class_t fproc_descriptor_class_vfs = {
+	.retain = (void*)fvfs_retain,
+	.release = (void*)fvfs_release,
+};
+
 static void fproc_destroy(fproc_t* process) {
 	fwaitq_wake_many(&process->destroy_wait, SIZE_MAX);
 
@@ -61,10 +71,10 @@ fproc_t* fproc_current(void) {
 	return private_data->process;
 };
 
-static bool fproc_clear_fd_iterator(void* context, simple_ghmap_t* hashmap, simple_ghmap_hash_t hash, const void* key, size_t key_size, void* entry, size_t entry_size) {
-	fvfs_descriptor_t** desc_ptr = entry;
+static bool fproc_clear_did_iterator(void* context, simple_ghmap_t* hashmap, simple_ghmap_hash_t hash, const void* key, size_t key_size, void* entry, size_t entry_size) {
+	fproc_descriptor_entry_t* did_desc = entry;
 
-	fvfs_release(*desc_ptr);
+	did_desc->descriptor_class->release(did_desc->descriptor);
 
 	return true;
 };
@@ -98,13 +108,50 @@ static void fproc_all_uthreads_died(fproc_t* proc) {
 	fvfs_release(proc->binary_descriptor);
 
 	// clear all open descriptors
-	// (thereby releasing all underlying VFS descriptors)
+	// (thereby releasing all underlying descriptors)
 	flock_mutex_lock(&proc->descriptor_table_mutex);
-	simple_ghmap_for_each(&proc->descriptor_table, fproc_clear_fd_iterator, NULL);
+	simple_ghmap_for_each(&proc->descriptor_table, fproc_clear_did_iterator, NULL);
 	simple_ghmap_destroy(&proc->descriptor_table);
 	flock_mutex_unlock(&proc->descriptor_table_mutex);
 
 	fpage_space_destroy(&proc->space);
+
+	// get rid of our parent process waiter
+	flock_mutex_lock(&proc->parent_process_mutex);
+	if (proc->parent_process) {
+		// NOTE: race condition here where waiter might've already been awoken but hasn't released parent yet.
+		//       it's not a big deal, though; waiters are reset to unattached states upon wake-up,
+		//       so un-waiting it here would have no effect.
+		fwaitq_unwait(&proc->parent_process->death_wait, &proc->parent_process_death_waiter);
+		fproc_release(proc->parent_process);
+		proc->parent_process = NULL;
+	}
+	flock_mutex_unlock(&proc->parent_process_mutex);
+
+	// release our references on our realms
+	flock_rw_lock_write(&proc->realms_rw);
+	if (proc->parent_realm) {
+		fchannel_realm_release(proc->parent_realm);
+		proc->parent_realm = NULL;
+	}
+	if (proc->local_realm) {
+		fchannel_realm_release(proc->local_realm);
+		proc->local_realm = NULL;
+	}
+	fchannel_realm_release(proc->child_realm);
+	proc->child_realm = NULL;
+	flock_rw_unlock(&proc->realms_rw);
+
+	// clean up the mappings linked list
+	// (the memory pointed to by the mappings is automatically cleaned up by fpage_space_destroy())
+	flock_mutex_lock(&proc->mappings_mutex);
+	fproc_mapping_t* next = NULL;
+	for (fproc_mapping_t* mapping = proc->mappings; mapping != NULL; mapping = next) {
+		next = mapping->next;
+		FERRO_WUR_IGNORE(fmempool_free(mapping));
+	}
+	proc->mappings = NULL;
+	flock_mutex_unlock(&proc->mappings_mutex);
 
 	// alright, now that it's been cleaned up, the process can be released
 	fproc_release(proc);
@@ -153,7 +200,28 @@ static void fproc_thread_init(void* context) {
 	futhread_jump_user_self(address);
 };
 
-ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
+static void fproc_parent_process_died(void* context) {
+	fproc_t* proc = context;
+
+	// keep ourselves alive until we're done, otherwise we might die while waiting for a lock
+	if (fproc_retain(proc) != ferr_ok) {
+		return;
+	}
+
+	flock_mutex_lock(&proc->parent_process_mutex);
+
+	if (proc->parent_process) {
+		// TODO: re-parent this process (e.g. onto the root process)
+		fproc_release(proc->parent_process);
+		proc->parent_process = NULL;
+	}
+
+	flock_mutex_unlock(&proc->parent_process_mutex);
+
+	fproc_release(proc);
+};
+
+ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t* parent_process, fproc_t** out_proc) {
 	fproc_t* proc = NULL;
 	ferr_t status = ferr_ok;
 	bool destroy_space_on_fail = false;
@@ -162,6 +230,10 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	bool destroy_per_proc_on_fail = false;
 	bool destroy_futex_table_on_fail = false;
 	fthread_t* first_thread = NULL;
+	bool release_parent_on_fail = false;
+	bool release_parent_realm_on_fail = false;
+	bool release_local_realm_on_fail = false;
+	bool release_child_realm_on_fail = false;
 
 	if (!out_proc) {
 		status = ferr_invalid_argument;
@@ -218,7 +290,7 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	}
 	proc->binary_descriptor = file_descriptor;
 
-	if (simple_ghmap_init(&proc->descriptor_table, 16, sizeof(fvfs_descriptor_t*), simple_ghmap_allocate_mempool, simple_ghmap_free_mempool, NULL, NULL, NULL, NULL, NULL, NULL) != ferr_ok) {
+	if (simple_ghmap_init(&proc->descriptor_table, 16, sizeof(fproc_descriptor_entry_t), simple_ghmap_allocate_mempool, simple_ghmap_free_mempool, NULL, NULL, NULL, NULL, NULL, NULL) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;
 	}
@@ -235,6 +307,47 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 		goto out;
 	}
 	destroy_futex_table_on_fail = true;
+
+	if (parent_process) {
+		if (fproc_retain(parent_process) != ferr_ok) {
+			status = ferr_permanent_outage;
+			goto out;
+		}
+		release_parent_on_fail = true;
+	}
+
+	proc->parent_process = parent_process;
+
+	if (proc->parent_process) {
+		proc->parent_realm = proc->parent_process->child_realm;
+
+		status = fchannel_realm_retain(proc->parent_realm);
+		if (status != ferr_ok) {
+			goto out;
+		}
+
+		release_parent_realm_on_fail = true;
+
+		proc->local_realm = proc->parent_process->local_realm;
+		if (proc->local_realm) {
+			status = fchannel_realm_retain(proc->local_realm);
+			if (status != ferr_ok) {
+				goto out;
+			}
+
+			release_local_realm_on_fail = true;
+		}
+	} else {
+		proc->parent_realm = NULL;
+		proc->local_realm = NULL;
+	}
+
+	status = fchannel_realm_new(proc->parent_realm, &proc->child_realm);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	release_child_realm_on_fail = true;
 
 	// if we got here, this process is definitely okay.
 	// just a few more non-erroring-throwing tasks to do and then we're done.
@@ -259,8 +372,8 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 	flock_mutex_init(&proc->mappings_mutex);
 	flock_mutex_init(&proc->descriptor_table_mutex);
 
-	proc->next_lowest_fd = 0;
-	proc->highest_fd = 0;
+	proc->next_lowest_did = 0;
+	proc->highest_did = 0;
 
 	fwaitq_init(&proc->death_wait);
 	fwaitq_init(&proc->destroy_wait);
@@ -269,10 +382,36 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc) {
 
 	proc->id = FPROC_ID_INVALID;
 
+	flock_mutex_init(&proc->parent_process_mutex);
+
+	if (parent_process) {
+		// register ourselves to be notified when our parent process dies (so we can release our reference on it)
+		fwaitq_waiter_init(&proc->parent_process_death_waiter, fproc_parent_process_died, proc);
+		fwaitq_wait(&parent_process->death_wait, &proc->parent_process_death_waiter);
+	}
+
+	flock_rw_init(&proc->realms_rw);
+
 out:
 	if (status == ferr_ok) {
 		*out_proc = proc;
 	} else {
+		if (release_child_realm_on_fail) {
+			fchannel_realm_release(proc->child_realm);
+		}
+
+		if (release_local_realm_on_fail) {
+			fchannel_realm_release(proc->local_realm);
+		}
+
+		if (release_parent_realm_on_fail) {
+			fchannel_realm_release(proc->parent_realm);
+		}
+
+		if (release_parent_on_fail) {
+			fproc_release(parent_process);
+		}
+
 		if (destroy_futex_table_on_fail) {
 			futex_table_destroy(&proc->futex_table);
 		}
@@ -307,47 +446,47 @@ out:
 };
 
 // the process's descriptor table mutex MUST be held
-static void update_next_available_fd(fproc_t* process) {
-	for (fproc_fd_t fd = process->next_lowest_fd + 1; fd < FPROC_FD_MAX; ++fd) {
-		if (simple_ghmap_lookup_h(&process->descriptor_table, fd, false, SIZE_MAX, NULL, NULL, NULL) != ferr_no_such_resource) {
+static void update_next_available_did(fproc_t* process) {
+	for (fproc_did_t did = process->next_lowest_did + 1; did < FPROC_DID_MAX; ++did) {
+		if (simple_ghmap_lookup_h(&process->descriptor_table, did, false, SIZE_MAX, NULL, NULL, NULL) != ferr_no_such_resource) {
 			continue;
 		}
 
-		process->next_lowest_fd = fd;
+		process->next_lowest_did = did;
 		return;
 	}
 
-	process->next_lowest_fd = FPROC_FD_MAX;
+	process->next_lowest_did = FPROC_DID_MAX;
 };
 
-ferr_t fproc_install_descriptor(fproc_t* process, fvfs_descriptor_t* descriptor, fproc_fd_t* out_fd) {
+ferr_t fproc_install_descriptor(fproc_t* process, void* descriptor, const fproc_descriptor_class_t* descriptor_class, fproc_did_t* out_did) {
 	ferr_t status = ferr_ok;
 	bool release_descriptor_on_fail = false;
-	fproc_fd_t fd = FPROC_FD_MAX;
-	fvfs_descriptor_t** fd_desc = NULL;
+	fproc_did_t did = FPROC_DID_MAX;
+	fproc_descriptor_entry_t* did_desc = NULL;
 	bool created = false;
 
-	if (!process || !out_fd) {
+	if (!process || !out_did) {
 		status = ferr_invalid_argument;
 		goto out_unlocked;
 	}
 
 	flock_mutex_lock(&process->descriptor_table_mutex);
 
-	if (process->next_lowest_fd == FPROC_FD_MAX) {
+	if (process->next_lowest_did == FPROC_DID_MAX) {
 		status = ferr_temporary_outage;
 		goto out;
 	}
 
-	fd = process->next_lowest_fd;
+	did = process->next_lowest_did;
 
-	if (fvfs_retain(descriptor) != ferr_ok) {
+	if (descriptor_class->retain(descriptor) != ferr_ok) {
 		status = ferr_invalid_argument;
 		goto out;
 	}
 	release_descriptor_on_fail = true;
 
-	if (simple_ghmap_lookup_h(&process->descriptor_table, fd, true, SIZE_MAX, &created, (void*)&fd_desc, NULL) != ferr_ok) {
+	if (simple_ghmap_lookup_h(&process->descriptor_table, did, true, SIZE_MAX, &created, (void*)&did_desc, NULL) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;
 	}
@@ -358,30 +497,33 @@ ferr_t fproc_install_descriptor(fproc_t* process, fvfs_descriptor_t* descriptor,
 		goto out;
 	}
 
-	// at this point, we can no longer fail; this FD is definitely good to go
+	// at this point, we can no longer fail; this DID is definitely good to go
 
-	*fd_desc = descriptor;
+	did_desc->descriptor = descriptor;
+	did_desc->descriptor_class = descriptor_class;
 
-	update_next_available_fd(process);
+	update_next_available_did(process);
 
-	if (fd > process->highest_fd) {
-		process->highest_fd = fd;
+	if (did > process->highest_did) {
+		process->highest_did = did;
 	}
 
-	*out_fd = fd;
+	*out_did = did;
 
 out:
 	flock_mutex_unlock(&process->descriptor_table_mutex);
 out_unlocked:
-	if (release_descriptor_on_fail) {
-		fvfs_release(descriptor);
+	if (status != ferr_ok) {
+		if (release_descriptor_on_fail) {
+			descriptor_class->release(descriptor);
+		}
 	}
 	return status;
 };
 
-ferr_t fproc_uninstall_descriptor(fproc_t* process, fproc_fd_t fd) {
+ferr_t fproc_uninstall_descriptor(fproc_t* process, fproc_did_t did) {
 	ferr_t status = ferr_ok;
-	fvfs_descriptor_t** fd_desc = NULL;
+	fproc_descriptor_entry_t* did_desc = NULL;
 
 	if (!process) {
 		status = ferr_invalid_argument;
@@ -390,18 +532,18 @@ ferr_t fproc_uninstall_descriptor(fproc_t* process, fproc_fd_t fd) {
 
 	flock_mutex_lock(&process->descriptor_table_mutex);
 
-	if (simple_ghmap_lookup_h(&process->descriptor_table, fd, false, SIZE_MAX, NULL, (void*)&fd_desc, NULL) != ferr_ok) {
+	if (simple_ghmap_lookup_h(&process->descriptor_table, did, false, SIZE_MAX, NULL, (void*)&did_desc, NULL) != ferr_ok) {
 		status = ferr_no_such_resource;
 		goto out;
 	}
 
-	fvfs_release(*fd_desc);
+	did_desc->descriptor_class->release(did_desc->descriptor);
 
 	// panic if this fails because we just checked above that it *does* exist
-	fpanic_status(simple_ghmap_clear_h(&process->descriptor_table, fd));
+	fpanic_status(simple_ghmap_clear_h(&process->descriptor_table, did));
 
-	if (fd < process->next_lowest_fd) {
-		process->next_lowest_fd = fd;
+	if (did < process->next_lowest_did) {
+		process->next_lowest_did = did;
 	}
 
 out:
@@ -410,9 +552,9 @@ out_unlocked:
 	return status;
 };
 
-ferr_t fproc_lookup_descriptor(fproc_t* process, fproc_fd_t fd, bool retain, fvfs_descriptor_t** out_descriptor) {
+ferr_t fproc_lookup_descriptor(fproc_t* process, fproc_did_t did, bool retain, void** out_descriptor, const fproc_descriptor_class_t** out_descriptor_class) {
 	ferr_t status = ferr_ok;
-	fvfs_descriptor_t** fd_desc = NULL;
+	fproc_descriptor_entry_t* did_desc = NULL;
 
 	if (!process || (retain && !out_descriptor)) {
 		status = ferr_invalid_argument;
@@ -421,21 +563,21 @@ ferr_t fproc_lookup_descriptor(fproc_t* process, fproc_fd_t fd, bool retain, fvf
 
 	flock_mutex_lock(&process->descriptor_table_mutex);
 
-	if (simple_ghmap_lookup_h(&process->descriptor_table, fd, false, SIZE_MAX, NULL, (void*)&fd_desc, NULL) != ferr_ok) {
+	if (simple_ghmap_lookup_h(&process->descriptor_table, did, false, SIZE_MAX, NULL, (void*)&did_desc, NULL) != ferr_ok) {
 		status = ferr_no_such_resource;
 		goto out;
 	}
 
 	if (retain) {
-		if (fvfs_retain(*fd_desc) != ferr_ok) {
+		if (did_desc->descriptor_class->retain(did_desc->descriptor) != ferr_ok) {
 			// this should actually be impossible
-			// it would mean that someone over-released the VFS descriptor
+			// it would mean that someone over-released the descriptor
 
 			// clean up the table entry since this descriptor is garbage now
-			fpanic_status(simple_ghmap_clear_h(&process->descriptor_table, fd));
+			fpanic_status(simple_ghmap_clear_h(&process->descriptor_table, did));
 
-			if (fd < process->next_lowest_fd) {
-				process->next_lowest_fd = fd;
+			if (did < process->next_lowest_did) {
+				process->next_lowest_did = did;
 			}
 
 			status = ferr_no_such_resource;
@@ -444,7 +586,10 @@ ferr_t fproc_lookup_descriptor(fproc_t* process, fproc_fd_t fd, bool retain, fvf
 	}
 
 	if (out_descriptor) {
-		*out_descriptor = *fd_desc;
+		*out_descriptor = did_desc->descriptor;
+	}
+	if (out_descriptor_class) {
+		*out_descriptor_class = did_desc->descriptor_class;
 	}
 
 out:
@@ -453,13 +598,19 @@ out_unlocked:
 	return status;
 };
 
-ferr_t fproc_register_mapping(fproc_t* process, void* address, size_t page_count) {
+ferr_t fproc_register_mapping(fproc_t* process, void* address, size_t page_count, fproc_mapping_flags_t flags, fpage_mapping_t* backing_mapping) {
 	ferr_t status = ferr_ok;
-	fpage_mapping_t** prev = &process->mappings;
-	fpage_mapping_t* new_mapping = NULL;
+	fproc_mapping_t** prev = &process->mappings;
+	fproc_mapping_t* new_mapping = NULL;
 
 	if (!process) {
 		status = ferr_invalid_argument;
+		goto out_unlocked;
+	}
+
+	if (backing_mapping && fpage_mapping_retain(backing_mapping) != ferr_ok) {
+		backing_mapping = NULL;
+		status = ferr_permanent_outage;
 		goto out_unlocked;
 	}
 
@@ -474,7 +625,7 @@ ferr_t fproc_register_mapping(fproc_t* process, void* address, size_t page_count
 		prev = &(*prev)->next;
 	}
 
-	if (fmempool_allocate(sizeof(fpage_mapping_t), NULL, (void*)&new_mapping) != ferr_ok) {
+	if (fmempool_allocate(sizeof(fproc_mapping_t), NULL, (void*)&new_mapping) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;
 	}
@@ -483,6 +634,8 @@ ferr_t fproc_register_mapping(fproc_t* process, void* address, size_t page_count
 	new_mapping->prev = prev;
 	new_mapping->page_count = page_count;
 	new_mapping->virtual_start = address;
+	new_mapping->flags = flags;
+	new_mapping->backing_mapping = backing_mapping;
 
 	*prev = new_mapping;
 
@@ -493,16 +646,19 @@ out_unlocked:
 		if (new_mapping) {
 			fpanic_status(fmempool_free(new_mapping));
 		}
+		if (backing_mapping) {
+			fpage_mapping_release(backing_mapping);
+		}
 	}
 	return status;
 };
 
 // the process' mappings mutex MUST be held here
-static fpage_mapping_t* find_mapping(fproc_t* process, void* address) {
-	fpage_mapping_t* mapping = process->mappings;
+static fproc_mapping_t* find_mapping(fproc_t* process, void* address) {
+	fproc_mapping_t* mapping = process->mappings;
 
 	while (mapping) {
-		if (mapping->virtual_start == address) {
+		if (mapping->virtual_start <= address && mapping->virtual_start + (mapping->page_count * FPAGE_PAGE_SIZE) > address) {
 			break;
 		}
 
@@ -512,9 +668,9 @@ static fpage_mapping_t* find_mapping(fproc_t* process, void* address) {
 	return mapping;
 };
 
-ferr_t fproc_unregister_mapping(fproc_t* process, void* address, size_t* out_page_count) {
+ferr_t fproc_unregister_mapping(fproc_t* process, void* address, size_t* out_page_count, fproc_mapping_flags_t* out_flags, fpage_mapping_t** out_mapping) {
 	ferr_t status = ferr_ok;
-	fpage_mapping_t* mapping = NULL;
+	fproc_mapping_t* mapping = NULL;
 
 	if (!process) {
 		status = ferr_invalid_argument;
@@ -539,6 +695,16 @@ ferr_t fproc_unregister_mapping(fproc_t* process, void* address, size_t* out_pag
 		*out_page_count = mapping->page_count;
 	}
 
+	if (out_flags) {
+		*out_flags = mapping->flags;
+	}
+
+	if (out_mapping) {
+		*out_mapping = mapping->backing_mapping;
+	} else if (mapping->backing_mapping) {
+		fpage_mapping_release(mapping->backing_mapping);
+	}
+
 	fpanic_status(fmempool_free(mapping));
 
 out:
@@ -547,9 +713,9 @@ out_unlocked:
 	return status;
 };
 
-ferr_t fproc_lookup_mapping(fproc_t* process, void* address, size_t* out_page_count) {
+ferr_t fproc_lookup_mapping(fproc_t* process, void* address, size_t* out_page_count, fproc_mapping_flags_t* out_flags, fpage_mapping_t** out_mapping) {
 	ferr_t status = ferr_ok;
-	fpage_mapping_t* mapping = NULL;
+	fproc_mapping_t* mapping = NULL;
 
 	if (!process) {
 		status = ferr_invalid_argument;
@@ -567,6 +733,18 @@ ferr_t fproc_lookup_mapping(fproc_t* process, void* address, size_t* out_page_co
 
 	if (out_page_count) {
 		*out_page_count = mapping->page_count;
+	}
+
+	if (out_flags) {
+		*out_flags = mapping->flags;
+	}
+
+	if (out_mapping) {
+		// this cannot fail
+		if (mapping->backing_mapping) {
+			fpanic_status(fpage_mapping_retain(mapping->backing_mapping));
+		}
+		*out_mapping = mapping->backing_mapping;
 	}
 
 out:
@@ -798,5 +976,67 @@ out:
 	if (uthread) {
 		fthread_release(uthread);
 	}
+	return status;
+};
+
+fproc_t* fproc_get_parent_process(fproc_t* process) {
+	fproc_t* parent = NULL;
+
+	flock_mutex_lock(&process->parent_process_mutex);
+
+	if (process->parent_process) {
+		if (fproc_retain(process->parent_process) != ferr_ok) {
+			goto out;
+		}
+
+		parent = process->parent_process;
+	}
+
+out:
+	flock_mutex_unlock(&process->parent_process_mutex);
+	return parent;
+};
+
+ferr_t fproc_get_channel_realm(fproc_t* process, fproc_channel_realm_id_t realm_id, fchannel_realm_t** out_realm) {
+	ferr_t status = ferr_ok;
+	fchannel_realm_t* realm = NULL;
+
+	if (!out_realm || realm_id == fproc_channel_realm_id_invalid || realm_id > fproc_channel_realm_id_xxx_max) {
+		status = ferr_invalid_argument;
+		goto out_unlocked;
+	}
+
+	flock_rw_lock_read(&process->realms_rw);
+
+	switch (realm_id) {
+		case fproc_channel_realm_id_parent:
+			realm = process->parent_realm;
+			break;
+		case fproc_channel_realm_id_child:
+			realm = process->child_realm;
+			break;
+		case fproc_channel_realm_id_local:
+			realm = process->local_realm;
+			break;
+	}
+
+	if (!realm) {
+		status = ferr_no_such_resource;
+		goto out;
+	}
+
+	if (fchannel_realm_retain(realm) != ferr_ok) {
+		status = ferr_no_such_resource;
+		goto out;
+	}
+
+out:
+	flock_rw_unlock(&process->realms_rw);
+
+out_unlocked:
+	if (status == ferr_ok) {
+		*out_realm = realm;
+	}
+
 	return status;
 };

@@ -41,7 +41,7 @@ void ferro_userspace_entry(void) {
 	fpanic_status(fvfs_open("/sys/sysman/sysman", fvfs_descriptor_flag_read | fvfs_descriptor_flags_execute, &sysman_desc));
 
 	fproc_t* proc = NULL;
-	fpanic_status(fproc_new(sysman_desc, &proc));
+	fpanic_status(fproc_new(sysman_desc, NULL, &proc));
 
 	fpanic_status(fprocreg_register(proc));
 

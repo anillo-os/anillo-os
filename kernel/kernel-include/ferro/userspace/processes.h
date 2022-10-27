@@ -29,16 +29,33 @@
 #include <ferro/core/paging.private.h>
 #include <ferro/core/refcount.h>
 #include <ferro/userspace/futex.h>
+#include <ferro/core/channels.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
-typedef uint64_t fproc_fd_t;
-#define FPROC_FD_MAX UINT64_MAX
+/**
+ * The type of a DID (Descriptor ID).
+ */
+typedef uint64_t fproc_did_t;
+#define FPROC_DID_MAX UINT64_MAX
 
 typedef uint64_t fproc_id_t;
 #define FPROC_ID_INVALID UINT64_MAX
 
 FERRO_STRUCT_FWD(futhread_data_private);
+
+FERRO_OPTIONS(uint64_t, fproc_mapping_flags) {
+	fproc_mapping_flag_contiguous = 1ull << 0,
+};
+
+FERRO_STRUCT(fproc_mapping) {
+	fproc_mapping_t** prev;
+	fproc_mapping_t* next;
+	void* virtual_start;
+	size_t page_count;
+	fproc_mapping_flags_t flags;
+	fpage_mapping_t* backing_mapping;
+};
 
 /**
  * Processes are purely a userspace concept (thus, no `u` prefix).
@@ -85,34 +102,31 @@ FERRO_STRUCT(fproc) {
 	fvfs_descriptor_t* binary_descriptor;
 
 	/**
-	 * A linked list of all the mappings in the process.
-	 */
-	fpage_mapping_t* mappings;
-
-	/**
 	 * A mutex that protects #mappings.
 	 */
 	flock_mutex_t mappings_mutex;
 
+	fproc_mapping_t* mappings;
+
 	/**
-	 * A table of all the file descriptors currently held by this process.
+	 * A table of all the descriptors currently held by this process.
 	 */
 	simple_ghmap_t descriptor_table;
 
 	/**
-	 * The lowest of the next available FD numbers.
+	 * The lowest of the next available DID numbers.
 	 */
-	fproc_fd_t next_lowest_fd;
+	fproc_did_t next_lowest_did;
 
 	/**
-	 * The highest FD number currently in-use.
+	 * The highest DID number currently in-use.
 	 *
-	 * If both this and #next_lowest_fd are `0`, no FDs are currently in-use.
+	 * If both this and #next_lowest_did are `0`, no DIDs are currently in-use.
 	 */
-	fproc_fd_t highest_fd;
+	fproc_did_t highest_did;
 
 	/**
-	 * A mutex that protects #descriptor_table, #next_lowest_fd, and #highest_fd.
+	 * A mutex that protects #descriptor_table, #next_lowest_did, and #highest_did.
 	 */
 	flock_mutex_t descriptor_table_mutex;
 
@@ -139,6 +153,35 @@ FERRO_STRUCT(fproc) {
 	 * This should only be assigned by the process registry.
 	 */
 	fproc_id_t id;
+
+	fproc_t* parent_process;
+	flock_mutex_t parent_process_mutex;
+
+	fwaitq_waiter_t parent_process_death_waiter;
+
+	fchannel_realm_t* parent_realm;
+	fchannel_realm_t* child_realm;
+	fchannel_realm_t* local_realm;
+
+	flock_rw_t realms_rw;
+};
+
+typedef ferr_t (*fproc_descriptor_retain_f)(void* descriptor);
+typedef void (*fproc_descriptor_release_f)(void* descriptor);
+
+FERRO_STRUCT(fproc_descriptor_class) {
+	fproc_descriptor_retain_f retain;
+	fproc_descriptor_release_f release;
+};
+
+extern const fproc_descriptor_class_t fproc_descriptor_class_vfs;
+
+FERRO_ENUM(uint8_t, fproc_channel_realm_id) {
+	fproc_channel_realm_id_invalid,
+	fproc_channel_realm_id_parent,
+	fproc_channel_realm_id_child,
+	fproc_channel_realm_id_local,
+	fproc_channel_realm_id_xxx_max = fproc_channel_realm_id_local,
 };
 
 /**
@@ -147,6 +190,9 @@ FERRO_STRUCT(fproc) {
  * A process's initial thread is suspended upon creation; it must be resumed (with fthread_resume()) for execution to start.
  *
  * @param file_descriptor A file descriptor pointing to the binary for the new process to execute.
+ * @param parent_process  An optional process to set as the parent of this new process.
+ *                        This process is retained by the new process and is released
+ *                        either when the parent process dies or the new process dies.
  * @param out_proc        A pointer into which a pointer to the new process's information structure will be written.
  *
  * @note This function grants the caller a single reference on the newly created process.
@@ -157,7 +203,7 @@ FERRO_STRUCT(fproc) {
  * @retval ferr_no_such_resource Can only occur when the binary has an interpreter and the binary's interpreter could not be found.
  * @retval ferr_forbidden        One or more of: 1) reading and executing the binary was not allowed, 2) reading and executing the binary's interpreter was not allowed.
  */
-FERRO_WUR ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t** out_proc);
+FERRO_WUR ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t* parent_process, fproc_t** out_proc);
 
 /**
  * Retrieves a pointer to the process information structure for the process that is currently executing on the current CPU.
@@ -189,57 +235,59 @@ FERRO_WUR ferr_t fproc_retain(fproc_t* process);
 void fproc_release(fproc_t* process);
 
 /**
- * Installs a new FD in the given process, associating it with the given descriptor.
+ * Installs a new DID in the given process, associating it with the given descriptor.
  *
- * @param process    The process to install the FD in.
- * @param descriptor The descriptor that should be associated with the new FD.
- *                   This descriptor will be retained by this operation and released once the FD is closed.
- * @param out_fd     A pointer in which to write the FD number of the new FD.
+ * @param process          The process to install the DID in.
+ * @param descriptor       The descriptor that should be associated with the new DID.
+ *                         This descriptor will be retained by this operation and released once the DID is closed.
+ * @param descriptor_class The descriptor class that should be associated with the descriptor.
+ * @param out_did          A pointer in which to write the DID number of the new DID.
  *
- * @retval ferr_ok               A new FD has been created and @p descriptor has been retain and associated with it. The new FD's number has been written into @p out_fd.
+ * @retval ferr_ok               A new DID has been created and @p descriptor has been retain and associated with it. The new DID's number has been written into @p out_fd.
  * @retval ferr_invalid_argument One or more of: 1) @p process was not a valid process, 2) @p descriptor was not a valid descriptor, 3) @p out_fd was `NULL`.
- * @retval ferr_temporary_outage There were insufficient resources to allocate a new FD within the given process.
- * @retval ferr_forbidden        Installing a new FD for the given descriptor in the given process was not allowed.
+ * @retval ferr_temporary_outage There were insufficient resources to allocate a new DID within the given process.
+ * @retval ferr_forbidden        Installing a new DID for the given descriptor in the given process was not allowed.
  */
-ferr_t fproc_install_descriptor(fproc_t* process, fvfs_descriptor_t* descriptor, fproc_fd_t* out_fd);
+ferr_t fproc_install_descriptor(fproc_t* process, void* descriptor, const fproc_descriptor_class_t* descriptor_class, fproc_did_t* out_did);
 
 /**
- * Uninstalls the given FD from the given processing, releasing the VFS descriptor associated with it.
+ * Uninstalls the given DID from the given process, releasing the descriptor associated with it.
  *
- * @param process The process to uninstall the FD from.
- * @param fd      The FD number for the FD that should be uninstalled.
+ * @param process The process to uninstall the DID from.
+ * @param did     The DID number for the descriptor that should be uninstalled.
  *
- * @retval ferr_ok               The FD was found and uninstalled from the given process; the descriptor associated with it has been released.
+ * @retval ferr_ok               The DID was found and uninstalled from the given process; the descriptor associated with it has been released.
  * @retval ferr_invalid_argument One or more of: 1) @p process was not a valid process.
- * @retval ferr_no_such_resource No FD with the given FD number could be found in the given process.
- * @retval ferr_forbidden        Uninstalling the given FD from the given process was not allowed.
+ * @retval ferr_no_such_resource No DID with the given DID number could be found in the given process.
+ * @retval ferr_forbidden        Uninstalling the given DID from the given process was not allowed.
  */
-ferr_t fproc_uninstall_descriptor(fproc_t* process, fproc_fd_t fd);
+ferr_t fproc_uninstall_descriptor(fproc_t* process, fproc_did_t did);
 
 /**
- * Looks up (and optionally retains) the descriptor associated with the given FD in the given process.
+ * Looks up (and optionally retains) the descriptor associated with the given DID in the given process.
  *
- * @param process        The process to lookup the FD in.
- * @param fd             The FD number of the FD associated with the given descriptor.
- * @param retain         Whether to retain the descriptor on success.
- * @param out_descriptor A conditionally optional pointer in which to write a pointer to the descriptor associated with the given FD.
+ * @param process              The process to lookup the DID in.
+ * @param did                  The DID number associated with the given descriptor.
+ * @param retain               Whether to retain the descriptor on success.
+ * @param out_descriptor       A conditionally optional pointer in which to write a pointer to the descriptor associated with the given DID.
+ * @param out_descriptor_class An optional pointer in which to write a pointer to the descriptor class associated with the descriptor.
  *
  * @note If the descriptor is retained before returning (i.e. when @p retain is `true`),
  *       retention happens atomically. In other words, if a lookup occurs simultaneously with
- *       a closure, either the FD will be closed first and the descriptor reference lost (and the lookup would fail)
+ *       a closure, either the DID will be closed first and the descriptor reference lost (and the lookup would fail)
  *       or the lookup will occur first and the descriptor retained to be returned (and thus, the validity of the
- *       returned descriptor would not be affect by the FD closure).
+ *       returned descriptor would not be affect by the DID closure).
  *
  * @note If @p retain is `true`, @p out_descriptor CANNOT be `NULL`, so that it can be released by the caller later.
  *       If @p retain is `false`, @p out_descriptor is allowed to be `NULL`, so that can be used to check if a descriptor was valid at the time of the call.
  *       Note that, due to multithreading, the descriptor's validity may have already changed by the time the call returns.
  *
- * @retval ferr_ok               The FD was found and the associated descriptor has been returned.
+ * @retval ferr_ok               The DID was found and the associated descriptor has been returned.
  * @retval ferr_invalid_argument One or more of: 1) @p process was not a valid process, 2) @p retain was `true` but @p out_descriptor was `NULL`.
- * @retval ferr_no_such_resource No FD with the given FD number could be found in the given process.
- * @retval ferr_forbidden        Looking up the given FD in the given process was not allowed.
+ * @retval ferr_no_such_resource No descriptor with the given DID number could be found in the given process.
+ * @retval ferr_forbidden        Looking up the given DID in the given process was not allowed.
  */
-ferr_t fproc_lookup_descriptor(fproc_t* process, fproc_fd_t fd, bool retain, fvfs_descriptor_t** out_descriptor);
+ferr_t fproc_lookup_descriptor(fproc_t* process, fproc_did_t did, bool retain, void** out_descriptor, const fproc_descriptor_class_t** out_descriptor_class);
 
 /**
  * Registers the given region of memory in the process' memory mappings.
@@ -247,16 +295,19 @@ ferr_t fproc_lookup_descriptor(fproc_t* process, fproc_fd_t fd, bool retain, fvf
  * @param process    The process to register the mapping in.
  * @param address    The starting address of the region to register.
  * @param page_count The number of pages in the region.
+ * @param flags      A set of flags that further describe the region.
+ * @param mapping    An optional backing mapping. If non-null, this mapping is actually a shared memory mapping.
  *
  * @note This function DOES NOT allocate memory. All it does is save some information about the given memory region in the process' mappings list.
  *
  * @retval ferr_ok                  The mapping was successfully registered in the process.
  * @retval ferr_invalid_argument    One or more of: 1) @p process was not a valid process.
  * @retval ferr_temporary_outage    There were insufficient resources to register the mapping.
+ * @retval ferr_permanent_outage    @p mapping could not be retained.
  * @retval ferr_forbidden           Registering the mapping in the given process was not allowed.
  * @retval ferr_already_in_progress Either part or all of the region was already mapped.
  */
-ferr_t fproc_register_mapping(fproc_t* process, void* address, size_t page_count);
+ferr_t fproc_register_mapping(fproc_t* process, void* address, size_t page_count, fproc_mapping_flags_t flags, fpage_mapping_t* mapping);
 
 /**
  * Unregisters the mapping starting at the given address from the process' memory mappings.
@@ -264,13 +315,17 @@ ferr_t fproc_register_mapping(fproc_t* process, void* address, size_t page_count
  * @param process        The process to unregister the mapping from.
  * @param address        The starting address of the region to unregister.
  * @param out_page_count An optional pointer in which to write the number of pages the mapping spans.
+ * @param out_flags      An optional pointer in which to write the flags stored in the mapping.
+ * @param out_mapping    An optional pointer in which to write a pointer to the backing mapping for this mapping (if it exists).
+ *                       If non-null, the mapping's reference on the backing mapping will be transferred to the caller.
+ *                       Otherwise, the mapping's reference on the backing mapping will simply be released.
  *
  * @retval ferr_ok               The mapping was successfully unregistered from the process.
  * @retval ferr_invalid_argument One or more of: 1) @p process was not a valid process.
  * @retval ferr_no_such_resource No mapping starting at the given address was found in the process.
  * @retval ferr_forbidden        Unregistering the mapping in the given process was not allowed.
  */
-ferr_t fproc_unregister_mapping(fproc_t* process, void* address, size_t* out_page_count);
+ferr_t fproc_unregister_mapping(fproc_t* process, void* address, size_t* out_page_count, fproc_mapping_flags_t* out_flags, fpage_mapping_t** out_mapping);
 
 /**
  * Looks up the mapping starting at the given address in the process' memory mappings and returns how many pages it occupies.
@@ -278,13 +333,15 @@ ferr_t fproc_unregister_mapping(fproc_t* process, void* address, size_t* out_pag
  * @param process        The process to lookup the mapping in.
  * @param address        The starting address of the region to lookup.
  * @param out_page_count An optional pointer in which to write the number of pages the mapping spans.
+ * @param out_flags
+ * @param out_mapping
  *
  * @retval ferr_ok               The mapping was found and (if @p out_page_count was not `NULL`) the number of pages it spans has been written into @p out_page_count.
  * @retval ferr_invalid_argument One or more of: 1) @p process was not a valid process.
  * @retval ferr_no_such_resource No mapping starting at the given address was found in the process.
  * @retval ferr_forbidden        Looking up the mapping in the given process was not allowed.
  */
-ferr_t fproc_lookup_mapping(fproc_t* process, void* address, size_t* out_page_count);
+ferr_t fproc_lookup_mapping(fproc_t* process, void* address, size_t* out_page_count, fproc_mapping_flags_t* out_flags, fpage_mapping_t** out_mapping);
 
 typedef uint64_t fper_proc_key_t;
 typedef void (*fper_proc_data_destructor_f)(void* context, void* data, size_t data_size);
@@ -341,6 +398,16 @@ ferr_t fproc_kill(fproc_t* process);
  * @retval ferr_permanent_outage The process, the uthread, or both could not be retained.
  */
 ferr_t fproc_attach_thread(fproc_t* process, fthread_t* uthread);
+
+/**
+ * Retains and returns a reference to the parent process of the given process.
+ *
+ * @returns A reference (that must be released) to the parent process of the given process,
+ *          or `NULL` if the process did not have a parent process or it could not be retained.
+ */
+fproc_t* fproc_get_parent_process(fproc_t* process);
+
+ferr_t fproc_get_channel_realm(fproc_t* process, fproc_channel_realm_id_t realm_id, fchannel_realm_t** out_realm);
 
 FERRO_DECLARATIONS_END;
 
