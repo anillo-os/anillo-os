@@ -23,9 +23,7 @@
  */
 
 #include <gen/ferro/offsets.h>
-
-#define MAKE_IMMEDIATE_HELPER(x) $ ## x
-#define MAKE_IMMEDIATE(x) MAKE_IMMEDIATE_HELPER(x)
+#include <ferro/asm/x86_64/helpers.hS>
 
 #define FERRO_GDT_OFFSET_KERNEL_CS $8
 
@@ -34,6 +32,9 @@
 .text
 .global _farch_sched_immediate_switch
 _farch_sched_immediate_switch:
+	pushq %rbp
+	mov %rsp, %rbp
+
 	//
 	// first, save everything (if we have a current thread)
 	//
@@ -71,25 +72,47 @@ _farch_sched_immediate_switch:
 	mov %cs, FOFFSET_fthread_saved_context_cs(%rdi)
 	mov %ss, FOFFSET_fthread_saved_context_ss(%rdi)
 
+	// load the XSAVE area address into a temporary register
+	lea FOFFSET_fthread_saved_context_xsave_area(%rdi), %r11
+
+	// load the XSAVE feature mask
+	movq %gs:FOFFSET_farch_per_cpu_data_xsave_features, %rdx
+	mov %edx, %eax
+	shr $32, %rdx
+
+	// perform an XSAVE
+	xsave64 (%r11)
+
 	// this is where we go if rdi (the current thread context) is `NULL`
 	0:
 
 	//
 	// let's arm the timer
 	//
-	pushq %rsi
+	pushs %rsi
 	call _fsched_arm_timer
-	popq %rsi
+	pops %rsi
 
 	//
 	// okay, now let's start loading everything
 	//
 
 	// load the right interrupt-disable count
-	pushq %rsi
+	pushs %rsi
 	mov FOFFSET_fint_frame_interrupt_disable(%rsi), %rdi
 	call _farch_sched_set_interrupt_disable_count
-	popq %rsi
+	pops %rsi
+
+	// load the XSAVE area address into a temporary register
+	mov FOFFSET_fint_frame_xsave_area(%rsi), %r11
+
+	// load the XSAVE feature mask
+	movq %gs:FOFFSET_farch_per_cpu_data_xsave_features, %rdx
+	mov %edx, %eax
+	shr $32, %rdx
+
+	// now perform XRSTOR
+	xrstor64 (%r11)
 
 	// load general-purpose registers
 	mov FOFFSET_fint_frame_rax(%rsi), %rax
@@ -147,6 +170,7 @@ _farch_sched_immediate_switch:
 
 	// this is where we come when we are re-entered; we can just return to the caller now
 	1:
+	popq %rbp
 	ret
 
 // arg 1 (rdi) is the new frame to load (it's a `fint_frame_t*`)
@@ -164,6 +188,17 @@ _farch_sched_delayed_switch:
 	// load the right interrupt-disable count
 	mov FOFFSET_fint_frame_interrupt_disable(%rsp), %rdi
 	call _farch_sched_set_interrupt_disable_count
+
+	// load the XSAVE area address into a temporary register
+	mov FOFFSET_fint_frame_xsave_area(%rsp), %r11
+
+	// load the XSAVE feature mask
+	movq %gs:FOFFSET_farch_per_cpu_data_xsave_features, %rdx
+	mov %edx, %eax
+	shr $32, %rdx
+
+	// now perform XRSTOR
+	xrstor64 (%r11)
 
 	// load general-purpose registers
 	mov FOFFSET_fint_frame_rax(%rsp), %rax
@@ -201,20 +236,35 @@ _farch_sched_delayed_switch:
 .text
 .global _farch_sched_bootstrap_switch
 _farch_sched_bootstrap_switch:
+	pushq %rbp
+	mov %rsp, %rbp
+
 	// arm the timer
-	pushq %rdi
+	// (remember to keep the stack 16-byte aligned)
+	pushs %rdi
 	call _fsched_arm_timer
-	popq %rdi
+	pops %rdi
 
 	//
 	// start loading registers
 	//
 
 	// load the right interrupt-disable count
-	pushq %rdi
+	pushs %rdi
 	mov FOFFSET_fint_frame_interrupt_disable(%rdi), %rdi
 	call _farch_sched_set_interrupt_disable_count
-	popq %rdi
+	pops %rdi
+
+	// load the XSAVE area address into a temporary register
+	mov FOFFSET_fint_frame_xsave_area(%rdi), %r11
+
+	// load the XSAVE feature mask
+	movq %gs:FOFFSET_farch_per_cpu_data_xsave_features, %rdx
+	mov %edx, %eax
+	shr $32, %rdx
+
+	// now perform XRSTOR
+	xrstor64 (%r11)
 
 	// load general-purpose registers
 	mov FOFFSET_fint_frame_rax(%rdi), %rax

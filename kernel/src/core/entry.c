@@ -240,6 +240,14 @@ static void ferro_entry_threaded(void* data) {
 	ferro_userspace_entry();
 };
 
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <cpuid.h>
+	#include <immintrin.h>
+#endif
+
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+__attribute__((target("xsave")))
+#endif
 void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count) {
 	uint16_t next_l2 = 0;
 	ferro_memory_region_t* memory_map = NULL;
@@ -271,6 +279,52 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 			image_size = image_info->size;
 		}
 	}
+
+	// run this before anything that may use floating-point/SIMD instructions, like memmove and memcpy
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	{
+		uint64_t cr0 = 0;
+		uint64_t cr4 = 0;
+
+		// check whether XSAVE is supported
+		unsigned int eax = 0;
+		unsigned int ebx = 0;
+		unsigned int ecx = 0;
+		unsigned int edx = 0;
+
+		// can't use __get_cpuid because it's not always inlined
+		__cpuid(1, eax, ebx, ecx, edx);
+
+		if ((ecx & (1 << 26)) == 0) {
+			// no XSAVE support; enter an endless loop
+			fentry_hang_forever();
+		}
+
+		__asm__ volatile(
+			"movq %%cr0, %0\n"
+			"movq %%cr4, %1\n"
+			:
+			"=r" (cr0),
+			"=r" (cr4)
+		);
+
+		// clear the EM and TS bits
+		cr0 &= ~((1 << 2) | (1 << 3));
+		// set the NE and MP bits
+		cr0 |= (1 << 1) | (1 << 5);
+
+		// enable the OSFXSR, OSXMMEXCEPT, and OSXSAVE bits
+		cr4 |= (1 << 9) | (1 << 10) | (1 << 18);
+
+		__asm__ volatile(
+			"movq %0, %%cr0\n"
+			"movq %1, %%cr4\n"
+			::
+			"r" (cr0),
+			"r" (cr4)
+		);
+	}
+#endif
 
 	// ALWAYS DO THIS BEFORE ANY ACTUAL FUNCTION CALLS
 	setup_page_tables(&next_l2, image_base, image_size);
@@ -313,6 +367,26 @@ jump_here_for_virtual:;
 
 	// initialize the console subsystem
 	fconsole_init();
+
+	// now that we're virtual and can use FARCH_PER_CPU, initialize the size of the XSAVE area;
+	// we must always do this before anything that uses XSAVE executes (e.g. an interrupt or context switch)
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	{
+		unsigned int eax;
+		unsigned int ebx;
+		unsigned int ecx;
+		unsigned int edx;
+
+		__cpuid_count(0x0d, 0, eax, ebx, ecx, edx);
+
+		FARCH_PER_CPU(xsave_area_size) = ecx;
+
+		// also initialize the XCR0 register with all supported features
+		_xsetbv(0, (uint64_t)edx << 32 | (uint64_t)eax);
+
+		FARCH_PER_CPU(xsave_features) = (uint64_t)edx << 32 | (uint64_t)eax;
+	}
+#endif
 
 	fper_cpu_init();
 

@@ -88,12 +88,14 @@
  */
 #define FERRO_VERIFY(expr, message) _Static_assert(expr, message)
 
-#define FERRO_VERIFY_OFFSET(type, member, offset) FERRO_VERIFY(offsetof(type, member) == offset, "Offset verification failed for " #member " in " #type " (expected offset to equal " #offset ")")
+#define FERRO_VERIFY_OFFSET(type, member, offset) FERRO_VERIFY(__builtin_offsetof(type, member) == offset, "Offset verification failed for " #member " in " #type " (expected offset to equal " #offset ")")
 
 /**
  * @note This is the checks actual alignment of the type, not the required alignment (like what `alignof` returns).
  */
 #define FERRO_VERIFY_ALIGNMENT(type, alignment) FERRO_VERIFY(FERRO_IS_ALIGNED(sizeof(type), alignment), "Alignment verification failed for " #type " (expected type to be aligned to " #alignment " bytes)");
+
+#define FERRO_VERIFY_MEMBER_ALIGNMENT(type, member, alignment) FERRO_VERIFY(FERRO_IS_ALIGNED(__builtin_offsetof(type, member), alignment), "Alignment verification failed for " #member " in " #type " (expected member to be aligned to " #alignment " bytes)");
 
 #define FSTRINGIFY_HELPER(x) #x
 #define FSTRINGIFY(x) FSTRINGIFY_HELPER(x)
@@ -113,6 +115,8 @@ FERRO_ALWAYS_INLINE void fassert_helper(int result, const char* expr) {
 
 #define FERRO_GS_RELATIVE __attribute__((address_space(256)))
 #define FERRO_FS_RELATIVE __attribute__((address_space(257)))
+
+#define FERRO_NO_OPTIMIZE __attribute__((optnone))
 
 /**
  * @}

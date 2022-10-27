@@ -108,7 +108,7 @@ FERRO_STRUCT(futhread_data) {
 	 */
 	fwaitq_waiter_t thread_destruction_waiter;
 
-	fthread_saved_context_t saved_syscall_context;
+	fthread_saved_context_t* saved_syscall_context;
 
 	futhread_syscall_handler_f syscall_handler;
 	void* syscall_handler_context;

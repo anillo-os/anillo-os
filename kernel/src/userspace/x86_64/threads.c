@@ -83,7 +83,7 @@ void farch_uthread_syscall_handler(void) {
 	fint_enable();
 
 	if (FARCH_PER_CPU(current_uthread_data)->syscall_handler) {
-		FARCH_PER_CPU(current_uthread_data)->syscall_handler(FARCH_PER_CPU(current_uthread_data)->syscall_handler_context, FARCH_PER_CPU(current_thread), &FARCH_PER_CPU(current_uthread_data)->saved_syscall_context);
+		FARCH_PER_CPU(current_uthread_data)->syscall_handler(FARCH_PER_CPU(current_uthread_data)->syscall_handler_context, FARCH_PER_CPU(current_thread), FARCH_PER_CPU(current_uthread_data)->saved_syscall_context);
 	} else {
 		// TODO: indicate that the thread is dying from an error
 		fthread_kill_self();

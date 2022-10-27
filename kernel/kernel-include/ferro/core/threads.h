@@ -171,7 +171,7 @@ FERRO_STRUCT(fthread) {
 	/**
 	 * Architecture-dependent structure containing context information from the last suspension of the thread.
 	 */
-	fthread_saved_context_t saved_context;
+	fthread_saved_context_t* saved_context;
 
 	/**
 	 * Used to link this thread to onto a list of waiters waiting for a waitq to wake up.

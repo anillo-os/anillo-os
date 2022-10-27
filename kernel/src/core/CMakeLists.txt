@@ -40,6 +40,10 @@ add_library(ferro_core STATIC
 	ghmap.c
 )
 
+set_source_files_properties(entry.c PROPERTIES
+	COMPILE_OPTIONS "-mno-implicit-float"
+)
+
 add_dependencies(ferro_core
 	generate_font_header
 )

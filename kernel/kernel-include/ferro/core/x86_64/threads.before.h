@@ -70,7 +70,13 @@ FERRO_STRUCT(fthread_saved_context) {
 	uint64_t interrupt_disable;
 	// the per-CPU address space pointer
 	uint64_t address_space;
+
+	char reserved[16];
+	char xsave_area[];
 };
+
+// the XSAVE area must be 64-byte aligned
+FERRO_VERIFY_MEMBER_ALIGNMENT(fthread_saved_context_t, xsave_area, 64);
 
 /**
  * @}

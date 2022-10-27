@@ -23,9 +23,7 @@
  */
 
 #include <gen/ferro/offsets.h>
-
-#define MAKE_IMMEDIATE_HELPER(x) $ ## x
-#define MAKE_IMMEDIATE(x) MAKE_IMMEDIATE_HELPER(x)
+#include <ferro/asm/x86_64/helpers.hS>
 
 #define FERRO_GDT_OFFSET_KERNEL_CS $8
 
@@ -77,7 +75,52 @@
 		.endif
 
 		mov %rsp, %rdi
+
+		// now let's perform an XSAVE
+
+		// first, allocate space for the XSAVE area
+		subq %gs:FOFFSET_farch_per_cpu_data_xsave_area_size, %rsp
+
+		// now, align it to 64 bytes
+		andq $-64, %rsp
+
+		// now set this pointer in the frame
+		mov %rsp, FOFFSET_fint_frame_xsave_area(%rdi)
+
+		// load the XSAVE feature mask
+		movq %gs:FOFFSET_farch_per_cpu_data_xsave_features, %rdx
+		mov %edx, %eax
+		shr $32, %rdx
+
+		// clear out the XSAVE area header
+		movq $0, 512(%rsp)
+		movq $0, 520(%rsp)
+		movq $0, 528(%rsp)
+		movq $0, 536(%rsp)
+		movq $0, 544(%rsp)
+		movq $0, 552(%rsp)
+		movq $0, 560(%rsp)
+		movq $0, 568(%rsp)
+
+		// now perform XSAVE
+		xsave64 (%rsp)
+
+		pushs <%rdi>
 		call _farch_int_\()\func\()_handler
+		pops <%rdi>
+
+		// now let's perform an XRSTOR
+
+		// load the XSAVE feature mask
+		movq %gs:FOFFSET_farch_per_cpu_data_xsave_features, %rdx
+		mov %edx, %eax
+		shr $32, %rdx
+
+		// now perform XRSTOR
+		xrstor64 (%rsp)
+
+		// move the stack pointer to point to the start of the frame
+		mov %rdi, %rsp
 
 		mov FOFFSET_fint_frame_rax(%rsp), %rax
 		mov FOFFSET_fint_frame_rcx(%rsp), %rcx
@@ -120,6 +163,7 @@ wrapper double_fault, 1
 wrapper general_protection, 1
 wrapper page_fault, 1
 wrapper invalid_opcode, 0
+wrapper simd_exception, 0
 
 //
 // user-defined interrupts

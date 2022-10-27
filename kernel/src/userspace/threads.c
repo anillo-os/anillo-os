@@ -114,6 +114,8 @@ static void uthread_thread_destroyed(void* context) {
 
 	fwaitq_wake_many(&data->destroy_wait, SIZE_MAX);
 
+	FERRO_WUR_IGNORE(fmempool_free(data->saved_syscall_context));
+
 	flock_mutex_lock(&uthread_map_mutex);
 	fpanic_status(simple_ghmap_clear(&uthread_map, thread, 0));
 	flock_mutex_unlock(&uthread_map_mutex);
@@ -124,6 +126,12 @@ static ferr_t uthread_ending_interrupt(void* context, fthread_t* thread) {
 	futhread_ending_interrupt_arch(thread, data);
 	return ferr_ok;
 };
+
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#define FTHREAD_EXTRA_SAVE_SIZE FARCH_PER_CPU(xsave_area_size)
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#define FTHREAD_EXTRA_SAVE_SIZE 0
+#endif
 
 ferr_t futhread_register(fthread_t* thread, void* user_stack_base, size_t user_stack_size, fpage_space_t* user_space, futhread_flags_t flags, futhread_syscall_handler_f syscall_handler, void* syscall_handler_context) {
 	futhread_data_t* data = NULL;
@@ -160,6 +168,7 @@ retry_lookup:
 	}
 
 	private_data->process = NULL;
+	data->saved_syscall_context = NULL;
 
 	clear_uthread_on_fail = true;
 
@@ -210,12 +219,17 @@ retry_lookup:
 	clear_flag_on_fail = true;
 	flock_spin_intsafe_unlock(&thread->lock);
 
+	status = fmempool_allocate_advanced(sizeof(*data->saved_syscall_context) + FTHREAD_EXTRA_SAVE_SIZE, fpage_round_up_to_alignment_power(64), UINT8_MAX, 0, NULL, (void*)&data->saved_syscall_context);
+	if (status != ferr_ok) {
+		goto out_locked;
+	}
+
+	simple_memset(data->saved_syscall_context, 0, sizeof(*data->saved_syscall_context) + FTHREAD_EXTRA_SAVE_SIZE);
+
 	if (fthread_register_hook(thread, UTHREAD_HOOK_OWNER_ID, data, NULL, NULL, NULL, NULL, uthread_ending_interrupt) == UINT8_MAX) {
 		status = ferr_temporary_outage;
 		goto out_locked;
 	}
-
-	simple_memset(&data->saved_syscall_context, 0, sizeof(data->saved_syscall_context));
 
 	data->syscall_handler = syscall_handler;
 	data->syscall_handler_context = syscall_handler_context;
@@ -229,6 +243,9 @@ retry_lookup:
 
 out_locked:
 	if (status != ferr_ok) {
+		if (data && data->saved_syscall_context) {
+			FERRO_WUR_IGNORE(fmempool_free(data->saved_syscall_context));
+		}
 		if (release_stack_on_fail) {
 			fpanic_status(fpage_space_free(data->user_space, user_stack_base, fpage_round_up_to_page_count(user_stack_size)));
 		}
@@ -271,9 +288,9 @@ ferr_t futhread_jump_user(fthread_t* uthread, void* address) {
 
 	// make sure the address is valid
 	// TODO: make sure it's executable and unprivileged
-	if (fpage_space_virtual_to_physical(data->user_space, (uintptr_t)address) == UINTPTR_MAX) {
-		return ferr_invalid_argument;
-	}
+	//if (fpage_space_virtual_to_physical(data->user_space, (uintptr_t)address) == UINTPTR_MAX) {
+	//	return ferr_invalid_argument;
+	//}
 
 	fpanic_status(fpage_space_swap(data->user_space));
 
@@ -321,7 +338,7 @@ ferr_t futhread_context(fthread_t* uthread, fthread_saved_context_t** out_saved_
 		return ferr_invalid_argument;
 	}
 
-	*out_saved_user_context = &data->saved_syscall_context;
+	*out_saved_user_context = data->saved_syscall_context;
 
 	return ferr_ok;
 };

@@ -86,13 +86,19 @@ FERRO_PACKED_STRUCT(farch_int_frame_with_code) {
 };
 
 FERRO_PACKED_STRUCT(fint_frame) {
+	char reserved[8];
+	void* xsave_area;
 	farch_int_saved_registers_t saved_registers;
 	uint64_t code;
 	farch_int_frame_core_t core;
 };
 
+FERRO_VERIFY_ALIGNMENT(fint_frame_t, 16);
+
 // produces a flat view of a frame, useful for macros (because these share the same names as for threads)
 FERRO_PACKED_STRUCT(farch_int_frame_flat_registers) {
+	char reserved[8];
+	void* xsave_area;
 	uint64_t rax;
 	uint64_t rcx;
 	uint64_t rdx;

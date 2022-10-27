@@ -17,15 +17,16 @@
  */
 
 #include <gen/ferro/offsets.h>
-
-#define MAKE_IMMEDIATE_HELPER(x) $ ## x
-#define MAKE_IMMEDIATE(x) MAKE_IMMEDIATE_HELPER(x)
+#include <ferro/asm/x86_64/helpers.hS>
 
 // arg 1 (rdi) is the handler to invoke (void*)
 // arg 2 (rsi) is the saved userspace context (fthread_saved_context*)
 .text
 .global _farch_syscall_handler_invoke
 _farch_syscall_handler_invoke:
+	pushq %rbp
+	movq %rsp, %rbp
+
 	// use r11 as a scratch register to store the handler address
 	mov %rdi, %r11
 
@@ -42,4 +43,5 @@ _farch_syscall_handler_invoke:
 
 	// don't touch rax so that we return the handler's return value as our return value
 
+	popq %rbp
 	ret

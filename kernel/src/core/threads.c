@@ -384,9 +384,18 @@ static void wakeup_thread(void* data) {
 	FERRO_WUR_IGNORE(fthread_resume(thread));
 };
 
+// TODO: move the 
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <ferro/core/x86_64/per-cpu.private.h>
+	#define FTHREAD_SAVED_CONTEXT_EXTRA_SIZE (FARCH_PER_CPU(xsave_area_size))
+#else
+	#define FTHREAD_SAVED_CONTEXT_EXTRA_SIZE 0
+#endif
+
 ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_base, size_t stack_size, fthread_flags_t flags, fthread_t** out_thread) {
 	fthread_private_t* new_thread = NULL;
 	bool release_stack_on_fail = false;
+	fthread_saved_context_t* saved_context = NULL;
 
 	if (!initializer || !out_thread) {
 		return ferr_invalid_argument;
@@ -401,12 +410,22 @@ ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_ba
 		flags |= fthread_flag_deallocate_stack_on_exit;
 	}
 
+	if (fmempool_allocate_advanced(sizeof(*saved_context) + FTHREAD_SAVED_CONTEXT_EXTRA_SIZE, fpage_round_up_to_alignment_power(64), UINT8_MAX, 0, NULL, (void*)&saved_context) != ferr_ok) {
+		if (release_stack_on_fail) {
+			if (fpage_free_kernel(stack_base, fpage_round_up_to_page_count(stack_size)) != ferr_ok) {
+				fpanic("Failed to free thread stack");
+			}
+		}
+		return ferr_temporary_outage;
+	}
+
 	if (fmempool_allocate(sizeof(fthread_private_t), NULL, (void**)&new_thread) != ferr_ok) {
 		if (release_stack_on_fail) {
 			if (fpage_free_kernel(stack_base, fpage_round_up_to_page_count(stack_size)) != ferr_ok) {
 				fpanic("Failed to free thread stack");
 			}
 		}
+		FERRO_WUR_IGNORE(fmempool_free(saved_context));
 		return ferr_temporary_outage;
 	}
 
@@ -427,6 +446,9 @@ ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_ba
 	new_thread->timer_id = FTIMERS_ID_INVALID;
 
 	new_thread->thread.id = FTHREAD_ID_INVALID;
+
+	new_thread->thread.saved_context = saved_context;
+	simple_memset(new_thread->thread.saved_context, 0, sizeof(*new_thread->thread.saved_context) + FTHREAD_SAVED_CONTEXT_EXTRA_SIZE);
 
 	// the thread must start as suspended
 	fthread_state_execution_write_locked(&new_thread->thread, fthread_state_execution_suspended);

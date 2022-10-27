@@ -17,23 +17,46 @@
  */
 
 #include <gen/ferro/offsets.h>
-
-#define MAKE_IMMEDIATE_HELPER(x) $ ## x
-#define MAKE_IMMEDIATE(x) MAKE_IMMEDIATE_HELPER(x)
+#include <ferro/asm/x86_64/helpers.hS>
 
 // arg 1 (rdi) is the new rip
 // arg 2 (rsi) is the new rsp
 .text
 .global _farch_uthread_jump_user_frame
 _farch_uthread_jump_user_frame:
+	pushq %rbp
+	mov %rsp, %rbp
+
 	// load the right interrupt-disable count (0 for userspace)
-	pushq %rdi
-	pushq %rsi
+	pushp %rdi, %rsi
 	// zero-out rsi
 	xor %edi, %edi
 	call _farch_uthread_set_interrupt_disable_count
-	popq %rsi
-	popq %rdi
+	popp %rdi, %rsi
+
+	// create a fake XSAVE area that will clear out the state
+	subq %gs:FOFFSET_farch_per_cpu_data_xsave_area_size, %rsp
+	andq $-64, %rsp
+	mov %rsp, %r12
+
+	pushp %rdi, %rsi
+	mov %r12, %rdi
+	xor %esi, %esi
+	mov %gs:FOFFSET_farch_per_cpu_data_xsave_area_size, %rdx
+	call _simple_memset
+	popp %rdi, %rsi
+
+	// initialize MXCSR (along with the mask)
+	movq $0x1f80, 24(%r12)
+	movq $0xffbf, 28(%r12)
+
+	// load the XSAVE feature mask
+	movq %gs:FOFFSET_farch_per_cpu_data_xsave_features, %rdx
+	mov %edx, %eax
+	shr $32, %rdx
+
+	// now perform a fake XRSTOR
+	xrstor64 (%r12)
 
 	// zero-out general-purpose registers
 	// (note that here we use a 32-bit register clear trick for maximum efficiency)
@@ -83,35 +106,52 @@ _farch_uthread_syscall_handler_wrapper:
 
 	// load r11 with the uthread data pointer
 	mov %gs:FOFFSET_farch_per_cpu_data_current_uthread_data, %r11
+	// now load it with the register context
+	mov FOFFSET_futhread_data_saved_syscall_context(%r11), %r11
 
 	//
 	// save the context
 	//
-	mov %rax, FOFFSET_futhread_data_rax(%r11)
+	mov %rax, FOFFSET_fthread_saved_context_rax(%r11)
 	// rcx is clobbered by syscalls
-	mov %rdx, FOFFSET_futhread_data_rdx(%r11)
-	mov %rbx, FOFFSET_futhread_data_rbx(%r11)
-	mov %rsi, FOFFSET_futhread_data_rsi(%r11)
-	mov %rdi, FOFFSET_futhread_data_rdi(%r11)
-	mov %rsp, FOFFSET_futhread_data_rsp(%r11)
-	mov %rbp, FOFFSET_futhread_data_rbp(%r11)
-	mov  %r8,  FOFFSET_futhread_data_r8(%r11)
-	mov  %r9,  FOFFSET_futhread_data_r9(%r11)
-	mov %r10, FOFFSET_futhread_data_r10(%r11)
+	mov %rdx, FOFFSET_fthread_saved_context_rdx(%r11)
+	mov %rbx, FOFFSET_fthread_saved_context_rbx(%r11)
+	mov %rsi, FOFFSET_fthread_saved_context_rsi(%r11)
+	mov %rdi, FOFFSET_fthread_saved_context_rdi(%r11)
+	mov %rsp, FOFFSET_fthread_saved_context_rsp(%r11)
+	mov %rbp, FOFFSET_fthread_saved_context_rbp(%r11)
+	mov  %r8,  FOFFSET_fthread_saved_context_r8(%r11)
+	mov  %r9,  FOFFSET_fthread_saved_context_r9(%r11)
+	mov %r10, FOFFSET_fthread_saved_context_r10(%r11)
 	// r11 is clobbered by syscalls
-	mov %r12, FOFFSET_futhread_data_r12(%r11)
-	mov %r13, FOFFSET_futhread_data_r13(%r11)
-	mov %r14, FOFFSET_futhread_data_r14(%r11)
-	mov %r15, FOFFSET_futhread_data_r15(%r11)
+	mov %r12, FOFFSET_fthread_saved_context_r12(%r11)
+	mov %r13, FOFFSET_fthread_saved_context_r13(%r11)
+	mov %r14, FOFFSET_fthread_saved_context_r14(%r11)
+	mov %r15, FOFFSET_fthread_saved_context_r15(%r11)
 
 	// save the rip
-	mov %rcx, FOFFSET_futhread_data_rip(%r11)
+	mov %rcx, FOFFSET_fthread_saved_context_rip(%r11)
 
 	// store the temporarily saved rflags
 	// (using rcx as a scratch register)
 	mov %gs:FOFFSET_farch_per_cpu_data_temporary_rflags, %rcx
-	movq %rcx, FOFFSET_futhread_data_rflags(%r11)
+	movq %rcx, FOFFSET_fthread_saved_context_rflags(%r11)
 	xor %rcx, %rcx
+
+	//
+	// save the XSAVE state
+	//
+
+	// load the XSAVE area address into a temporary register
+	lea FOFFSET_fthread_saved_context_xsave_area(%r11), %r12
+
+	// load the XSAVE feature mask
+	movq %gs:FOFFSET_farch_per_cpu_data_xsave_features, %rdx
+	mov %edx, %eax
+	shr $32, %rdx
+
+	// now perform XSAVE
+	xsave64 (%r12)
 
 	// zero-out general-purpose registers
 	// (note that here we use a 32-bit register clear trick for maximum efficiency)
@@ -158,32 +198,49 @@ _farch_uthread_syscall_handler_wrapper:
 
 	// load r11 with the uthread data pointer
 	mov %gs:FOFFSET_farch_per_cpu_data_current_uthread_data, %r11
+	// now load it with the register context
+	mov FOFFSET_futhread_data_saved_syscall_context(%r11), %r11
+
+	//
+	// restore the XSAVE state
+	//
+
+	// load the XSAVE area address into a temporary register
+	lea FOFFSET_fthread_saved_context_xsave_area(%r11), %r12
+
+	// load the XSAVE feature mask
+	movq %gs:FOFFSET_farch_per_cpu_data_xsave_features, %rdx
+	mov %edx, %eax
+	shr $32, %rdx
+
+	// now perform XRSTOR
+	xrstor64 (%r12)
 
 	//
 	// load the context
 	//
-	mov FOFFSET_futhread_data_rax(%r11), %rax
+	mov FOFFSET_fthread_saved_context_rax(%r11), %rax
 	// rcx is clobbered by syscalls
-	mov FOFFSET_futhread_data_rdx(%r11), %rdx
-	mov FOFFSET_futhread_data_rbx(%r11), %rbx
-	mov FOFFSET_futhread_data_rsi(%r11), %rsi
-	mov FOFFSET_futhread_data_rdi(%r11), %rdi
-	mov FOFFSET_futhread_data_rsp(%r11), %rsp
-	mov FOFFSET_futhread_data_rbp(%r11), %rbp
-	mov  FOFFSET_futhread_data_r8(%r11),  %r8
-	mov  FOFFSET_futhread_data_r9(%r11),  %r9
-	mov FOFFSET_futhread_data_r10(%r11), %r10
+	mov FOFFSET_fthread_saved_context_rdx(%r11), %rdx
+	mov FOFFSET_fthread_saved_context_rbx(%r11), %rbx
+	mov FOFFSET_fthread_saved_context_rsi(%r11), %rsi
+	mov FOFFSET_fthread_saved_context_rdi(%r11), %rdi
+	mov FOFFSET_fthread_saved_context_rsp(%r11), %rsp
+	mov FOFFSET_fthread_saved_context_rbp(%r11), %rbp
+	mov  FOFFSET_fthread_saved_context_r8(%r11),  %r8
+	mov  FOFFSET_fthread_saved_context_r9(%r11),  %r9
+	mov FOFFSET_fthread_saved_context_r10(%r11), %r10
 	// r11 is clobbered by syscalls
-	mov FOFFSET_futhread_data_r12(%r11), %r12
-	mov FOFFSET_futhread_data_r13(%r11), %r13
-	mov FOFFSET_futhread_data_r14(%r11), %r14
-	mov FOFFSET_futhread_data_r15(%r11), %r15
+	mov FOFFSET_fthread_saved_context_r12(%r11), %r12
+	mov FOFFSET_fthread_saved_context_r13(%r11), %r13
+	mov FOFFSET_fthread_saved_context_r14(%r11), %r14
+	mov FOFFSET_fthread_saved_context_r15(%r11), %r15
 
 	// load the rip into rcx
-	mov FOFFSET_futhread_data_rip(%r11), %rcx
+	mov FOFFSET_fthread_saved_context_rip(%r11), %rcx
 
 	// load the rflags into r11
-	mov FOFFSET_futhread_data_rflags(%r11), %r11
+	mov FOFFSET_fthread_saved_context_rflags(%r11), %r11
 
 	// finally, let's swap out the gs with the user one...
 	swapgs

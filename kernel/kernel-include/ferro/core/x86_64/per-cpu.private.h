@@ -123,6 +123,22 @@ FERRO_STRUCT(farch_per_cpu_data) {
 	 * Owner: paging subsystem.
 	 */
 	fpage_space_t* address_space;
+
+	/**
+	 * The size (in bytes) of the XSAVE area used for saving and restoring floating-point register state.
+	 *
+	 * Owner: interrupts subsystem.
+	 * Also read by: scheduler subsystem.
+	 */
+	uint64_t xsave_area_size;
+
+	/**
+	 * The currently enabled XSAVE features mask.
+	 *
+	 * Owner: interrupts subsystem.
+	 * Also read by: scheduler subsystem.
+	 */
+	uint32_t xsave_features;
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void);
