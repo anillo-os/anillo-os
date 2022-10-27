@@ -28,6 +28,8 @@ LIBC_DECLARATIONS_BEGIN;
 void* memset(void* pointer, int value, size_t count);
 char* strncpy(char* restrict destination, const char* restrict source, size_t count);
 char* strcpy(char* restrict destination, const char* restrict source);
+void* memcpy(void* restrict destination, const void* restrict source, size_t count);
+void* memmove(void* destination, const void* source, size_t count);
 
 LIBC_DECLARATIONS_END;
 
