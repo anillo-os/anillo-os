@@ -16,6 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <gen/ferro/userspace/syscall-index.h>
+#include <ferro/asm/x86_64/helpers.hS>
+
 .text
 .global ___sys_thread_entry
 ___sys_thread_entry:
@@ -62,4 +65,37 @@ ___sys_thread_entry:
 
 	// this should not return
 	call ___sys_thread_exit_self
+	ud2
+
+.global ___sys_thread_die
+___sys_thread_die:
+	// rdi = thread id
+	// rsi = stack pointer to free (maybe null)
+
+	// save the thread id to r12 and the stack pointer to free to r13
+	mov %rdi, %r12
+	mov %rsi, %r13
+
+	// check if we have anything to free
+	test %r13, %r13
+	// if not, go ahead and die
+	jz 0f
+
+	// syscall number in rax
+	mov MAKE_IMMEDIATE(FERRO_SYSCALL_page_free), %rax
+	// set argument 0 to the address to free
+	mov %r13, %rdi
+	// make the syscall
+	syscall
+
+	// now die
+0:
+	// syscall number in rax
+	mov MAKE_IMMEDIATE(FERRO_SYSCALL_thread_kill), %rax
+	// set argument 0 to the thread id to kill
+	mov %r12, %rdi
+	// make the syscall
+	syscall
+
+	// should never get here
 	ud2

@@ -24,6 +24,7 @@
 
 #include <libsys/base.h>
 #include <libsys/objects.h>
+#include <libsys/timeout.h>
 
 #include <ferro/error.h>
 
@@ -36,11 +37,6 @@ typedef void (*sys_thread_entry_f)(void* context, sys_thread_t* self);
 
 #define SYS_THREAD_ID_INVALID UINT64_MAX
 
-LIBSYS_ENUM(uint8_t, sys_thread_timeout_type) {
-	sys_thread_timeout_type_relative_ns_monotonic,
-	sys_thread_timeout_type_absolute_ns_monotonic,
-};
-
 LIBSYS_OPTIONS(uint64_t, sys_thread_flags) {
 	/**
 	 * Immediately start the thread running upon successful creation.
@@ -52,6 +48,8 @@ LIBSYS_OPTIONS(uint64_t, sys_thread_flags) {
  * Creates a new thread with the given stack and entry point.
  *
  * @param stack      The base (i.e. lowest address) of the stack for the new thread.
+ *                   If this is `NULL`, a stack with a size of @p stack_size is automatically allocated
+ *                   by this function and freed upon thread death.
  * @param stack_size The size of the thread's stack, in bytes.
  * @param entry      The function to start the thread with.
  * @param context    An optional context argument for the thread entry function.
@@ -78,7 +76,7 @@ LIBSYS_OPTIONS(uint64_t, sys_thread_flags) {
 LIBSYS_WUR ferr_t sys_thread_create(void* stack, size_t stack_size, sys_thread_entry_f entry, void* context, sys_thread_flags_t flags, sys_thread_t** out_thread);
 LIBSYS_WUR ferr_t sys_thread_resume(sys_thread_t* thread);
 LIBSYS_WUR ferr_t sys_thread_suspend(sys_thread_t* thread);
-LIBSYS_WUR ferr_t sys_thread_suspend_timeout(sys_thread_t* thread, uint64_t timeout, sys_thread_timeout_type_t timeout_type);
+LIBSYS_WUR ferr_t sys_thread_suspend_timeout(sys_thread_t* thread, uint64_t timeout, sys_timeout_type_t timeout_type);
 sys_thread_t* sys_thread_current(void);
 
 sys_thread_id_t sys_thread_id(sys_thread_t* thread);

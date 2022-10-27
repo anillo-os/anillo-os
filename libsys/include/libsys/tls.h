@@ -16,17 +16,27 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <libsys/threads.private.h>
-#include <gen/libsyscall/syscall-wrappers.h>
-#include <libsys/abort.h>
+#ifndef _LIBSYS_TLS_H_
+#define _LIBSYS_TLS_H_
 
-void __sys_thread_setup(sys_thread_object_t* thread) {
-	sys_abort_status(libsyscall_wrapper_thread_set_tpidr(&thread->tls[0]));
-	__sys_thread_setup_common();
-};
+#include <stdint.h>
 
-sys_thread_t* sys_thread_current(void) {
-	void** tls;
-	__asm__ volatile("mrs %0, tpidr_el0" : "=r" (tls));
-	return tls[sys_thread_tls_key_self];
-};
+#include <libsys/base.h>
+
+#include <ferro/error.h>
+
+LIBSYS_DECLARATIONS_BEGIN;
+
+typedef uint64_t sys_tls_key_t;
+typedef uintptr_t sys_tls_value_t;
+
+typedef void (*sys_tls_destructor_f)(sys_tls_value_t value);
+
+LIBSYS_WUR ferr_t sys_tls_key_create(sys_tls_destructor_f destructor, sys_tls_key_t* out_key);
+LIBSYS_WUR ferr_t sys_tls_get(sys_tls_key_t key, sys_tls_value_t* out_value);
+LIBSYS_WUR ferr_t sys_tls_set(sys_tls_key_t key, sys_tls_value_t value);
+LIBSYS_WUR ferr_t sys_tls_unset(sys_tls_key_t key);
+
+LIBSYS_DECLARATIONS_END;
+
+#endif // _LIBSYS_TLS_H_
