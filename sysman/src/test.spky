@@ -1,0 +1,7 @@
+@interface = sysman_test
+@server = "org.anillo.sysman.test"
+@realm = global
+
+function sysman_test_add(a: in u64, b: in u64, result: out u64)
+function sysman_test_hello(name: in data, greeting: out data)
+function sysman_test_calculate(client_id: in u64, callback: in function(number: in u64, result: out f64), result: out f64)

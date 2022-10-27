@@ -17,50 +17,49 @@
  */
 
 #include <libsys/libsys.h>
+#include <libeve/libeve.h>
 
-static void secondary_thread_entry(void* context, sys_thread_t* this_thread) {
-	sys_console_log("secondary thread entering...\n");
+#define SYNC_LOG 1
 
-	sys_console_log("secondary thread sleeping for 5 seconds...\n");
-	sys_abort_status(sys_thread_suspend_timeout(this_thread, 5ULL * 1000000000ULL, sys_thread_timeout_type_relative_ns_monotonic));
-	sys_console_log("secondary thread exiting...\n");
+static sys_mutex_t console_mutex = SYS_MUTEX_INIT;
+
+__attribute__((format(printf, 1, 2)))
+static void sysman_log_f(const char* format, ...) {
+	va_list args;
+
+#if SYNC_LOG
+	sys_mutex_lock(&console_mutex);
+#endif
+
+	va_start(args, format);
+	sys_console_log_fv(format, args);
+	va_end(args);
+
+#if SYNC_LOG
+	sys_mutex_unlock(&console_mutex);
+#endif
+};
+
+static void start_process(const char* filename) {
+	sys_proc_t* proc = NULL;
+	sys_file_t* file = NULL;
+
+	sys_abort_status_log(sys_file_open(filename, &file));
+
+	sysman_log_f("starting %s...\n", filename);
+	sys_abort_status_log(sys_proc_create(file, NULL, 0, sys_proc_flag_resume | sys_proc_flag_detach, &proc));
+	sysman_log_f("%s started with PID = %llu\n", filename, sys_proc_id(proc));
+
+	sys_release(file);
+	file = NULL;
+
+	sys_release(proc);
+	proc = NULL;
 };
 
 void main(void) {
-	sys_thread_t* thread = NULL;
-	void* stack = NULL;
-	volatile bool foo = false;
-	sys_proc_t* tinysh_proc = NULL;
-	sys_file_t* tinysh_file = NULL;
+	start_process("/sys/netman/netman");
+	start_process("/sys/usbman/usbman");
 
-	sys_console_log("*** sysman starting up... ***\n");
-
-#if 0
-	sys_abort_status(sys_page_allocate(sys_config_read_minimum_stack_size() / sys_config_read_page_size(), 0, &stack));
-	sys_console_log_f("allocated stack at %p\n", stack);
-
-	sys_abort_status(sys_thread_create(stack, sys_config_read_minimum_stack_size(), secondary_thread_entry, NULL, sys_thread_flag_resume, &thread));
-	sys_console_log("created and started secondary thread\n");
-
-	sys_console_log("waiting for secondary thread to die...\n");
-	sys_abort_status(sys_thread_wait(thread));
-	sys_console_log("secondary thread died\n");
-
-	sys_release(thread);
-	thread = NULL;
-#endif
-
-	sys_abort_status(sys_file_open("/sys/sysman/tinysh", &tinysh_file));
-
-	sys_console_log("starting tinysh...\n");
-	sys_abort_status(sys_proc_create(tinysh_file, NULL, 0, sys_proc_flag_resume | sys_proc_flag_detach, &tinysh_proc));
-	sys_console_log_f("tinysh started with PID = %llu\n", sys_proc_id(tinysh_proc));
-
-	sys_release(tinysh_file);
-	tinysh_file = NULL;
-
-	sys_release(tinysh_proc);
-	tinysh_proc = NULL;
-
-	sys_exit(0);
+	eve_loop_run(eve_loop_get_main());
 };

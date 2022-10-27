@@ -11,9 +11,15 @@ add_anillo_executable(sysman
 		src/sysman.c
 )
 
+target_include_directories(sysman PRIVATE
+	"${CMAKE_CURRENT_BINARY_DIR}"
+)
+
 target_link_libraries(sysman PUBLIC
 	libc
 	libsys
+	libsimple
+	libeve
 )
 
 add_anillo_executable(tinysh
@@ -26,4 +32,6 @@ add_anillo_executable(tinysh
 target_link_libraries(tinysh PUBLIC
 	libc
 	libsys
+	libsimple
+	libeve
 )
