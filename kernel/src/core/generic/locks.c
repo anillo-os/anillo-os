@@ -256,7 +256,171 @@ void flock_mutex_unlock(flock_mutex_t* mutex) {
 		mutex->owner = UINT64_MAX;
 	}
 
+	fwaitq_wake_many_locked(&mutex->waitq, 1);
+
 	fwaitq_unlock(&mutex->waitq);
 };
 
 // TODO: when a thread is holding a mutex, it should know this so that the mutex can be unlocked if the thread dies.
+
+// FIXME: this RW lock can certainly be optimized (a lot)
+
+// TODO: test this RW lock implementation!
+
+FERRO_ENUM(uint64_t, flock_rw_state_bits) {
+	flock_rw_state_bit_locked_write    = 1ull << 63,
+	flock_rw_state_bit_writers_waiting = 1ull << 62,
+	flock_rw_state_mask_read_count     = ~(0ull) >> 2,
+};
+
+void flock_rw_init(flock_rw_t* rw) {
+	rw->state = 0;
+	fwaitq_init(&rw->read_waitq);
+	fwaitq_init(&rw->write_waitq);
+};
+
+static void flock_rw_interrupt_wakeup(void* data) {
+	volatile bool* keep_looping = data;
+	*keep_looping = false;
+};
+
+// needs both waitq locks to be held; returns with them dropped
+static void flock_rw_wait(flock_rw_t* rw, bool writing) {
+	// TODO: warn if we're going to block while in an interrupt context.
+	//       that should definitely not be happening.
+	fwaitq_t* waitq = writing ? &rw->write_waitq : &rw->read_waitq;
+	fwaitq_t* other_waitq = writing ? &rw->read_waitq : &rw->write_waitq;
+
+	fwaitq_unlock(other_waitq);
+
+	if (fint_is_interrupt_context()) {
+		fwaitq_waiter_t waiter;
+		volatile bool keep_looping = true;
+
+		fwaitq_waiter_init(&waiter, flock_rw_interrupt_wakeup, (void*)&keep_looping);
+
+		fwaitq_add_locked(waitq, &waiter);
+		fwaitq_unlock(waitq);
+
+		while (keep_looping) {
+			fentry_idle();
+		}
+	} else {
+		FERRO_WUR_IGNORE(fthread_wait_locked(fthread_current(), waitq));
+	}
+};
+
+void flock_rw_lock_read(flock_rw_t* rw) {
+	while (true) {
+		fwaitq_lock(&rw->read_waitq);
+		fwaitq_lock(&rw->write_waitq);
+
+		if ((rw->state & flock_rw_state_bit_locked_write) == 0) {
+			// slow path; we have to wait for the writer to finish
+			flock_rw_wait(rw, false);
+			continue;
+		}
+
+		rw->state = (rw->state & ~flock_rw_state_mask_read_count) | ((rw->state + 1) & flock_rw_state_mask_read_count);
+
+		fwaitq_unlock(&rw->write_waitq);
+		fwaitq_unlock(&rw->read_waitq);
+		break;
+	}
+};
+
+ferr_t flock_rw_try_lock_read(flock_rw_t* rw) {
+	ferr_t result = ferr_ok;
+
+	fwaitq_lock(&rw->read_waitq);
+	fwaitq_lock(&rw->write_waitq);
+
+	if ((rw->state & flock_rw_state_bit_locked_write) == 0) {
+		// we would have to wait for the writer to finish
+		result = ferr_temporary_outage;
+	} else {
+		rw->state = (rw->state & ~flock_rw_state_mask_read_count) | ((rw->state + 1) & flock_rw_state_mask_read_count);
+	}
+
+	fwaitq_unlock(&rw->write_waitq);
+	fwaitq_unlock(&rw->read_waitq);
+
+	return result;
+};
+
+void flock_rw_lock_write(flock_rw_t* rw) {
+	bool waited = false;
+
+	while (true) {
+		fwaitq_lock(&rw->read_waitq);
+		fwaitq_lock(&rw->write_waitq);
+
+		// for us to write, the state must be 0 or `flock_rw_state_bit_writers_waiting` (if we've already waited), because:
+		//   * flock_rw_state_bit_locked_write indicates someone is currently writing, so we would have to wait.
+		//   * flock_rw_state_bit_writers_waiting indicates someone is waiting to write, so we would have to wait (unless we were just woken up after waiting).
+		//   * flock_rw_state_mask_read_count being greater than 0 indicates at least one person is currently reading, so we would have to wait.
+		if (!(
+			rw->state == 0 ||
+			(waited && rw->state == flock_rw_state_bit_writers_waiting)
+		)) {
+			// slow path; we have to wait for the writer or readers to finish
+			rw->state |= flock_rw_state_bit_writers_waiting;
+			flock_rw_wait(rw, false);
+			waited = true;
+			continue;
+		}
+
+		rw->state |= flock_rw_state_bit_locked_write;
+
+		if (fwaitq_empty_locked(&rw->write_waitq)) {
+			rw->state &= ~flock_rw_state_bit_writers_waiting;
+		}
+
+		fwaitq_unlock(&rw->write_waitq);
+		fwaitq_unlock(&rw->read_waitq);
+		break;
+	}
+};
+
+ferr_t flock_rw_try_lock_write(flock_rw_t* rw) {
+	ferr_t result = ferr_ok;
+
+	fwaitq_lock(&rw->read_waitq);
+	fwaitq_lock(&rw->write_waitq);
+
+	if (rw->state != 0) {
+		// we would have to wait for the writer or readers to finish
+		result = ferr_temporary_outage;
+	} else {
+		rw->state |= flock_rw_state_bit_locked_write;
+
+		if (fwaitq_empty_locked(&rw->write_waitq)) {
+			rw->state &= ~flock_rw_state_bit_writers_waiting;
+		}
+	}
+
+	fwaitq_unlock(&rw->write_waitq);
+	fwaitq_unlock(&rw->read_waitq);
+
+	return result;
+};
+
+void flock_rw_unlock(flock_rw_t* rw) {
+	fwaitq_lock(&rw->read_waitq);
+	fwaitq_lock(&rw->write_waitq);
+
+	if ((rw->state & flock_rw_state_bit_locked_write) != 0) {
+		rw->state &= ~flock_rw_state_bit_locked_write;
+	} else {
+		rw->state = (rw->state & ~flock_rw_state_mask_read_count) | ((rw->state - 1) & flock_rw_state_mask_read_count);
+	}
+
+	if ((rw->state & flock_rw_state_mask_read_count) == 0 && (rw->state & flock_rw_state_bit_writers_waiting) != 0) {
+		fwaitq_wake_many_locked(&rw->write_waitq, 1);
+	} else {
+		fwaitq_wake_many_locked(&rw->read_waitq, SIZE_MAX);
+	}
+
+	fwaitq_unlock(&rw->write_waitq);
+	fwaitq_unlock(&rw->read_waitq);
+};

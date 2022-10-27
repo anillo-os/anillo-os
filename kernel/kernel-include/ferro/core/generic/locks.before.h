@@ -50,7 +50,7 @@ FERRO_STRUCT(flock_semaphore) {
 	fwaitq_t waitq;
 };
 
-/*
+/**
  * A general-purpose mutex.
  *
  * @note Like semaphores, mutexes *can* be used in both thread and interrupt contexts, but it is recommended NOT to use them in interrupt contexts because interrupt contexts run with interrupts disabled by default (unless explicitly re-enabled by the interrupt handler).
@@ -64,10 +64,28 @@ FERRO_STRUCT(flock_mutex) {
 	fwaitq_t waitq;
 };
 
-/*
+/**
  * A value that can be used to statically initialize an ::flock_mutex at compile-time.
  */
 #define FLOCK_MUTEX_INIT { .owner = UINT64_MAX }
+
+/**
+ * A general-purpose readers-writers lock.
+ *
+ * This implementation of a readers-writers lock favors writers.
+ *
+ * @note Like semaphores and mutexes, RW locks *can* be used in both thread and interrupt contexts, but it is recommended NOT to use them in interrupt contexts.
+ */
+FERRO_STRUCT(flock_rw) {
+	uint64_t state;
+	fwaitq_t read_waitq;
+	fwaitq_t write_waitq;
+};
+
+/**
+ * A value that can be used to statically initialize an ::flock_rw at compile-time.
+ */
+#define FLOCK_RW_INIT {0}
 
 /**
  * @}

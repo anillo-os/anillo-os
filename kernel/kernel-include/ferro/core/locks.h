@@ -122,9 +122,9 @@ FERRO_WUR ferr_t flock_semaphore_try_down(flock_semaphore_t* semaphore);
 //#define FLOCK_MUTEX_INIT <something>
 
 /**
- * Initializes an ::flock_semaphore at runtime.
+ * Initializes an ::flock_mutex at runtime.
  *
- * @param initial_count The initial up-count to assign to the semaphore.
+ * @param mutex The mutex to initialize.
  */
 void flock_mutex_init(flock_mutex_t* mutex);
 
@@ -157,6 +157,59 @@ FERRO_WUR ferr_t flock_mutex_try_lock(flock_mutex_t* mutex);
  * @note Mutexes must only be unlocked by the thread that locked them. It is an error for anyone else to unlock it.
  */
 void flock_mutex_unlock(flock_mutex_t* mutex);
+
+/*
+ * A value that can be used to statically initialize an ::flock_rw at compile-time.
+ */
+//#define FLOCK_RWLOCK_INIT <something>
+
+/**
+ * Initializes an ::flock_rw at runtime.
+ *
+ * @param rw The RW lock to initialize.
+ */
+void flock_rw_init(flock_rw_t* rw);
+
+/**
+ * Locks the given RW lock for reading.
+ *
+ * @param rw The RW lock to operate on.
+ */
+void flock_rw_lock_read(flock_rw_t* rw);
+
+/**
+ * Tries to lock the given RW lock for reading.
+ *
+ * @param rw The RW lock to operate on.
+ *
+ * @retval ferr_ok               The RW lock was successfully locked for reading.
+ * @retval ferr_temporary_outage The RW lock was already for writing; locking it for reading would require blocking.
+ */
+FERRO_WUR ferr_t flock_rw_try_lock_read(flock_rw_t* rw);
+
+/**
+ * Locks the given RW lock for writing.
+ *
+ * @param rw The RW lock to operate on.
+ */
+void flock_rw_lock_write(flock_rw_t* rw);
+
+/**
+ * Tries to lock the given RW lock for writing.
+ *
+ * @param rw The RW lock to operate on.
+ *
+ * @retval ferr_ok               The RW lock was successfully locked for writing.
+ * @retval ferr_temporary_outage The RW lock was already for reading or writing; locking it for writing would require blocking.
+ */
+FERRO_WUR ferr_t flock_rw_try_lock_write(flock_rw_t* rw);
+
+/**
+ * Unlocks the given RW lock.
+ *
+ * @param rw The RW lock to operate on.
+ */
+void flock_rw_unlock(flock_rw_t* rw);
 
 /**
  * @}
