@@ -21,11 +21,17 @@
 
 #include <libsys/libsys.h>
 
+#include <libsys/channels.private.h>
 #include <libsys/console.private.h>
+#include <libsys/counters.private.h>
 #include <libsys/general.private.h>
 #include <libsys/handoff.private.h>
 #include <libsys/locks.private.h>
+#include <libsys/monitors.private.h>
 #include <libsys/objects.private.h>
+#include <libsys/pages.private.h>
+#include <libsys/processes.private.h>
 #include <libsys/threads.private.h>
+#include <libsys/timeout.private.h>
 
 #endif // _LIBSYS_LIBSYS_PRIVATE_H_

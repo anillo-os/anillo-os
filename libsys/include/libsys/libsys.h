@@ -22,14 +22,17 @@
 #include <libsys/base.h>
 
 #include <libsys/abort.h>
+#include <libsys/channels.h>
 #include <libsys/config.h>
 #include <libsys/console.h>
+#include <libsys/counters.h>
 #include <libsys/files.h>
 #include <libsys/format.h>
 #include <libsys/general.h>
 #include <libsys/ghmap.h>
 #include <libsys/locks.h>
 #include <libsys/mempool.h>
+#include <libsys/monitors.h>
 #include <libsys/objects.h>
 #include <libsys/once.h>
 #include <libsys/pages.h>
@@ -37,5 +40,8 @@
 #include <libsys/processes.h>
 #include <libsys/streams.h>
 #include <libsys/threads.h>
+#include <libsys/timeout.h>
+#include <libsys/tls.h>
+#include <libsys/ucs.h>
 
 #endif // _LIBSYS_LIBSYS_H_
