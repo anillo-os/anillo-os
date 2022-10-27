@@ -305,7 +305,7 @@ static bool validate_header(macho_header_t* header) {
 		header->cpu_type != macho_cpu_type_x86_64 ||
 		header->cpu_subtype != macho_cpu_subtype_x86_64_all ||
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
-		header->cpu_subtype != macho_cpu_type_aarch64 ||
+		header->cpu_type != macho_cpu_type_aarch64 ||
 #endif
 		false
 	) {

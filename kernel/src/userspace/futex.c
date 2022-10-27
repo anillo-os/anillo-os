@@ -18,6 +18,15 @@
 
 #include <ferro/userspace/futex.h>
 
+#ifndef FUTEX_DEBUG
+	#define FUTEX_DEBUG 0
+#endif
+
+#if FUTEX_DEBUG
+	#include <ferro/core/waitq.private.h>
+	#include <ferro/core/panic.h>
+#endif
+
 FERRO_STRUCT(futex_table_key) {
 	uintptr_t address;
 	uint64_t channel;
@@ -58,8 +67,19 @@ out:
 	return status;
 };
 
+#if FUTEX_DEBUG
+static bool futex_table_destroy_check_iterator(void* context, simple_ghmap_t* map, simple_ghmap_hash_t hash, const void* key, size_t key_size, void* entry, size_t entry_size) {
+	fpanic("Futex table not empty at destruction");
+};
+#endif
+
 void futex_table_destroy(futex_table_t* table) {
 	flock_mutex_lock(&table->mutex);
+
+#if FUTEX_DEBUG
+	simple_ghmap_for_each(&table->table, futex_table_destroy_check_iterator, NULL);
+#endif
+
 	simple_ghmap_destroy(&table->table);
 	flock_mutex_unlock(&table->mutex);
 };
@@ -95,6 +115,7 @@ retry:
 				// TODO: optimize this by reinitializing it here and having futex_release() check for this
 				//       we're probably going to have to add a generation counter to do this safely.
 				flock_mutex_unlock(&table->mutex);
+
 				goto retry;
 			}
 		}
@@ -117,11 +138,17 @@ void futex_release(futex_t* futex) {
 		.address = futex->address,
 		.channel = futex->channel,
 	};
+	futex_table_t* table = futex->table;
 
-	// TODO: for debugging, we should check whether anyone is still waiting on the futex.
-	//       if they are, this is clearly an error, since every waiter should be holding a reference on the futex.
+#if FUTEX_DEBUG
+	fwaitq_lock(&futex->waitq);
+	if (!fwaitq_empty_locked(&futex->waitq)) {
+		fpanic("Futex waitq not empty at destruction");
+	}
+	fwaitq_unlock(&futex->waitq);
+#endif
 
-	flock_mutex_lock(&futex->table->mutex);
-	FERRO_WUR_IGNORE(simple_ghmap_clear(&futex->table->table, &key, sizeof(key)));
-	flock_mutex_unlock(&futex->table->mutex);
+	flock_mutex_lock(&table->mutex);
+	FERRO_WUR_IGNORE(simple_ghmap_clear(&table->table, &key, sizeof(key)));
+	flock_mutex_unlock(&table->mutex);
 };
