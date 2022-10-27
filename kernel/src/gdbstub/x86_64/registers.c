@@ -174,7 +174,7 @@ static ferr_t fgdb_registers_serialize_one_with_thread(fgdb_packet_buffer_t* pac
 	farch_int_frame_flat_registers_union_t* flat_frame = (void*)fint_current_frame();
 	bool use_frame = !thread || thread == fthread_current(); // TODO: this is wrong when we implement multicore support
 
-	#define SERIALIZE(_bits, _name) return fgdb_packet_buffer_serialize_u ## _bits(packet_buffer, (use_frame) ? (uint ## _bits ## _t)flat_frame->flat._name : (uint ## _bits ## _t)thread->saved_context._name, FERRO_ENDIANNESS == FERRO_ENDIANNESS_BIG)
+	#define SERIALIZE(_bits, _name) return fgdb_packet_buffer_serialize_u ## _bits(packet_buffer, (use_frame) ? (uint ## _bits ## _t)flat_frame->flat._name : (uint ## _bits ## _t)thread->saved_context->_name, FERRO_ENDIANNESS == FERRO_ENDIANNESS_BIG)
 	#define SERIALIZE_XXX(_bits) return fgdb_packet_buffer_append(packet_buffer, (const uint8_t*)U ## _bits ## _XXX, sizeof(U ## _bits ## _XXX) - 1)
 
 	switch (id) {
@@ -236,7 +236,7 @@ static ferr_t fgdb_registers_deserialize_one_with_thread(fgdb_packet_buffer_t* p
 				if (use_frame) { \
 					flat_frame->flat._name = _value; \
 				} else { \
-					thread->saved_context._name = _value; \
+					thread->saved_context->_name = _value; \
 				} \
 			} \
 			return ferr_ok; \
@@ -333,7 +333,7 @@ void fgdb_registers_set_single_step(fthread_t* thread) {
 	if (use_frame) {
 		flat_frame->flat.rflags |= 1ULL << 8;
 	} else {
-		thread->saved_context.rflags |= 1ULL << 8;
+		thread->saved_context->rflags |= 1ULL << 8;
 	}
 };
 
@@ -344,7 +344,7 @@ void fgdb_registers_clear_single_step(fthread_t* thread) {
 	if (use_frame) {
 		flat_frame->flat.rflags &= ~(1ULL << 8);\
 	} else {
-		thread->saved_context.rflags &= ~(1ULL << 8);
+		thread->saved_context->rflags &= ~(1ULL << 8);
 	}
 };
 
@@ -469,7 +469,7 @@ ferr_t fgdb_registers_watchpoint_clear(void* address) {
 		return ferr_no_such_resource;
 	}
 
-	dr7 &= ~(1ULL << (index * 2 + 1));
+	dr7 &= ~((1ULL << (index * 2 + 1)) | (3ULL << (index * 4 + 16)) | (3ULL << (index * 4 + 18)));
 
 	__asm__ volatile("mov %0, %%dr7" :: "r" (dr7));
 

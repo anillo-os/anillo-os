@@ -10,5 +10,4 @@ add_dependencies(ferro_gdbstub_aarch64
 
 target_link_libraries(ferro_gdbstub_aarch64 PRIVATE
 	libsimple_static_kernel
-	libsimple_static_compat
 )

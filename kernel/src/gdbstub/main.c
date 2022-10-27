@@ -386,7 +386,7 @@ static ferr_t deserialize_thread_id(fgdb_packet_buffer_t* packet_buffer, fthread
 		thread_id = FTHREAD_ID_INVALID;
 	} else {
 		const char* one_past_end = NULL;
-		status = simple_string_to_integer_unsigned((const char*)&packet_buffer->buffer[packet_buffer->offset], packet_buffer->length - packet_buffer->offset, &one_past_end, 0x10, &thread_id);
+		status = simple_string_to_integer_unsigned((const char*)&packet_buffer->buffer[packet_buffer->offset], packet_buffer->length - packet_buffer->offset, &one_past_end, 0x10, (uintmax_t*)&thread_id);
 		if (status == ferr_ok) {
 			packet_buffer->offset = one_past_end - (const char*)packet_buffer->buffer;
 			--thread_id;
