@@ -24,6 +24,8 @@ set(libsys_sources
 
 	src/${ANILLO_ARCH}/threads.S
 	src/${ANILLO_ARCH}/threads.c
+	src/${ANILLO_ARCH}/ucs.c
+	src/${ANILLO_ARCH}/ucs.S
 )
 
 set(libsys_libs
@@ -78,9 +80,19 @@ target_compile_options(libsys_static PRIVATE
 target_include_directories(libsys PUBLIC ${libsys_includes})
 target_include_directories(libsys_static PUBLIC ${libsys_includes})
 
+target_include_directories(libsys PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
+target_include_directories(libsys_static PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
+
 add_library(libsys_headers INTERFACE)
 target_include_directories(libsys_headers INTERFACE ${libsys_includes})
 target_link_libraries(libsys_headers INTERFACE
 	libsimple_headers
 	ferro_headers_uapi
 )
+
+get_target_property(LIBSYS_INCLUDE_DIRS libsys INCLUDE_DIRECTORIES)
+
+calculate_offsets_base(libsys_offsets resources/offsets.c include/libsys/gen/offsets.h libsys)
+
+add_dependencies(libsys libsys_offsets)
+add_dependencies(libsys_static libsys_offsets)
