@@ -46,6 +46,55 @@ typedef void (*fworker_f)(void* data);
 
 FERRO_STRUCT_FWD(fwork);
 
+FERRO_OPTIONS(uint8_t, fwork_flags) {
+	/**
+	 * Allows work to be scheduled to run again even while it is running.
+	 *
+	 * This makes it possible for workers to run spuriously, but it also eliminates the chances
+	 * of racing against a worker finishing up but still running.
+	 *
+	 * If this flag is set, fwork_schedule() and fwork_cancel() do not fail if the work is already running.
+	 */
+	fwork_flag_allow_reschedule = 1 << 0,
+
+	fwork_flag_xxx_repeated_reschedule_bit = 1 << 1,
+	fwork_flag_xxx_balanced_reschedule_bit = 1 << 2,
+
+	/**
+	 * Tracks how many times work has been rescheduled and reschedules it that many times.
+	 *
+	 * Normally, ::fwork_flag_allow_reschedule will only track a single reschedule.
+	 * This means that if you call fwork_schedule() twice while the work is running,
+	 * it will only be rescheduled to run once. Often, this is what you want;
+	 * your worker should check how much it has to process and take care of it in a single run.
+	 * However, sometimes you would like it to run as many times as you schedule it.
+	 *
+	 * One important distinction in behavior between plain ::fwork_flag_allow_reschedule and this flag
+	 * is that with a plain allow-reschedule, cancelling a reschedule once cancels it completely.
+	 * However, cancelling with this flag is balanced with the number of times you've rescheduled the work.
+	 *
+	 * Continuing the earlier example, if you've rescheduled it twice but then cancelled it once,
+	 * the reschedule is cancelled. However, with this flag, you must cancel the work as many times
+	 * as you've rescheduled it, so you would have to cancel it twice in the example.
+	 *
+	 * Implies ::fwork_flag_allow_reschedule.
+	 */
+	fwork_flag_repeated_reschedule = fwork_flag_xxx_repeated_reschedule_bit | fwork_flag_allow_reschedule,
+
+	/**
+	 * Allows you to balance reschedules with cancellations but only run the rescheduled work once.
+	 *
+	 * This flag is similar to ::fwork_flag_repeated_reschedule in that it tracks how many times you've
+	 * rescheduled work and requires you to cancel it the same number of times in order to properly cancel a reschedule.
+	 *
+	 * The difference lies in the fact that, once the work finishes running and will actually be rescheduled,
+	 * it is only scheduled once. After it has been scheduled once, the reschedule counter resets to 0.
+	 *
+	 * Implies ::fwork_flag_allow_reschedule.
+	 */
+	fwork_flag_balanced_reschedule = fwork_flag_xxx_balanced_reschedule_bit | fwork_flag_allow_reschedule,
+};
+
 /**
  * Initializes the workers subsystem.
  */
@@ -69,7 +118,7 @@ void fworkers_init(void);
  * @retval ferr_invalid_argument One or more of: 1) the worker function was `NULL`, 2) @p out_work was `NULL`.
  * @retval ferr_temporary_outage There were insufficient resources to create a new work instance.
  */
-FERRO_WUR ferr_t fwork_new(fworker_f worker_function, void* data, fwork_t** out_worker);
+FERRO_WUR ferr_t fwork_new(fworker_f worker_function, void* data, fwork_flags_t flags, fwork_t** out_worker);
 
 /**
  * Tries to retain the given work instance.

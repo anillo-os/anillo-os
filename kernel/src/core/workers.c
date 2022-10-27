@@ -61,6 +61,7 @@ FERRO_STRUCT(fwork) {
 	frefcount_t reference_count;
 	fworker_f function;
 	void* data;
+	fwork_flags_t flags;
 
 	/**
 	 * Waitq that can be used to wait for the work to complete.
@@ -75,6 +76,8 @@ FERRO_STRUCT(fwork) {
 	fwork_state_t state;
 
 	ftimers_id_t timer_id;
+
+	size_t reschedule_count;
 };
 
 FERRO_STRUCT(fwork_queue) {
@@ -201,6 +204,10 @@ static void fwork_queue_complete_reservation_locked(fwork_queue_t* queue, fwork_
 	work->next = NULL;
 	work->queue = queue;
 
+	if (work->prev) {
+		work->prev->next = work;
+	}
+
 	if (!queue->head) {
 		queue->head = work;
 	}
@@ -222,7 +229,7 @@ static void fwork_queue_cancel_reservation_locked(fwork_queue_t* queue, fwork_t*
 	--queue->length;
 };
 
-ferr_t fwork_new(fworker_f worker_function, void* data, fwork_t** out_worker) {
+ferr_t fwork_new(fworker_f worker_function, void* data, fwork_flags_t flags, fwork_t** out_worker) {
 	fwork_t* work = NULL;
 
 	if (!worker_function || !out_worker) {
@@ -241,6 +248,8 @@ ferr_t fwork_new(fworker_f worker_function, void* data, fwork_t** out_worker) {
 	work->state = fwork_state_complete;
 	work->timer_id = FTIMERS_ID_INVALID;
 	fwaitq_init(&work->waitq);
+	work->flags = flags;
+	work->reschedule_count = 0;
 
 	*out_worker = work;
 
@@ -373,6 +382,14 @@ ferr_t fwork_schedule(fwork_t* work, uint64_t delay) {
 
 	fwaitq_lock(&work->waitq);
 
+	if ((work->state == fwork_state_running || work->state == fwork_state_pending) && (work->flags & fwork_flag_allow_reschedule) != 0) {
+		if (work->reschedule_count == 0 || (work->flags & (fwork_flag_repeated_reschedule | fwork_flag_balanced_reschedule)) != 0) {
+			++work->reschedule_count;
+		}
+		fwaitq_unlock(&work->waitq);
+		return ferr_ok;
+	}
+
 	if (work->state != fwork_state_complete && work->state != fwork_state_cancelled) {
 		fwaitq_unlock(&work->waitq);
 		return ferr_invalid_argument;
@@ -412,7 +429,7 @@ ferr_t fwork_schedule_new(fworker_f worker_function, void* data, uint64_t delay,
 	fwork_t* work = NULL;
 	ferr_t status = ferr_ok;
 
-	status = fwork_new(worker_function, data, &work);
+	status = fwork_new(worker_function, data, 0, &work);
 	if (status != ferr_ok) {
 		return status;
 	}
@@ -445,8 +462,12 @@ ferr_t fwork_cancel(fwork_t* work) {
 	fwaitq_lock(&work->waitq);
 
 	if (work->state != fwork_state_pending) {
+		bool reschedule_cancelled = work->reschedule_count > 0;
+		if (work->reschedule_count > 0) {
+			--work->reschedule_count;
+		}
 		fwaitq_unlock(&work->waitq);
-		return ferr_already_in_progress;
+		return reschedule_cancelled ? ferr_ok : ferr_already_in_progress;
 	}
 
 	work->state = fwork_state_cancelled;
@@ -456,14 +477,16 @@ ferr_t fwork_cancel(fwork_t* work) {
 	if (work->timer_id == FTIMERS_ID_INVALID) {
 		fwork_queue_remove(work->queue, work);
 	} else {
+		fwork_queue_t* queue = work->queue;
+
 		// cancel the timer
 		FERRO_WUR_IGNORE(ftimers_cancel(work->timer_id));
 		work->timer_id = FTIMERS_ID_INVALID;
 
 		// and cancel the reservation
-		fwork_queue_lock(work->queue);
-		fwork_queue_cancel_reservation_locked(work->queue, work);
-		fwork_queue_unlock(work->queue);
+		fwork_queue_lock(queue);
+		fwork_queue_cancel_reservation_locked(queue, work);
+		fwork_queue_unlock(queue);
 	}
 
 	fwork_release(work);
@@ -565,7 +588,10 @@ static void worker_thread_runner(void* data) {
 		// wake everyone up
 		fwaitq_wake_many_locked(&work->waitq, SIZE_MAX);
 
-		// and unlock the waitq; there should be no one left waiting
+		if (work->reschedule_count > 0) {
+			fpanic("TODO: implement work rescheduling");
+		}
+
 		fwaitq_unlock(&work->waitq);
 
 		// okay, we don't need the work instance anymore so we can release it
