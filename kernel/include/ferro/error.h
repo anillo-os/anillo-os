@@ -41,67 +41,90 @@ FERRO_ENUM(int, ferr) {
 	/**
 	 * No error; success.
 	 */
-	ferr_ok                  = 0,
+	ferr_ok                   = 0,
 
 	/**
 	 * An unknown error occurred.
 	 */
-	ferr_unknown             = -1,
+	ferr_unknown              = -1,
 
 	/**
 	 * One or more arguments provided were invalid.
 	 */
-	ferr_invalid_argument    = -2,
+	ferr_invalid_argument     = -2,
 
 	/**
 	 * The requested resource is temporarily unavailable.
 	 */
-	ferr_temporary_outage    = -3,
+	ferr_temporary_outage     = -3,
 
 	/**
 	 * The requested resource is permanently unavailable.
 	 */
-	ferr_permanent_outage    = -4,
+	ferr_permanent_outage     = -4,
 
 	/**
 	 * The requested action/service is unsupported.
 	 */
-	ferr_unsupported         = -5,
+	ferr_unsupported          = -5,
 
 	/**
 	 * The requested resource could not be found.
 	 */
-	ferr_no_such_resource    = -6,
+	ferr_no_such_resource     = -6,
 
 	/**
 	 * The requested action/service was already in progress.
 	 */
-	ferr_already_in_progress = -7,
+	ferr_already_in_progress  = -7,
 
 	/**
 	 * The operation was cancelled before it could be fully completed.
 	 */
-	ferr_cancelled           = -8,
+	ferr_cancelled            = -8,
 
 	/**
 	 * One or more of: 1) one of the input operands was too large to be processed, or 2) the result/output was too large to return.
 	 */
-	ferr_too_big             = -9,
+	ferr_too_big              = -9,
 
 	/**
 	 * Some data (whether input, output, or internal) failed a checksum.
 	 */
-	ferr_invalid_checksum    = -10,
+	ferr_invalid_checksum     = -10,
 
 	/**
-	 * The requested active/service/operation was not completed and should be restarted.
+	 * The requested action/service/operation was not completed and should be restarted.
 	 */
-	ferr_should_restart      = -11,
+	ferr_should_restart       = -11,
 
 	/**
 	 * The caller was not allowed to access the requested action/service/operation/resource.
 	 */
-	ferr_forbidden           = -12,
+	ferr_forbidden            = -12,
+
+	/**
+	 * One or more of: 1) one of the input operands was too small to be processed, or 2) the result/output was too small to return.
+	 */
+	ferr_too_small            = -13,
+
+	/**
+	 * The requested resource was unavailable.
+	 *
+	 * This is a sort of middleground between ::ferr_temporary_outage and ::ferr_permanent_outage.
+	 * The resource isn't permanently unavailable, but it's not likely to become available any time soon.
+	 */
+	ferr_resource_unavailable = -14,
+
+	/**
+	 * Completing the requested action/service/operation would require waiting but doing so has been disallowed.
+	 */
+	ferr_no_wait              = -15,
+
+	/**
+	 * A timeout was set for the given action/service/operation and it expired before the action/service/operation could be completed.
+	 */
+	ferr_timed_out            = -16,
 };
 
 static const char* ferr_names[] = {
@@ -118,6 +141,10 @@ static const char* ferr_names[] = {
 	"ferr_invalid_checksum",
 	"ferr_should_restart",
 	"ferr_forbidden",
+	"ferr_too_small",
+	"ferr_resource_unavailable",
+	"ferr_no_wait",
+	"ferr_timed_out",
 };
 
 static const char* ferr_descriptions[] = {
@@ -132,8 +159,12 @@ static const char* ferr_descriptions[] = {
 	"The operation was cancelled before it could be fully completed.",
 	"One or more of: 1) one of the input operands was too large to be processed, or 2) the result/output was too large to return.",
 	"Some data (whether input, output, or internal) failed a checksum.",
-	"The requested active/service/operation was not completed and should be restarted.",
+	"The requested action/service/operation was not completed and should be restarted.",
 	"The caller was not allowed to access the requested action/service/operation/resource.",
+	"One or more of: 1) one of the input operands was too small to be processed, or 2) the result/output was too small to return.",
+	"The requested resource was unavailable.",
+	"Completing the requested action/service/operation would require waiting but doing so has been disallowed.",
+	"A timeout was set for the given action/service/operation and it expired before the action/service/operation could be completed.",
 };
 
 FERRO_ALWAYS_INLINE const char* ferr_name(ferr_t error) {
