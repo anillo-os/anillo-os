@@ -63,7 +63,7 @@
 // when the minimum delta is multiplied by this coefficient, it must be greater than or equal to the maximum delta
 // if the maximum delta is still larger, then someone interrupted us (e.g. an SMI)
 // "where did this number come from," you ask? trial and error, basically.
-#define PIT_MIN_DELTA_COEFFICIENT 5000
+#define PIT_MIN_DELTA_COEFFICIENT 13000
 
 // maximum number of attemps to make to calibrate the TSC using the PIT
 // with current settings, this means we can try for at most 500ms before giving up
