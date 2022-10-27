@@ -161,6 +161,12 @@ FERRO_ALWAYS_INLINE fint_frame_t* fint_current_frame(void);
  */
 ferr_t fint_register_special_handler(uint8_t number, fint_special_handler_f handler, void* data);
 
+void fint_log_frame(const fint_frame_t* frame);
+
+void fint_trace_interrupted_stack(const fint_frame_t* frame);
+
+void fint_trace_current_stack(void);
+
 /**
  * @}
  */

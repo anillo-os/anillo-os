@@ -28,6 +28,7 @@
 #include <libsimple/libsimple.h>
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>
+#include <ferro/core/x86_64/xsave.h>
 
 #include <stdatomic.h>
 

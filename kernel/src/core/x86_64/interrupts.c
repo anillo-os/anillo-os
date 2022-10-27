@@ -32,10 +32,15 @@
 #include <libsimple/libsimple.h>
 #include <ferro/core/threads.private.h>
 #include <ferro/core/per-cpu.private.h>
+#include <ferro/core/x86_64/xsave.h>
 
 #include <stddef.h>
 
-#define IST_STACK_PAGE_COUNT 4
+#define IST_STACK_PAGE_COUNT FPAGE_LARGE_PAGE_COUNT
+
+#ifndef FINT_DEBUG_LOG_INTERRUPTS
+	#define FINT_DEBUG_LOG_INTERRUPTS 1
+#endif
 
 FERRO_PACKED_STRUCT(fint_tss) {
 	uint32_t reserved1;
@@ -73,6 +78,11 @@ FERRO_ENUM(uint8_t, fint_ist_index) {
 
 	// used for the double fault handler
 	fint_ist_index_double_fault,
+
+	// used for the debug handler
+	fint_ist_index_debug,
+
+	fint_ist_index_page_fault,
 };
 
 typedef void (*fint_isr_f)(fint_frame_t* frame);
@@ -200,6 +210,7 @@ FERRO_STRUCT(fint_handler_common_data) {
 
 FERRO_STRUCT(fint_handler_entry) {
 	farch_int_handler_f handler;
+	void* data;
 	flock_spin_intsafe_t lock;
 };
 
@@ -343,6 +354,20 @@ FERRO_OPTIONS(uint64_t, farch_int_page_fault_code_flags) {
 	                                      farch_int_page_fault_code_flag_user              |
 	                                      farch_int_page_fault_code_flag_reserved          |
 	                                      farch_int_page_fault_code_flag_instruction_fetch
+};
+
+void fint_log_frame(const fint_frame_t* frame) {
+	print_frame(frame);
+};
+
+void fint_trace_interrupted_stack(const fint_frame_t* frame) {
+	trace_stack((void*)frame->saved_registers.rbp);
+};
+
+void fint_trace_current_stack(void) {
+	uint64_t rbp;
+	__asm__ volatile("mov %%rbp, %0" : "=r" (rbp));
+	trace_stack((void*)rbp);
 };
 
 static void print_page_fault_code(uint64_t page_fault_code) {
@@ -505,7 +530,6 @@ INTERRUPT_HANDLER(page_fault) {
 	if (handler) {
 		handler(handler_data);
 	} else {
-#if 0
 		fconsole_logf("page fault; code=%llu; faulting address=%p; frame:\n", frame->code, (void*)faulting_address);
 		fconsole_log("page fault code description: ");
 		print_page_fault_code(frame->code);
@@ -513,7 +537,6 @@ INTERRUPT_HANDLER(page_fault) {
 		print_frame(frame);
 		trace_stack((void*)frame->saved_registers.rbp);
 		fpanic("page fault");
-#endif
 	}
 
 	fint_handler_common_end(&data, frame, true);
@@ -546,16 +569,33 @@ INTERRUPT_HANDLER(invalid_opcode) {
 	fint_handler_common_end(&data, frame, true);
 };
 
+INTERRUPT_HANDLER(simd_exception) {
+	fint_handler_common_data_t data;
+	uint64_t mxcsr = ((farch_xsave_area_legacy_t*)frame->xsave_area)->mxcsr;
+	farch_xsave_header_t* xsave_header = (void*)((char*)frame->xsave_area + 512);
+
+	fint_handler_common_begin(&data, frame, true);
+
+	fconsole_logf("simd exception with MXCSR=%llu, XSTATE_BV=%llu, XCOMP_BV=%llu; frame:\n", mxcsr, xsave_header->xstate_bv, xsave_header->xcomp_bv);
+	fint_log_frame(frame);
+	fint_trace_interrupted_stack(frame);
+	fpanic("simd exception");
+
+	fint_handler_common_end(&data, frame, true);
+};
+
 #define MISC_INTERRUPT_HANDLER(number) \
 	INTERRUPT_HANDLER(interrupt_ ## number) { \
 		fint_handler_common_data_t data; \
 		farch_int_handler_f handler = NULL; \
+		void* handler_data = NULL; \
 		fint_handler_common_begin(&data, frame, false); \
 		flock_spin_intsafe_lock(&handlers[number].lock); \
 		handler = handlers[number].handler; \
+		handler_data = handlers[number].data; \
 		flock_spin_intsafe_unlock(&handlers[number].lock); \
 		if (handler) { \
-			handler(frame); \
+			handler(handler_data, frame); \
 		} else { \
 			fpanic("Unhandled interrupt " #number); \
 		} \
@@ -812,7 +852,15 @@ jump_here_for_cs_reload:;
 	);
 };
 
-ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler) {
+// NOTE: there is no chance of deadlock by holding this lock while also holding an entry lock.
+//       interrupt handlers only take entry locks to read the handler data; invocation of the handlers
+//       occurs with no entry locks held. therefore, handlers are free to register other handlers
+//       without fear of deadlock. in non-interrupt contexts, this is also deadlock free
+//       because the registration lock is always taken before any entry locks are taken and always released
+//       after any entry locks are taken.
+static flock_spin_intsafe_t registration_lock = FLOCK_SPIN_INTSAFE_INIT;
+
+static ferr_t farch_int_register_handler_locked(uint8_t interrupt, farch_int_handler_f handler, void* data) {
 	ferr_t status = ferr_ok;
 	fint_handler_entry_t* entry;
 
@@ -831,14 +879,23 @@ ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler
 	}
 
 	entry->handler = handler;
+	entry->data = data;
 
 out:
 	flock_spin_intsafe_unlock(&entry->lock);
 out_unlocked:
-	return ferr_ok;
+	return status;
 };
 
-ferr_t farch_int_unregister_handler(uint8_t interrupt) {
+ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler, void* data) {
+	ferr_t status;
+	flock_spin_intsafe_lock(&registration_lock);
+	status = farch_int_register_handler_locked(interrupt, handler, data);
+	flock_spin_intsafe_unlock(&registration_lock);
+	return status;
+};
+
+static ferr_t farch_int_unregister_handler_locked(uint8_t interrupt) {
 	ferr_t status = ferr_ok;
 	fint_handler_entry_t* entry;
 
@@ -857,14 +914,23 @@ ferr_t farch_int_unregister_handler(uint8_t interrupt) {
 	}
 
 	entry->handler = NULL;
+	entry->data = NULL;
 
 out:
 	flock_spin_intsafe_unlock(&entry->lock);
 out_unlocked:
-	return ferr_ok;
+	return status;
 };
 
-uint8_t farch_int_next_available(void) {
+ferr_t farch_int_unregister_handler(uint8_t interrupt) {
+	ferr_t status;
+	flock_spin_intsafe_lock(&registration_lock);
+	status = farch_int_unregister_handler_locked(interrupt);
+	flock_spin_intsafe_unlock(&registration_lock);
+	return status;
+};
+
+static uint8_t farch_int_next_available_locked(void) {
 	for (size_t i = 0; i < sizeof(handlers) / sizeof(*handlers); ++i) {
 		fint_handler_entry_t* entry = &handlers[i];
 		bool registered = false;
@@ -881,10 +947,48 @@ uint8_t farch_int_next_available(void) {
 	return 0;
 };
 
+static uint8_t farch_int_next_available(void) {
+	uint8_t result;
+	flock_spin_intsafe_lock(&registration_lock);
+	result = farch_int_next_available_locked();
+	flock_spin_intsafe_unlock(&registration_lock);
+	return result;
+};
+
+ferr_t farch_int_register_next_available(farch_int_handler_f handler, void* data, uint8_t* out_interrupt) {
+	ferr_t status = ferr_ok;
+	uint8_t interrupt = 0;
+
+	if (!handler || !out_interrupt) {
+		status = ferr_invalid_argument;
+		goto out_unlocked;
+	}
+
+	flock_spin_intsafe_lock(&registration_lock);
+
+	interrupt = farch_int_next_available_locked();
+	if (interrupt == 0) {
+		status = ferr_temporary_outage;
+		goto out;
+	}
+
+	status = farch_int_register_handler_locked(interrupt, handler, data);
+
+out:
+	flock_spin_intsafe_unlock(&registration_lock);
+out_unlocked:
+	if (status == ferr_ok) {
+		*out_interrupt = interrupt;
+	}
+	return status;
+};
+
 void fint_init(void) {
 	uintptr_t tss_addr = (uintptr_t)&tss;
 	void* generic_interrupt_stack_bottom = NULL;
 	void* double_fault_stack_bottom = NULL;
+	void* debug_stack_bottom = NULL;
+	void* page_fault_stack_bottom = NULL;
 	fint_idt_pointer_t idt_pointer;
 	fint_gdt_pointer_t gdt_pointer;
 	fint_idt_entry_t missing_entry;
@@ -918,18 +1022,30 @@ void fint_init(void) {
 	);
 
 	// allocate a stack for generic interrupt handlers
-	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &generic_interrupt_stack_bottom, 0) != ferr_ok) {
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &generic_interrupt_stack_bottom, fpage_flag_prebound) != ferr_ok) {
 		fpanic("failed to allocate stack for generic interrupt handlers");
 	}
 
 	// allocate a stack for the double-fault handler
-	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &double_fault_stack_bottom, 0) != ferr_ok) {
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &double_fault_stack_bottom, fpage_flag_prebound) != ferr_ok) {
 		fpanic("failed to allocate stack for double fault handler");
+	}
+
+	// allocate a stack for the debug fault handler
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &debug_stack_bottom, fpage_flag_prebound) != ferr_ok) {
+		fpanic("failed to allocate stack for debug interrupts");
+	}
+
+	// allocate a stack for the page fault handler
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &page_fault_stack_bottom, fpage_flag_prebound) != ferr_ok) {
+		fpanic("failed to allocate stack for page fault interrupts");
 	}
 
 	// set the stack top addresses
 	tss.ist[fint_ist_index_generic_interrupt] = (uintptr_t)generic_interrupt_stack_bottom + (FPAGE_PAGE_SIZE * 4);
 	tss.ist[fint_ist_index_double_fault] = (uintptr_t)double_fault_stack_bottom + (FPAGE_PAGE_SIZE * 4);
+	tss.ist[fint_ist_index_debug] = (uintptr_t)debug_stack_bottom + (FPAGE_PAGE_SIZE * 4);
+	tss.ist[fint_ist_index_page_fault] = (uintptr_t)page_fault_stack_bottom + (FPAGE_PAGE_SIZE * 4);;
 
 	// initialize the idt with missing entries (they still require certain bits to be 1)
 	fint_make_idt_entry(&missing_entry, NULL, 0, 0, false, 0);
@@ -937,12 +1053,13 @@ void fint_init(void) {
 	simple_memclone(&idt, &missing_entry, sizeof(missing_entry), sizeof(idt) / sizeof(missing_entry));
 
 	// initialize the desired idt entries with actual values
-	fint_make_idt_entry(&idt.debug, farch_int_wrapper_debug, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.debug, farch_int_wrapper_debug, farch_int_gdt_index_code, fint_ist_index_debug + 1, false, 0);
 	fint_make_idt_entry(&idt.breakpoint, farch_int_wrapper_breakpoint, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
 	fint_make_idt_entry(&idt.double_fault, farch_int_wrapper_double_fault, farch_int_gdt_index_code, fint_ist_index_double_fault + 1, false, 0);
 	fint_make_idt_entry(&idt.general_protection_fault, farch_int_wrapper_general_protection, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
-	fint_make_idt_entry(&idt.page_fault, farch_int_wrapper_page_fault, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.page_fault, farch_int_wrapper_page_fault, farch_int_gdt_index_code, fint_ist_index_page_fault + 1, false, 0);
 	fint_make_idt_entry(&idt.invalid_opcode, farch_int_wrapper_invalid_opcode, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.simd_exception, farch_int_wrapper_simd_exception, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
 
 	// initialize the array of miscellaneous interrupts
 	#define DEFINE_INTERRUPT(number) \

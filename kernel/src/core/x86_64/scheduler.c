@@ -32,10 +32,10 @@
 // 4 pages should be enough, right?
 #define SWITCHING_STACK_SIZE (FPAGE_PAGE_SIZE * 4)
 
-static void ignore_interrupt(fint_frame_t* frame) {};
+static void ignore_interrupt(void* data, fint_frame_t* frame) {};
 
 void farch_sched_init(void) {
-	if (farch_int_register_handler(0xfe, ignore_interrupt) != ferr_ok) {
+	if (farch_int_register_handler(0xfe, ignore_interrupt, NULL) != ferr_ok) {
 		fpanic("Failed to register scheduler auxillary interrupt");
 	}
 

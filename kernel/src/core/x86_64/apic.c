@@ -44,7 +44,7 @@
 // TODO: determine this
 #define TSC_LOOP_MIN_COUNT 1
 // XXX: this is also kind of arbitrary
-#define TSC_MIN_DELTA_COEFFICIENT 10
+#define TSC_MIN_DELTA_COEFFICIENT 1000
 
 #define RESERVED_HELPER2(x, y) uint8_t reserved ## y [x]
 #define RESERVED_HELPER(x, y) RESERVED_HELPER2(x, y)
@@ -133,11 +133,11 @@ FERRO_OPTIONS(uint32_t, fapic_lvt_flags) {
 
 static fapic_block_t* lapic = NULL;
 
-static void ignore_interrupt(fint_frame_t* frame) {};
+static void ignore_interrupt(void* data, fint_frame_t* frame) {};
 
 static void remap_and_disable_pic(void) {
 	for (size_t i = 0x20; i < 0x30; ++i) {
-		if (farch_int_register_handler(i, ignore_interrupt) != ferr_ok) {
+		if (farch_int_register_handler(i, ignore_interrupt, NULL) != ferr_ok) {
 			fpanic("failed to register PIC interrupt handler for %zu", i);
 		}
 	}
@@ -203,7 +203,7 @@ static void disarm_timer(void) {
 };
 
 // this is the same for both the TSC-deadline and LAPIC timer backends
-static void timer_interrupt_handler(fint_frame_t* frame) {
+static void timer_interrupt_handler(void* data, fint_frame_t* frame) {
 	// signal EOI here instead of after because it may never return here
 	farch_apic_signal_eoi();
 	ftimers_backend_fire();
@@ -495,6 +495,8 @@ void farch_apic_signal_eoi(void) {
 };
 
 void farch_apic_init(void) {
+	fint_disable();
+
 	facpi_madt_t* madt = (facpi_madt_t*)facpi_find_table("APIC");
 	uintptr_t lapic_address = 0;
 	uint64_t lapic_frequency = UINT64_MAX;
@@ -548,6 +550,10 @@ void farch_apic_init(void) {
 		offset += header->length;
 	}
 
+	for (size_t i = 0; i < sizeof(legacy_irq_to_gsi) / sizeof(*legacy_irq_to_gsi); ++i) {
+		fconsole_logf("IOAPIC: legacy IRQ #%zu mapped to GSI #%u (active low = %s, level triggered = %s)\n", i, legacy_irq_to_gsi[i].gsi, legacy_irq_to_gsi[i].active_low ? "yes" : "no", legacy_irq_to_gsi[i].level_triggered ? "yes" : "no");
+	}
+
 	if (fmempool_allocate(sizeof(farch_ioapic_node_t) * ioapic_node_count, NULL, (void*)&ioapic_nodes) != ferr_ok) {
 		fpanic("failed to allocate IOAPIC node descriptor array");
 	}
@@ -587,7 +593,7 @@ void farch_apic_init(void) {
 	remap_and_disable_pic();
 
 	// ignore the spurious interrupt vector
-	if (farch_int_register_handler(0xff, ignore_interrupt) != ferr_ok) {
+	if (farch_int_register_handler(0xff, ignore_interrupt, NULL) != ferr_ok) {
 		fpanic("failed to register APIC spurious interrupt vector handler (for interrupt 255)");
 	}
 
@@ -623,7 +629,7 @@ void farch_apic_init(void) {
 	}
 
 	// setup an interrupt handler for the timer
-	if (farch_int_register_handler(0x30, timer_interrupt_handler) != ferr_ok) {
+	if (farch_int_register_handler(0x30, timer_interrupt_handler, NULL) != ferr_ok) {
 		fpanic("failed to register APIC timer interrupt handler (for interrupt 48)");
 	}
 
@@ -639,6 +645,8 @@ void farch_apic_init(void) {
 	} else {
 		fconsole_log("warning: CPU/APIC doesn't support TSC-deadline mode; no TSC-deadline timer will be available\n");
 	}
+
+	fint_enable();
 };
 
 /**

@@ -100,7 +100,7 @@ static void serial_receive_locked(fserial_t* serial_port) {
 	}
 };
 
-static void serial_interrupt(fint_frame_t* frame) {
+static void serial_interrupt(void* data, fint_frame_t* frame) {
 	// TODO: is there a way to tell specifically which serial port triggered the interrupt?
 	//       there are 2 interrupts, but 4 serial ports, so... ???
 
@@ -144,9 +144,7 @@ static void serial_interrupt(fint_frame_t* frame) {
 void fserial_init(void) {
 	uint8_t interrupt_number;
 
-	interrupt_number = farch_int_next_available();
-
-	if (farch_int_register_handler(interrupt_number, serial_interrupt) != ferr_ok) {
+	if (farch_int_register_next_available(serial_interrupt, NULL, &interrupt_number) != ferr_ok) {
 		fpanic("Failed to register serial port interrupt handler");
 	}
 

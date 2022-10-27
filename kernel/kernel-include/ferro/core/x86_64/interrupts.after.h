@@ -115,7 +115,7 @@ FERRO_ENUM(uint8_t, farch_int_gdt_index) {
  *
  * The handler is called with interrupts disabled.
  */
-typedef void (*farch_int_handler_f)(fint_frame_t* frame);
+typedef void (*farch_int_handler_f)(void* data, fint_frame_t* frame);
 
 /**
  * Registers the given handler for the given interrupt number.
@@ -130,7 +130,7 @@ typedef void (*farch_int_handler_f)(fint_frame_t* frame);
  * @retval ferr_invalid_argument One or more of: 1) the given interrupt number is outside the permitted range (32-255, inclusive), 2) the handler is `NULL`.
  * @retval ferr_temporary_outage A handler for the given interrupt is already registered and must be explicitly unregistered with farch_int_unregister_handler().
  */
-FERRO_WUR ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler);
+FERRO_WUR ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler, void* data);
 
 /**
  * Unregisters the handler for the given interrupt number.
@@ -145,14 +145,17 @@ FERRO_WUR ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler
 FERRO_WUR ferr_t farch_int_unregister_handler(uint8_t interrupt);
 
 /**
- * Returns the number of the next unused/unregistered interrupt, or `0` if all interrupts are in-use/registered.
+ * Registers the given handler for the next available interrupt number and returns the number it was registered on.
  *
- * @note This is a costly operation.
+ * @param handler       The handler to call when the interrupt is received. See ::farch_int_handler_f for more details.
+ * @param out_interrupt A pointer in which the registered interrupt number will be written.
  *
- * @note By the time the function returns, the number returned may have already been registered. Thus, if this is used to determine
- *       an interrupt number to register, you MUST check the return code of farch_int_register_handler().
+ * Return values:
+ * @retval ferr_ok               The handler was registered successfully and the registered interrupt number has been written to @p out_interrupt.
+ * @retval ferr_invalid_argument One or more of: 1) @p handler was `NULL`, 2) @p out_interrupt was `NULL`.
+ * @retval ferr_temporary_outage There were no available interrupts.
  */
-uint8_t farch_int_next_available(void);
+FERRO_WUR ferr_t farch_int_register_next_available(farch_int_handler_f handler, void* data, uint8_t* out_interrupt);
 
 FERRO_ALWAYS_INLINE bool fint_is_interrupt_context(void) {
 	return FARCH_PER_CPU(current_exception_frame) != NULL;
