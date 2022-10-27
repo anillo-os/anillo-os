@@ -23,13 +23,25 @@
 ferr_t fsyscall_handler_fd_copy_path(uint64_t fd, uint64_t buffer_size, char* out_buffer, uint64_t* out_actual_size) {
 	fvfs_descriptor_t* descriptor = NULL;
 	ferr_t status = ferr_ok;
+	const fproc_descriptor_class_t* desc_class = NULL;
+	size_t actual_size = 0;
 
-	if (fproc_lookup_descriptor(fproc_current(), fd, true, &descriptor) != ferr_ok) {
+	if (fproc_lookup_descriptor(fproc_current(), fd, true, (void*)&descriptor, &desc_class) != ferr_ok) {
 		status = ferr_invalid_argument;
 		goto out;
 	}
 
-	status = fvfs_copy_path(descriptor, true, out_buffer, buffer_size, out_actual_size);
+	if (desc_class != &fproc_descriptor_class_vfs) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = fvfs_copy_path(descriptor, true, out_buffer, buffer_size, &actual_size);
+
+	if (out_actual_size) {
+		*out_actual_size = actual_size;
+	}
+
 	if (status != ferr_ok) {
 		goto out;
 	}

@@ -19,37 +19,19 @@
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/userspace/processes.h>
 #include <ferro/core/paging.h>
-#include <libsimple/libsimple.h>
 
-ferr_t fsyscall_handler_page_allocate_any(uint64_t page_count, uint64_t flags, void* xout_address) {
+ferr_t fsyscall_handler_page_protect(const void* address, uint64_t page_count, fsyscall_page_permissions_t permissions) {
 	ferr_t status = ferr_ok;
-	void* address = NULL;
-	void** out_address = xout_address;
+	size_t total_page_count = 0;
+	fproc_mapping_flags_t flags = 0;
 
-	if (!out_address) {
-		status = ferr_invalid_argument;
+	if (fproc_lookup_mapping(fproc_current(), (void*)address, &total_page_count, &flags, NULL) != ferr_ok) {
+		status = ferr_no_such_resource;
 		goto out;
 	}
 
-	// TODO: use flags
-
-	if (fpage_space_allocate(fpage_space_current(), page_count, &address, fpage_flag_unprivileged) != ferr_ok) {
-		status = ferr_temporary_outage;
-		goto out;
-	}
-
-	status = fproc_register_mapping(fproc_current(), address, page_count);
+	status = fpage_space_change_permissions(fpage_space_current(), (void*)address, page_count, permissions);
 
 out:
-	if (status == ferr_ok) {
-		// TODO: make this more efficient by having the paging subsystem map pages to a permanently-zero page
-		// and reallocate them (if they're writable) upon a page fault
-		simple_memset(address, 0, FPAGE_PAGE_SIZE * page_count);
-		*out_address = address;
-	} else {
-		if (address) {
-			FERRO_WUR_IGNORE(fpage_space_free(fpage_space_current(), address, page_count));
-		}
-	}
 	return status;
 };

@@ -2,33 +2,191 @@
 
 from syscall import *
 
-common_base = len(syscalls)
+enums.extend([
+	Enum('timeout_type', 'u8', [
+		('none', '0'),
+		('ns_relative', '1'),
+		('ns_absolute_monotonic', '2'),
+	]),
+	Enum('channel_realm', 'u8', [
+		('parent', '0'),
+		('children', '1'),
+		('local', '2'),
+		('global', '3'),
+	]),
+	Enum('channel_connect_flags', 'u64', prefix='channel_connect_flag', values=[
+		('recursive_realm', '1 << 0'),
+		('no_wait', '1 << 1'),
+	]),
+	Enum('channel_receive_flags', 'u64', prefix='channel_receive_flag', values=[
+		('no_wait', '1 << 0'),
+		('pre_receive_peek', '1 << 1'),
+		('match_message_id', '1 << 2'),
+	]),
+	Enum('monitor_update_flags', 'u64', prefix='monitor_update_flag', values=[
+		('fail_fast', '1 << 0'),
+	]),
+	Enum('monitor_poll_flags', 'u64', prefix='monitor_poll_flag', values=[
+		('reserved', '1 << 0'),
+	]),
+	Enum('monitor_item_id', 'u64', [
+		('none', '0'),
+	]),
+	Enum('monitor_update_item_flags', 'u64', prefix='monitor_update_item_flag', values=[
+		('create', '1 << 0'),
+		('delete', '1 << 1'),
+		('update', '1 << 2'),
 
-syscalls.extend([
-	Syscall(common_base + 0, 'exit', status='i32'),
-	Syscall(common_base + 1, 'log', message='string', message_length='u64'),
-	Syscall(common_base + 2, 'page_allocate_any', page_count='u64', flags='u64', out_address='*'),
-	Syscall(common_base + 3, 'page_free', address='*'),
-	Syscall(common_base + 4, 'fd_open_special', special_id='u64', out_fd='*[u64]'),
-	Syscall(common_base + 5, 'fd_close', fd='u64'),
-	Syscall(common_base + 6, 'fd_read', fd='u64', offset='u64', desired_length='u64', out_buffer='*', out_read_length='*[u64]'),
-	Syscall(common_base + 7, 'fd_write', fd='u64', offset='u64', desired_length='u64', buffer='*c', out_written_length='*[u64]'),
-	Syscall(common_base + 8, 'fd_copy_path', fd='u64', buffer_size='u64', out_buffer='mut_string', out_actual_size='*[u64]'),
-	Syscall(common_base + 9, 'fd_list_children_init', fd='u64', out_context='*[u64]'),
-	Syscall(common_base + 10, 'fd_list_children_finish', context='u64'),
-	Syscall(common_base + 11, 'fd_list_children', context='u64', string_size='u64', out_string='*', out_read_count='*[u64]'),
-	Syscall(common_base + 12, 'fd_open', path='string', path_length='u64', flags='u64', out_fd='*[u64]'),
-	Syscall(common_base + 13, 'thread_create', stack='*', stack_size='u64', entry='*c', out_thread_id='*[u64]'),
-	Syscall(common_base + 14, 'thread_id', out_thread_id='*[u64]'),
-	Syscall(common_base + 15, 'thread_kill', thread_id='u64'),
-	Syscall(common_base + 16, 'thread_suspend', thread_id='u64', timeout='u64', timeout_type='u8'),
-	Syscall(common_base + 17, 'thread_resume', thread_id='u64'),
-	Syscall(common_base + 18, 'futex_wait', address='*[u64]', channel='u64', expected_value='u64', timeout='u64', timeout_type='u8', flags='u64'),
-	Syscall(common_base + 19, 'futex_wake', address='*[u64]', channel='u64', wakeup_count='u64', flags='u64'),
-	Syscall(common_base + 20, 'futex_associate', address='*[u64]', channel='u64', event='u64', value='u64'),
-	Syscall(common_base + 21, 'process_create', fd='u64', context_block='*c', context_block_size='u64', out_process_id='*[u64]'),
-	Syscall(common_base + 22, 'process_id', out_process_id='*[u64]'),
-	Syscall(common_base + 23, 'process_kill', process_id='u64'),
-	Syscall(common_base + 24, 'process_suspend', process_id='u64'),
-	Syscall(common_base + 25, 'process_resume', process_id='u64'),
+		('enabled', '1 << 3'),
+		('disable_on_trigger', '1 << 4'),
+
+		('level_triggered', '0 << 5'),
+		('edge_triggered', '1 << 5'),
+		('active_high', '0 << 6'),
+		('active_low', '1 << 6'),
+
+		('keep_alive', '1 << 7'),
+
+		('defer_delete', '1 << 8'),
+		('delete_on_trigger', '1 << 9'),
+		('strict_match', '1 << 10'),
+
+		('set_user_flag', '1 << 11'),
+	]),
+	Enum('monitor_item_type', 'u8', [
+		('invalid', '0'),
+		('channel', '1'),
+		('server_channel', '2'),
+		('futex', '3'),
+		('timeout', '4'),
+	]),
+	Enum('monitor_events', 'u64', prefix='monitor_event', values=[
+		('item_deleted', '1 << 0'),
+
+		('channel_message_arrived', '1 << 1'),
+		('channel_queue_emptied', '1 << 2'),
+		('channel_peer_queue_emptied', '1 << 3'),
+		('channel_peer_closed', '1 << 4'),
+		('channel_peer_queue_space_available', '1 << 5'),
+
+		('server_channel_client_arrived', '1 << 1'),
+
+		('futex_awoken', '1 << 1'),
+
+		('timeout_expired', '1 << 1'),
+	]),
+	Enum('monitor_event_flags', 'u64', prefix='monitor_event_flag', values=[
+		('user', '1 << 0'),
+	]),
+	Enum('page_allocate_flags', 'u64', prefix='page_allocate_flag', values=[
+		('contiguous', '1 << 0'),
+		('prebound', '1 << 1'),
+		('unswappable', '1 << 2'),
+		('uncacheable', '1 << 3'),
+	]),
+	Enum('page_allocate_shared_flags', 'u64', prefix='page_allocate_shared_flag', values=[
+		('xxx_reserved', '0'),
+	]),
+	Enum('page_map_shared_flags', 'u64', prefix='page_map_shared_flag', values=[
+		('xxx_reserved', '0'),
+	]),
+	Enum('page_permissions', 'u8', prefix='page_permission', values=[
+		('read', '1 << 0'),
+		('write', '1 << 1'),
+		('execute', '1 << 2'),
+	]),
 ])
+
+structures.extend([
+	Structure('channel_message_attachment_header', [
+		('next_offset', 'u64'),
+		('length', 'u64'),
+		('type', '!fchannel_message_attachment_type_t'),
+	]),
+	Structure('channel_message_attachment_null', [
+		('header', 's:channel_message_attachment_header'),
+	]),
+	Structure('channel_message_attachment_channel', [
+		('header', 's:channel_message_attachment_header'),
+		('channel_id', 'u64'),
+	]),
+	Structure('channel_message_attachment_mapping', [
+		('header', 's:channel_message_attachment_header'),
+		('mapping_id', 'u64'),
+	]),
+	Structure('channel_message', [
+		('conversation_id', '!fchannel_conversation_id_t'),
+		('message_id', '!fchannel_message_id_t'),
+		('body_address', 'u64'),
+		('body_length', 'u64'),
+		('attachments_address', 'u64'),
+		('attachments_length', 'u64'),
+	]),
+	Structure('monitor_item_header', [
+		('id', 'e:monitor_item_id'),
+		('descriptor_id', 'u64'),
+		('type', 'e:monitor_item_type'),
+		('context', 'u64'),
+	]),
+	Structure('monitor_update_item', [
+		('header', 's:monitor_item_header'),
+		('flags', 'e:monitor_update_item_flags'),
+		('events', 'e:monitor_events'),
+		('status', '!ferr_t'),
+		('data1', 'u64'),
+		('data2', 'u64'),
+	]),
+	Structure('monitor_event', [
+		('header', 's:monitor_item_header'),
+		('events', 'e:monitor_events'),
+		('flags', 'e:monitor_event_flags'),
+	]),
+])
+
+(syscalls
+	.add_syscall('exit', status='i32')
+	.add_syscall('log', message='string', message_length='u64')
+	.add_syscall('page_allocate', page_count='u64', flags='e:page_allocate_flags', alignment_power='u8', out_address='*')
+	.add_syscall('page_free', address='*')
+	.add_syscall('page_allocate_shared', page_count='u64', flags='e:page_allocate_shared_flags', out_mapping_id='*[u64]')
+	.add_syscall('page_map_shared', mapping_id='u64', page_count='u64', page_offset_count='u64', flags='e:page_map_shared_flags', alignment_power='u8', out_address='*')
+	.add_syscall('page_close_shared', mapping_id='u64')
+	.add_syscall('page_bind_shared', mapping_id='u64', page_count='u64', page_offset_count='u64', address='*')
+	.add_syscall('page_translate', address='*c', out_phys_address='*[u64]')
+	.add_syscall('page_protect', address='*c', page_count='u64', permissions='e:page_permissions')
+	.add_syscall('fd_open_special', special_id='u64', out_fd='*[u64]')
+	.add_syscall('fd_close', fd='u64')
+	.add_syscall('fd_read', fd='u64', offset='u64', desired_length='u64', out_buffer='*', out_read_length='*[u64]')
+	.add_syscall('fd_write', fd='u64', offset='u64', desired_length='u64', buffer='*c', out_written_length='*[u64]')
+	.add_syscall('fd_copy_path', fd='u64', buffer_size='u64', out_buffer='mut_string', out_actual_size='*[u64]')
+	.add_syscall('fd_list_children_init', fd='u64', out_context='*[u64]')
+	.add_syscall('fd_list_children_finish', context='u64')
+	.add_syscall('fd_list_children', context='u64', string_size='u64', out_string='*', out_read_count='*[u64]')
+	.add_syscall('fd_open', path='string', path_length='u64', flags='u64', out_fd='*[u64]')
+	.add_syscall('thread_create', stack='*', stack_size='u64', entry='*c', out_thread_id='*[u64]')
+	.add_syscall('thread_id', out_thread_id='*[u64]')
+	.add_syscall('thread_kill', thread_id='u64')
+	.add_syscall('thread_suspend', thread_id='u64', timeout='u64', timeout_type='e:timeout_type')
+	.add_syscall('thread_resume', thread_id='u64')
+	.add_syscall('futex_wait', address='*[u64]', channel='u64', expected_value='u64', timeout='u64', timeout_type='e:timeout_type', flags='u64')
+	.add_syscall('futex_wake', address='*[u64]', channel='u64', wakeup_count='u64', flags='u64')
+	.add_syscall('futex_associate', address='*[u64]', channel='u64', event='u64', value='u64')
+	.add_syscall('process_create', fd='u64', context_block='*c', context_block_size='u64', out_process_id='*[u64]')
+	.add_syscall('process_id', out_process_id='*[u64]')
+	.add_syscall('process_kill', process_id='u64')
+	.add_syscall('process_suspend', process_id='u64')
+	.add_syscall('process_resume', process_id='u64')
+	.add_syscall('server_channel_create', channel_name='string', channel_name_length='u64', realm='e:channel_realm', out_server_channel_id='*[u64]')
+	.add_syscall('server_channel_accept', server_channel_id='u64', flags='!fchannel_server_accept_flags_t', out_channel_id='*[u64]')
+	.add_syscall('server_channel_close', server_channel_id='u64', release_descriptor='u8')
+	.add_syscall('channel_connect', server_channel_name='string', server_channel_name_length='u64', realm='e:channel_realm', flags='e:channel_connect_flags', out_channel_id='*[u64]')
+	.add_syscall('channel_create_pair', out_channel_ids='*[u64]')
+	.add_syscall('channel_conversation_create', channel_id='u64', out_conversation_id='*[!fchannel_conversation_id_t]')
+	.add_syscall('channel_send', channel_id='u64', flags='!fchannel_send_flags_t', timeout='u64', timeout_type='e:timeout_type', in_out_message='*[s:channel_message]')
+	.add_syscall('channel_receive', channel_id='u64', flags='e:channel_receive_flags', timeout='u64', timeout_type='e:timeout_type', in_out_message='*[s:channel_message]')
+	.add_syscall('channel_close', channel_id='u64', release_descriptor='u8')
+	.add_syscall('monitor_create', out_monitor_handle='*[u64]')
+	.add_syscall('monitor_close', monitor_handle='u64')
+	.add_syscall('monitor_update', monitor_handle='u64', flags='e:monitor_update_flags', in_out_items='*[s:monitor_update_item]', in_out_item_count='*[u64]')
+	.add_syscall('monitor_poll', monitor_handle='u64', flags='e:monitor_poll_flags', timeout='u64', timeout_type='e:timeout_type', out_events='*[s:monitor_event]', in_out_event_count='*[u64]')
+)

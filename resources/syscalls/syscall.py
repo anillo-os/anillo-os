@@ -18,16 +18,24 @@ static_syscall_type_to_c_type: Dict[str, str] = {
 	'char': 'char',
 }
 
-def syscall_type_to_c_type(syscall_type: str) -> str:
+def syscall_type_to_c_type(syscall_type: str, kernel: bool) -> str:
+	syscall_type = syscall_type.strip()
+
 	if syscall_type in static_syscall_type_to_c_type:
 		return static_syscall_type_to_c_type[syscall_type]
 
 	if (syscall_type.startswith('*[') or syscall_type.startswith('*c[')) and syscall_type.endswith(']'):
 		is_const = syscall_type[1] == 'c'
 		pointed_type = syscall_type[3:-1] if is_const else syscall_type[2:-1]
-		return f'{syscall_type_to_c_type(pointed_type)}{" const" if is_const else ""}*'
+		return f'{syscall_type_to_c_type(pointed_type, kernel)}{" const" if is_const else ""}*'
 
-	raise ValueError(f'Invalid/imparseable syscall module type: {syscall_type}')
+	if syscall_type.startswith('e:') or syscall_type.startswith('s:'):
+		return f'{"fsyscall" if kernel else "libsyscall"}_{syscall_type[2:]}_t'
+
+	if syscall_type.startswith('!'):
+		return syscall_type[1:]
+
+	raise ValueError(f'Invalid/unparsable syscall module type: {syscall_type}')
 
 class Parameter:
 	"""
@@ -51,7 +59,7 @@ class Parameter:
 		self.name = name
 
 	def __str__(self) -> str:
-		return f'{self.name}: {self.type} ({syscall_type_to_c_type(self.type)})'
+		return f'{self.name}: {self.type} ({syscall_type_to_c_type(self.type, False)})'
 
 	def __repr__(self) -> str:
 		return self.__str__()
@@ -98,7 +106,7 @@ class Member:
 		self.type = type
 
 	def __str__(self) -> str:
-		return f'{self.name}: {self.type} ({syscall_type_to_c_type(self.type)})'
+		return f'{self.name}: {self.type} ({syscall_type_to_c_type(self.type, False)})'
 
 	def __repr__(self) -> str:
 		return self.__str__()
@@ -108,24 +116,62 @@ class Structure:
 	An object that describes a data structure.
 	"""
 
-	def __init__(self, _name: str, **_members: str) -> None:
-		self.name = _name
-		self.members = [Member(key, _members[key]) for key in _members]
+	def __init__(self, name: str, members: List[Tuple[str, str]]) -> None:
+		self.name = name
+		self.members = [Member(name, type) for [name, type] in members]
 
 	def __str__(self) -> str:
 		members_string = ''.join([f'\t{member}\n' for member in self.members])
+		if len(members_string) != 0:
+			members_string = '\n' + members_string
 		return f'Structure "{self.name}" {{{members_string}}}'
 
 	def __repr__(self) -> str:
 		return self.__str__()
 
-def sort_syscalls() -> None:
-	syscalls.sort(key=lambda x: x.number, reverse=False)
+class EnumValue:
+	def __init__(self, name: str, value: str) -> None:
+		self.name = name
+		self.value = value
 
-def validate_syscalls() -> None:
-	for syscall in syscalls:
-		if len(syscall.parameters) > 6:
-			raise RuntimeError(f"Too many parameters for syscall (maximum of 6 allowed): {syscall}")
+	def __str__(self) -> str:
+		return f'{self.name}: {self.value}'
 
-syscalls: List[Syscall] = []
+	def __repr__(self) -> str:
+		return self.__str__()
+
+class Enum:
+	"""
+	An object that represents an enumeration.
+	"""
+
+	def __init__(self, name: str, type: str, values: List[Tuple[str, str]], prefix: str = None) -> None:
+		self.name = name
+		self.type = type
+		self.prefix = self.name if prefix is None else prefix
+		self.values = [EnumValue(key, value) for [key, value] in values]
+
+	def __str__(self) -> str:
+		values_string = ''.join([f'\t{value}\n' for value in self.values])
+		if len(values_string) != 0:
+			values_string = '\n' + values_string
+		return f'Enum "{self.name}": {self.type} ({syscall_type_to_c_type(self.type, False)}) {{{values_string}}}'
+
+class SyscallList(List[Syscall]):
+	def sort_syscalls(self) -> None:
+		self.sort(key=lambda x: x.number, reverse=False)
+
+	def validate_syscalls(self) -> None:
+		for syscall in self:
+			if len(syscall.parameters) > 6:
+				raise RuntimeError(f"Too many parameters for syscall (maximum of 6 allowed): {syscall}")
+
+	def add_syscall(self, _name: str, **_parameters: str):
+		self.extend([
+			Syscall(len(self) + 1, _name, **_parameters),
+		])
+		return self
+
+syscalls = SyscallList()
 structures: List[Structure] = []
+enums: List[Enum] = []

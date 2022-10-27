@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -18,37 +18,17 @@
 
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/userspace/processes.h>
-#include <ferro/core/vfs.h>
+#include <ferro/core/paging.h>
 
-ferr_t fsyscall_handler_fd_read(uint64_t fd, uint64_t offset, uint64_t desired_length, void* out_buffer, uint64_t* out_read_length) {
-	fvfs_descriptor_t* descriptor = NULL;
+ferr_t fsyscall_handler_page_translate(void const* address, uint64_t* out_phys_address) {
 	ferr_t status = ferr_ok;
-	const fproc_descriptor_class_t* desc_class = NULL;
-	size_t read_length = 0;
-
-	if (fproc_lookup_descriptor(fproc_current(), fd, true, (void*)&descriptor, &desc_class) != ferr_ok) {
-		status = ferr_invalid_argument;
-		goto out;
+	uintptr_t phys = fpage_space_virtual_to_physical(fpage_space_current(), (uintptr_t)address);
+	if (phys == UINTPTR_MAX) {
+		status = ferr_no_such_resource;
 	}
-
-	if (desc_class != &fproc_descriptor_class_vfs) {
-		status = ferr_invalid_argument;
-		goto out;
+	if (out_phys_address) {
+		*out_phys_address = phys;
 	}
-
-	status = fvfs_read(descriptor, offset, out_buffer, desired_length, &read_length);
-
-	if (out_read_length) {
-		*out_read_length = read_length;
-	}
-
-	if (status != ferr_ok) {
-		goto out;
-	}
-
 out:
-	if (descriptor != NULL) {
-		fvfs_release(descriptor);
-	}
 	return status;
 };

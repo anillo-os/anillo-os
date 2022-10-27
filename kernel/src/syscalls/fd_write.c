@@ -23,13 +23,25 @@
 ferr_t fsyscall_handler_fd_write(uint64_t fd, uint64_t offset, uint64_t desired_length, const void* buffer, uint64_t* out_written_length) {
 	fvfs_descriptor_t* descriptor = NULL;
 	ferr_t status = ferr_ok;
+	const fproc_descriptor_class_t* desc_class = NULL;
+	size_t written_length = 0;
 
-	if (fproc_lookup_descriptor(fproc_current(), fd, true, &descriptor) != ferr_ok) {
+	if (fproc_lookup_descriptor(fproc_current(), fd, true, (void*)&descriptor, &desc_class) != ferr_ok) {
 		status = ferr_invalid_argument;
 		goto out;
 	}
 
-	status = fvfs_write(descriptor, offset, buffer, desired_length, out_written_length);
+	if (desc_class != &fproc_descriptor_class_vfs) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = fvfs_write(descriptor, offset, buffer, desired_length, &written_length);
+
+	if (out_written_length) {
+		*out_written_length = written_length;
+	}
+
 	if (status != ferr_ok) {
 		goto out;
 	}

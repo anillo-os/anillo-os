@@ -24,13 +24,19 @@ ferr_t fsyscall_handler_process_create(uint64_t fd, void const* context_block, u
 	ferr_t status = ferr_ok;
 	fproc_t* proc = NULL;
 	fvfs_descriptor_t* descriptor = NULL;
+	const fproc_descriptor_class_t* desc_class = NULL;
 
-	if (fproc_lookup_descriptor(fproc_current(), fd, true, &descriptor) != ferr_ok) {
+	if (fproc_lookup_descriptor(fproc_current(), fd, true, (void*)&descriptor, &desc_class) != ferr_ok) {
 		status = ferr_invalid_argument;
 		goto out;
 	}
 
-	status = fproc_new(descriptor, &proc);
+	if (desc_class != &fproc_descriptor_class_vfs) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = fproc_new(descriptor, fproc_current(), &proc);
 	if (status != ferr_ok) {
 		goto out;
 	}

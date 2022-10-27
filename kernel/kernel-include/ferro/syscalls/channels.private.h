@@ -16,12 +16,30 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <gen/ferro/userspace/syscall-handlers.h>
-#include <ferro/core/threads.h>
-#include <ferro/core/paging.h>
+#ifndef _FERRO_SYSCALLS_CHANNELS_PRIVATE_H_
+#define _FERRO_SYSCALLS_CHANNELS_PRIVATE_H_
 
-ferr_t fsyscall_handler_thread_id(uint64_t* out_thread_id) {
-	// TODO: implement something like copyout and use it to copy to userspace addresses
-	*out_thread_id = fthread_current()->id;
-	return ferr_ok;
+#include <stdint.h>
+#include <stddef.h>
+
+#include <ferro/base.h>
+#include <ferro/userspace/processes.h>
+#include <ferro/core/channels.h>
+#include <ferro/core/refcount.h>
+
+FERRO_DECLARATIONS_BEGIN;
+
+FERRO_STRUCT(fsyscall_channel_server_context) {
+	frefcount_t refcount;
+	fchannel_server_t* server;
+	fchannel_realm_t* realm;
+	size_t name_length;
+	char name[];
 };
+
+extern const fproc_descriptor_class_t fsyscall_channel_descriptor_class;
+extern const fproc_descriptor_class_t fsyscall_channel_server_context_descriptor_class;
+
+FERRO_DECLARATIONS_END;
+
+#endif // _FERRO_SYSCALLS_CHANNELS_PRIVATE_H_

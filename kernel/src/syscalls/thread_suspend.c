@@ -22,19 +22,19 @@
 #include <ferro/userspace/threads.h>
 #include <ferro/userspace/processes.h>
 
-ferr_t fsyscall_handler_thread_suspend(uint64_t thread_id, uint64_t timeout, uint8_t timeout_type) {
+ferr_t fsyscall_handler_thread_suspend(uint64_t thread_id, uint64_t timeout, fsyscall_timeout_type_t timeout_type) {
 	ferr_t status = ferr_ok;
 	fthread_t* thread = NULL;
 	fthread_timeout_type_t thread_timeout_type;
 
 	switch (timeout_type) {
-		case 0:
+		case fsyscall_timeout_type_none:
 			// no timeout
 			break;
-		case 1:
+		case fsyscall_timeout_type_ns_relative:
 			thread_timeout_type = fthread_timeout_type_ns_relative;
 			break;
-		case 2:
+		case fsyscall_timeout_type_ns_absolute_monotonic:
 			thread_timeout_type = fthread_timeout_type_ns_absolute_monotonic;
 			break;
 		default:

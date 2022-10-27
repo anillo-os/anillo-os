@@ -37,8 +37,8 @@ FERRO_DECLARATIONS_BEGIN;
  */
 void fsyscall_init(void);
 
-
 void fsyscall_init_fd_list_children(void);
+void fsyscall_init_channels(void);
 
 FERRO_DECLARATIONS_END;
 

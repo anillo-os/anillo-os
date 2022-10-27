@@ -44,7 +44,7 @@ static ferr_t console_stdout_write(void* context, fvfs_descriptor_t* descriptor,
 ferr_t fsyscall_handler_fd_open_special(uint64_t special_id, uint64_t* out_fd) {
 	switch (special_id) {
 		case 0:
-			return fproc_install_descriptor(fproc_current(), fproc_current()->binary_descriptor, out_fd);
+			return fproc_install_descriptor(fproc_current(), fproc_current()->binary_descriptor, &fproc_descriptor_class_vfs, out_fd);
 
 		case 1: {
 			ferr_t status = ferr_ok;
@@ -55,10 +55,9 @@ ferr_t fsyscall_handler_fd_open_special(uint64_t special_id, uint64_t* out_fd) {
 				return status;
 			}
 
-			status = fproc_install_descriptor(fproc_current(), desc, out_fd);
-			if (status != ferr_ok) {
-				fvfs_release(desc);
-			}
+			status = fproc_install_descriptor(fproc_current(), desc, &fproc_descriptor_class_vfs, out_fd);
+			fvfs_release(desc);
+
 			return status;
 		} break;
 

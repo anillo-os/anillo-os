@@ -7,8 +7,11 @@ add_library(ferro_syscalls STATIC
 
 	exit.c
 	log.c
-	page_allocate_any.c
+	page_allocate.c
 	page_free.c
+	page_protect.c
+	page_shared.c
+	page_translate.c
 	fd_open_special.c
 	fd_close.c
 	fd_read.c
@@ -29,6 +32,8 @@ add_library(ferro_syscalls STATIC
 	process_kill.c
 	process_suspend.c
 	process_resume.c
+	channels.c
+	monitors.c
 )
 
 add_dependencies(ferro_syscalls
@@ -37,6 +42,5 @@ add_dependencies(ferro_syscalls
 
 target_link_libraries(ferro_syscalls PRIVATE
 	libsimple_static_kernel
-	libsimple_static_compat
 	ferro_syscalls_${ANILLO_ARCH}
 )

@@ -19,12 +19,15 @@
 #include <gen/ferro/userspace/syscall-table.h>
 #include <ferro/core/console.h>
 #include <ferro/syscalls/syscalls.h>
+#include <ferro/core/panic.h>
 
 void fsyscall_init(void) {
 	fsyscall_init_fd_list_children();
+	fsyscall_init_channels();
 };
 
 ferr_t fsyscall_handler_lookup_error(uint64_t syscall_number) {
-	fconsole_logf("unknown syscall number: %lu\n", syscall_number);
+	fconsole_logf("unknown syscall number: %llu\n", syscall_number);
+	fpanic("bad syscall");
 	return ferr_unknown;
 };

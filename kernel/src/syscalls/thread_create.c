@@ -33,12 +33,6 @@ ferr_t fsyscall_handler_thread_create(void* stack, uint64_t stack_size, void con
 	bool unmanage = false;
 	futhread_data_private_t* private_data = NULL;
 
-	if (fpage_space_virtual_to_physical(fpage_space_current(), (uintptr_t)out_thread_id) == UINTPTR_MAX) {
-		// TODO: check the entire pointer
-		status = ferr_invalid_argument;
-		goto out;
-	}
-
 	if (fthread_new(fproc_secondary_thread_init, (void*)entry, NULL, FPAGE_LARGE_PAGE_SIZE, 0, &thread) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;

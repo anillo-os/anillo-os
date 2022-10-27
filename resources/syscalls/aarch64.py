@@ -4,8 +4,6 @@ import sys
 
 from common import *
 
-aarch64_base = len(syscalls)
-
-syscalls.extend([
-
-])
+(syscalls
+	.add_syscall('thread_set_tpidr', address='*')
+)

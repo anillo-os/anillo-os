@@ -18,10 +18,14 @@
 
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/core/threads.h>
-#include <ferro/core/paging.h>
+#include <ferro/userspace/threads.private.h>
 
-ferr_t fsyscall_handler_thread_id(uint64_t* out_thread_id) {
-	// TODO: implement something like copyout and use it to copy to userspace addresses
-	*out_thread_id = fthread_current()->id;
+ferr_t fsyscall_handler_thread_set_tpidr(void* address) {
+	fthread_t* thread = fthread_current();
+	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
+
+	private_data->arch.tpidr_el0 = (uintptr_t)address;
+	__asm__ volatile("msr tpidr_el0, %0" :: "r" (private_data->arch.tpidr_el0));
+
 	return ferr_ok;
 };

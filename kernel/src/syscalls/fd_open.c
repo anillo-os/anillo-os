@@ -29,9 +29,8 @@ ferr_t fsyscall_handler_fd_open(const char* path, uint64_t path_length, uint64_t
 		return status;
 	}
 
-	status = fproc_install_descriptor(fproc_current(), desc, out_fd);
-	if (status != ferr_ok) {
-		fvfs_release(desc);
-	}
+	status = fproc_install_descriptor(fproc_current(), desc, &fproc_descriptor_class_vfs, out_fd);
+	fvfs_release(desc);
+
 	return status;
 };
