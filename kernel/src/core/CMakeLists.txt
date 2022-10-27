@@ -38,6 +38,7 @@ add_library(ferro_core STATIC
 	ramdisk.c
 	per-cpu.c
 	ghmap.c
+	channels.c
 )
 
 set_source_files_properties(entry.c PROPERTIES
