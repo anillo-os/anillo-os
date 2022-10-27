@@ -49,6 +49,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_to_ramdisk.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_dylib.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_executable.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/dsym.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/spooky_gen.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/calculate_offsets.cmake)
 
 find_dsymutil()
@@ -172,6 +173,8 @@ add_subdirectory(libsys)
 add_subdirectory(libsimple)
 add_subdirectory(libelf)
 add_subdirectory(libmacho)
+add_subdirectory(libeve)
+add_subdirectory(libspooky)
 
 add_custom_command(
 	OUTPUT

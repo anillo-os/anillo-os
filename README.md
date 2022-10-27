@@ -11,6 +11,8 @@ Building Anillo OS requires the following programs:
   * LLD - to link the OS.
   * CMake - to compile the OS (CMake version >= 3.20).
   * Ninja (optional) - to compile the OS quickly.
+  * Python 3 - for various scripts during the build process.
+    * [Lark](https://github.com/lark-parser/lark) package - for the `spookygen` script
 
 Creating a disk image for Anillo OS requires the following programs:
   * sgdisk - to create the disk image.

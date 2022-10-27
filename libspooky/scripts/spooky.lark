@@ -1,0 +1,29 @@
+%import common.CNAME -> NAME
+%import common (WS, SH_COMMENT, CPP_COMMENT, C_COMMENT, ESCAPED_STRING)
+
+start: [directives] (function | structure)*
+directives: directive+
+directive: interface_directive
+         | server_name_directive
+         | server_realm_directive
+interface_directive: "@interface" "=" NAME
+server_name_directive: "@server" "=" ESCAPED_STRING
+server_realm_directive: "@realm" "=" REALM
+REALM: "children" | "parent" | "local" | "global"
+
+function: [decorations] "function" NAME "(" [_parameters ","?] ")"
+decorations: DECORATION+
+DECORATION: "nowait"
+_parameters: parameter ("," parameter)*
+parameter: NAME ":" DIRECTION type
+type: NAME
+    | [decorations] "function" "(" [_parameters ","?] ")"
+DIRECTION: "in" | "out"
+
+structure: "structure" NAME "{" member* "}"
+member: NAME ":" NAME
+
+%ignore WS
+%ignore SH_COMMENT
+%ignore CPP_COMMENT
+%ignore C_COMMENT
