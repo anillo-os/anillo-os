@@ -84,7 +84,8 @@ void fconfig_init(const char* data, size_t length) {
 				--value_length;
 			}
 
-			if (fmempool_reallocate(config_entries, sizeof(*config_entries) * (config_entry_count + 1), NULL, (void*)&config_entries) != ferr_ok) {
+			// prebound because interrupts are disabled here
+			if (fmempool_reallocate_advanced(config_entries, sizeof(*config_entries) * (config_entry_count + 1), 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void*)&config_entries) != ferr_ok) {
 				fpanic("Failed to allocate memory for configuration entries");
 			}
 

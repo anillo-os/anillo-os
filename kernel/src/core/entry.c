@@ -58,10 +58,9 @@
 
 #include <ferro/core/mempool.h>
 #include <ferro/core/per-cpu.private.h>
-
 #include <ferro/userspace/entry.h>
-
 #include <ferro/drivers/init.h>
+#include <ferro/core/channels.h>
 
 static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2          FERRO_PAGE_ALIGNED = {0};
@@ -222,6 +221,10 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 
 static ferro_ramdisk_t* ramdisk = NULL;
 
+
+extern void fpage_prefault_enable(void);
+extern void fpage_logging_mark_available(void);
+
 static void ferro_entry_threaded(void* data) {
 	fconsole_log("Entering threaded kernel startup\n");
 
@@ -230,6 +233,8 @@ static void ferro_entry_threaded(void* data) {
 	fpage_prefault_enable();
 
 	fworkers_init();
+
+	fchannel_init();
 
 	fvfs_init();
 
@@ -372,6 +377,8 @@ jump_here_for_virtual:;
 
 	// initialize the console subsystem
 	fconsole_init();
+
+	fpage_logging_mark_available();
 
 	// now that we're virtual and can use FARCH_PER_CPU, initialize the size of the XSAVE area;
 	// we must always do this before anything that uses XSAVE executes (e.g. an interrupt or context switch)
