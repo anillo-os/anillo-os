@@ -20,10 +20,10 @@
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>
 
-ferr_t simple_ghmap_allocate_mempool(void* context, size_t bytes, void** out_pointer) {
+ferr_t __attribute__((optnone)) simple_ghmap_allocate_mempool(void* context, size_t bytes, void** out_pointer) {
 	return (fmempool_allocate(bytes, NULL, out_pointer) == ferr_ok ? ferr_ok : ferr_temporary_outage);
 };
 
-void simple_ghmap_free_mempool(void* context, void* pointer, size_t bytes) {
+void __attribute__((optnone)) simple_ghmap_free_mempool(void* context, void* pointer, size_t bytes) {
 	fpanic_status(fmempool_free(pointer));
 };

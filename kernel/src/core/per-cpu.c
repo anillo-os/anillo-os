@@ -27,7 +27,8 @@ void fper_cpu_init(void) {
 	// TODO: initialize for each CPU
 	fper_cpu_main_table_t* main_table_ptr = fper_cpu_main_table_pointer();
 
-	if (fmempool_allocate(sizeof(fper_cpu_entry_t) * DEFAULT_ENTRY_COUNT, NULL, (void*)&main_table_ptr->entries) != ferr_ok) {
+	// needs to be prebound because interrupts are disabled here
+	if (fmempool_allocate_advanced(sizeof(fper_cpu_entry_t) * DEFAULT_ENTRY_COUNT, 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void*)&main_table_ptr->entries) != ferr_ok) {
 		fpanic("Failed to allocate entry array");
 	}
 

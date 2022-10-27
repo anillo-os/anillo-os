@@ -31,7 +31,7 @@
 #include <ferro/core/acpi.h>
 
 void fpanicv(const char* reason_format, va_list args) {
-	__builtin_debugtrap();
+	//__builtin_debugtrap();
 
 	// we're going to die, so don't let anyone interrupt us
 	fint_disable();
@@ -41,6 +41,8 @@ void fpanicv(const char* reason_format, va_list args) {
 		fconsole_logfv(reason_format, args);
 		fconsole_log("\n");
 	}
+
+	fint_trace_current_stack();
 
 	// for now
 	fentry_hang_forever();
