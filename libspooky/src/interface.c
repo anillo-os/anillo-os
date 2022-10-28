@@ -25,6 +25,10 @@ static void spooky_interface_destroy(spooky_object_t* obj) {
 	spooky_interface_object_t* interface = (void*)obj;
 
 	if (interface->entries) {
+		for (size_t i = 0; i < interface->entry_count; ++i) {
+			interface->entries[i].implementation(interface->entries[i].context, NULL);
+		}
+
 		LIBSPOOKY_WUR_IGNORE(sys_mempool_free(interface->entries));
 	}
 };
