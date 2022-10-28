@@ -16,6 +16,7 @@ static_syscall_type_to_c_type: Dict[str, str] = {
 	'*c': 'void const*',
 	'mut_string': 'char*',
 	'char': 'char',
+	'bool': 'bool',
 }
 
 def syscall_type_to_c_type(syscall_type: str, kernel: bool) -> str:
@@ -145,7 +146,7 @@ class Enum:
 	An object that represents an enumeration.
 	"""
 
-	def __init__(self, name: str, type: str, values: List[Tuple[str, str]], prefix: str = None) -> None:
+	def __init__(self, name: str, type: str, values: List[Tuple[str, str]], prefix: str | None = None) -> None:
 		self.name = name
 		self.type = type
 		self.prefix = self.name if prefix is None else prefix

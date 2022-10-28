@@ -95,6 +95,12 @@ enums.extend([
 		('write', '1 << 1'),
 		('execute', '1 << 2'),
 	]),
+	Enum('signal_configuration_flags', 'u64', prefix='signal_configuration_flag', values=[
+		('enabled', '1 << 0'),
+		('coalesce', '1 << 1'),
+		('autorestart', '1 << 2'),
+		('allow_redirection', '1 << 3'),
+	]),
 ])
 
 structures.extend([
@@ -141,6 +147,13 @@ structures.extend([
 		('events', 'e:monitor_events'),
 		('flags', 'e:monitor_event_flags'),
 	]),
+	Structure('signal_configuration', [
+		('flags', 'e:signal_configuration_flags'),
+		('handler', '*'),
+		('context', '*'),
+		('stack', '*'),
+		('stack_size', 'u64'),
+	]),
 ])
 
 (syscalls
@@ -168,6 +181,7 @@ structures.extend([
 	.add_syscall('thread_kill', thread_id='u64')
 	.add_syscall('thread_suspend', thread_id='u64', timeout='u64', timeout_type='e:timeout_type')
 	.add_syscall('thread_resume', thread_id='u64')
+	.add_syscall('thread_signal_configure', thread_id='u64', signal_number='u64', new_configuration='*c[s:signal_configuration]', out_old_configuration='*[s:signal_configuration]')
 	.add_syscall('futex_wait', address='*[u64]', channel='u64', expected_value='u64', timeout='u64', timeout_type='e:timeout_type', flags='u64')
 	.add_syscall('futex_wake', address='*[u64]', channel='u64', wakeup_count='u64', flags='u64')
 	.add_syscall('futex_associate', address='*[u64]', channel='u64', event='u64', value='u64')

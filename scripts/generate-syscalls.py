@@ -58,7 +58,8 @@ with io.open(OUTPUT_INDEX_PATH, 'w', newline='\n') as outfile:
 with io.open(OUTPUT_HANDLER_DECLARATIONS_PATH, 'w', newline='\n') as outfile:
 	outfile.write(f'#ifndef {HANDLER_DECLARATIONS_HEADER_GUARD_NAME}\n#define {HANDLER_DECLARATIONS_HEADER_GUARD_NAME}\n\n')
 
-	outfile.write('#include <stdint.h>\n\n')
+	outfile.write('#include <stdint.h>\n')
+	outfile.write('#include <stdbool.h>\n\n')
 
 	outfile.write('#include <ferro/base.h>\n')
 	outfile.write('#include <ferro/error.h>\n')
@@ -142,7 +143,8 @@ with io.open(OUTPUT_TABLE_PATH, 'w', newline='\n') as outfile:
 with io.open(OUTPUT_WRAPPERS_HEADER_PATH, 'w', newline='\n') as outfile:
 	outfile.write(f'#ifndef {WRAPPERS_HEADER_GUARD_NAME}\n#define {WRAPPERS_HEADER_GUARD_NAME}\n\n')
 
-	outfile.write('#include <stdint.h>\n\n')
+	outfile.write('#include <stdint.h>\n')
+	outfile.write('#include <stdbool.h>\n\n')
 
 	outfile.write('#include <ferro/base.h>\n')
 	outfile.write('#include <ferro/error.h>\n')
@@ -205,10 +207,10 @@ with io.open(OUTPUT_WRAPPERS_SOURCE_PATH, 'w', newline='\n') as outfile:
 
 	for syscall in syscalls_module.syscalls:
 		syscall_parameters = 'void'
+		syscall_arguments = ''
 
 		if len(syscall.parameters) > 0:
 			syscall_parameters = ''
-			syscall_arguments = ''
 			is_first = True
 			index = 0
 
