@@ -30,7 +30,13 @@
 
 void start(void) __asm__("start");
 
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+// on x86_64, the kernel loads us in with the stack pointer properly aligned and set to the highest
+// address of the stack so that we can use the entire stack. however, the compiler doesn't know this
+// and assumes we're loaded with a return address on the stack, so it pushes rbp. normally, that would
+// align the stack, but in this case it unaligns it instead.
 __attribute__((force_align_arg_pointer))
+#endif
 void start(void) {
 	dymple_image_t* main_image = NULL;
 	dymple_image_t* libsys_image = NULL;
