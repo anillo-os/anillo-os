@@ -29,6 +29,10 @@
 #include <ferro/core/entry.h>
 #include <ferro/core/panic.h>
 
+//
+// spin locks
+//
+
 void flock_spin_init(flock_spin_t* lock) {
 	lock->flag = 0;
 };
@@ -88,6 +92,10 @@ void flock_spin_intsafe_unlock(flock_spin_intsafe_t* lock) {
 void flock_spin_intsafe_unlock_unsafe(flock_spin_intsafe_t* lock) {
 	return flock_spin_unlock(&lock->base);
 };
+
+//
+// semaphores
+//
 
 // the waitq's lock also protects the semaphore state
 
@@ -162,6 +170,28 @@ ferr_t flock_semaphore_try_down(flock_semaphore_t* semaphore) {
 
 	return result;
 };
+
+ferr_t flock_semaphore_down_interruptible(flock_semaphore_t* semaphore) {
+	while (true) {
+		if (fthread_current() && fthread_marked_interrupted(fthread_current())) {
+			return ferr_signaled;
+		}
+
+		fwaitq_lock(&semaphore->waitq);
+		if (semaphore->up_count == 0) {
+			flock_semaphore_wait(semaphore);
+			continue;
+		}
+		--semaphore->up_count;
+		fwaitq_unlock(&semaphore->waitq);
+		break;
+	}
+	return ferr_ok;
+};
+
+//
+// mutexes
+//
 
 void flock_mutex_init(flock_mutex_t* mutex) {
 	mutex->owner = UINT64_MAX;
@@ -239,6 +269,33 @@ FERRO_WUR ferr_t flock_mutex_try_lock(flock_mutex_t* mutex) {
 	return result;
 };
 
+ferr_t flock_mutex_lock_interruptible(flock_mutex_t* mutex) {
+	if (!fthread_current()) {
+		fpanic("Mutexes can only be used once the kernel has entered threading mode");
+	}
+
+	while (true) {
+		if (fthread_marked_interrupted(fthread_current())) {
+			return ferr_signaled;
+		}
+
+		fwaitq_lock(&mutex->waitq);
+
+		if (mutex->lock_count > 0 && mutex->owner != fthread_current()->id) {
+			flock_mutex_wait(mutex);
+			continue;
+		}
+
+		mutex->owner = fthread_current()->id;
+		++mutex->lock_count;
+
+		fwaitq_unlock(&mutex->waitq);
+		break;
+	}
+
+	return ferr_ok;
+};
+
 void flock_mutex_unlock(flock_mutex_t* mutex) {
 	if (!fthread_current()) {
 		fpanic("Mutexes can only be used once the kernel has entered threading mode");
@@ -262,6 +319,10 @@ void flock_mutex_unlock(flock_mutex_t* mutex) {
 };
 
 // TODO: when a thread is holding a mutex, it should know this so that the mutex can be unlocked if the thread dies.
+
+//
+// rw locks
+//
 
 // FIXME: this RW lock can certainly be optimized (a lot)
 
@@ -348,6 +409,31 @@ ferr_t flock_rw_try_lock_read(flock_rw_t* rw) {
 	return result;
 };
 
+ferr_t flock_rw_lock_read_interruptible(flock_rw_t* rw) {
+	while (true) {
+		if (fthread_marked_interrupted(fthread_current())) {
+			return ferr_signaled;
+		}
+
+		fwaitq_lock(&rw->read_waitq);
+		fwaitq_lock(&rw->write_waitq);
+
+		if ((rw->state & flock_rw_state_bit_locked_write) == 0) {
+			// slow path; we have to wait for the writer to finish
+			flock_rw_wait(rw, false);
+			continue;
+		}
+
+		rw->state = (rw->state & ~flock_rw_state_mask_read_count) | ((rw->state + 1) & flock_rw_state_mask_read_count);
+
+		fwaitq_unlock(&rw->write_waitq);
+		fwaitq_unlock(&rw->read_waitq);
+		break;
+	}
+
+	return ferr_ok;
+};
+
 void flock_rw_lock_write(flock_rw_t* rw) {
 	bool waited = false;
 
@@ -365,7 +451,7 @@ void flock_rw_lock_write(flock_rw_t* rw) {
 		)) {
 			// slow path; we have to wait for the writer or readers to finish
 			rw->state |= flock_rw_state_bit_writers_waiting;
-			flock_rw_wait(rw, false);
+			flock_rw_wait(rw, true);
 			waited = true;
 			continue;
 		}
@@ -403,6 +489,46 @@ ferr_t flock_rw_try_lock_write(flock_rw_t* rw) {
 	fwaitq_unlock(&rw->read_waitq);
 
 	return result;
+};
+
+ferr_t flock_rw_lock_write_interruptible(flock_rw_t* rw) {
+	bool waited = false;
+
+	while (true) {
+		if (fthread_marked_interrupted(fthread_current())) {
+			return ferr_signaled;
+		}
+
+		fwaitq_lock(&rw->read_waitq);
+		fwaitq_lock(&rw->write_waitq);
+
+		// for us to write, the state must be 0 or `flock_rw_state_bit_writers_waiting` (if we've already waited), because:
+		//   * flock_rw_state_bit_locked_write indicates someone is currently writing, so we would have to wait.
+		//   * flock_rw_state_bit_writers_waiting indicates someone is waiting to write, so we would have to wait (unless we were just woken up after waiting).
+		//   * flock_rw_state_mask_read_count being greater than 0 indicates at least one person is currently reading, so we would have to wait.
+		if (!(
+			rw->state == 0 ||
+			(waited && rw->state == flock_rw_state_bit_writers_waiting)
+		)) {
+			// slow path; we have to wait for the writer or readers to finish
+			rw->state |= flock_rw_state_bit_writers_waiting;
+			flock_rw_wait(rw, true);
+			waited = true;
+			continue;
+		}
+
+		rw->state |= flock_rw_state_bit_locked_write;
+
+		if (fwaitq_empty_locked(&rw->write_waitq)) {
+			rw->state &= ~flock_rw_state_bit_writers_waiting;
+		}
+
+		fwaitq_unlock(&rw->write_waitq);
+		fwaitq_unlock(&rw->read_waitq);
+		break;
+	}
+
+	return ferr_ok;
 };
 
 void flock_rw_unlock(flock_rw_t* rw) {

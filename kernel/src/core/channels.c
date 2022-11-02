@@ -394,7 +394,14 @@ ferr_t fchannel_connect(fchannel_server_t* server, fchannel_connect_flags_t flag
 			goto out;
 		}
 	} else {
-		flock_semaphore_down(&private_server->pending_client_insertion_semaphore);
+		if (flags & fchannel_connect_flag_interruptible) {
+			status = flock_semaphore_down_interruptible(&private_server->pending_client_insertion_semaphore);
+			if (status != ferr_ok) {
+				goto out;
+			}
+		} else {
+			flock_semaphore_down(&private_server->pending_client_insertion_semaphore);
+		}
 	}
 
 	increment_semaphore_on_fail = true;
@@ -475,7 +482,14 @@ ferr_t fchannel_lock_send(fchannel_t* channel, fchannel_send_flags_t flags, fcha
 			goto out;
 		}
 	} else {
-		flock_semaphore_down(&private_channel->peer->message_insertion_semaphore);
+		if (flags & fchannel_send_kernel_flag_interruptible) {
+			status = flock_semaphore_down_interruptible(&private_channel->peer->message_insertion_semaphore);
+			if (status != ferr_ok) {
+				goto out;
+			}
+		} else {
+			flock_semaphore_down(&private_channel->peer->message_insertion_semaphore);
+		}
 	}
 
 	increment_semaphore_on_fail = true;
@@ -578,7 +592,14 @@ ferr_t fchannel_send(fchannel_t* channel, fchannel_send_flags_t flags, fchannel_
 			goto out;
 		}
 	} else {
-		flock_semaphore_down(&private_channel->peer->message_insertion_semaphore);
+		if (flags & fchannel_send_kernel_flag_interruptible) {
+			status = flock_semaphore_down_interruptible(&private_channel->peer->message_insertion_semaphore);
+			if (status != ferr_ok) {
+				goto out;
+			}
+		} else {
+			flock_semaphore_down(&private_channel->peer->message_insertion_semaphore);
+		}
 	}
 
 	increment_semaphore_on_fail = true;
@@ -656,7 +677,14 @@ ferr_t fchannel_lock_receive(fchannel_t* channel, fchannel_receive_flags_t flags
 			goto out;
 		}
 	} else {
-		flock_semaphore_down(&private_channel->message_removal_semaphore);
+		if (flags & fchannel_receive_flag_interruptible) {
+			status = flock_semaphore_down_interruptible(&private_channel->message_removal_semaphore);
+			if (status != ferr_ok) {
+				goto out;
+			}
+		} else {
+			flock_semaphore_down(&private_channel->message_removal_semaphore);
+		}
 	}
 
 	increment_on_fail = true;
@@ -751,7 +779,14 @@ ferr_t fchannel_receive(fchannel_t* channel, fchannel_receive_flags_t flags, fch
 			goto out;
 		}
 	} else {
-		flock_semaphore_down(&private_channel->message_removal_semaphore);
+		if (flags & fchannel_receive_flag_interruptible) {
+			status = flock_semaphore_down_interruptible(&private_channel->message_removal_semaphore);
+			if (status != ferr_ok) {
+				goto out;
+			}
+		} else {
+			flock_semaphore_down(&private_channel->message_removal_semaphore);
+		}
 	}
 
 	increment_semaphore_on_fail = true;
@@ -894,7 +929,14 @@ ferr_t fchannel_server_accept(fchannel_server_t* server, fchannel_server_accept_
 			goto out;
 		}
 	} else {
-		flock_semaphore_down(&private_server->pending_client_removal_semaphore);
+		if (flags & fchannel_server_accept_kernel_flag_interruptible) {
+			status = flock_semaphore_down_interruptible(&private_server->pending_client_removal_semaphore);
+			if (status != ferr_ok) {
+				goto out;
+			}
+		} else {
+			flock_semaphore_down(&private_server->pending_client_removal_semaphore);
+		}
 	}
 
 	increment_semaphore_on_fail = true;

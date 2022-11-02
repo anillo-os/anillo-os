@@ -29,5 +29,14 @@
 
 #include <ferro/base.h>
 #include <ferro/core/threads.h>
+#include <ferro/core/interrupts.h>
+
+FERRO_DECLARATIONS_BEGIN;
+
+FERRO_ALWAYS_INLINE bool fthread_saved_context_is_kernel_space(fthread_saved_context_t* saved_context) {
+	return saved_context->cs == farch_int_gdt_index_code * 8;
+};
+
+FERRO_DECLARATIONS_END;
 
 #endif // _FERRO_CORE_X86_64_THREADS_AFTER_H_

@@ -104,7 +104,7 @@ ferr_t fsyscall_handler_channel_connect(char const* server_channel_name, uint64_
 		goto out;
 	}
 
-	status = fchannel_connect(server, flags, &channel);
+	status = fchannel_connect(server, flags | fchannel_connect_flag_interruptible, &channel);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -351,7 +351,7 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 	}
 
 	// now let's see if we can send the message
-	status = fchannel_lock_send(channel, flags, &send_lock_state);
+	status = fchannel_lock_send(channel, flags | fchannel_send_kernel_flag_interruptible, &send_lock_state);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -463,7 +463,7 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 		goto out_unlocked;
 	}
 
-	status = fchannel_lock_receive(channel, kernel_flags, &lock_state);
+	status = fchannel_lock_receive(channel, kernel_flags | fchannel_receive_flag_interruptible, &lock_state);
 	if (status != ferr_ok) {
 		goto out_unlocked;
 	}
@@ -790,7 +790,7 @@ ferr_t fsyscall_handler_server_channel_accept(uint64_t server_channel_id, fchann
 		goto out;
 	}
 
-	status = fchannel_server_accept(server_context->server, flags, &accepted_channel);
+	status = fchannel_server_accept(server_context->server, flags | fchannel_server_accept_kernel_flag_interruptible, &accepted_channel);
 	if (status != ferr_ok) {
 		goto out;
 	}

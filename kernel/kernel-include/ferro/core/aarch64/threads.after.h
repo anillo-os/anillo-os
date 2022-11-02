@@ -30,4 +30,12 @@
 #include <ferro/base.h>
 #include <ferro/core/threads.h>
 
+FERRO_DECLARATIONS_BEGIN;
+
+FERRO_ALWAYS_INLINE bool fthread_saved_context_is_kernel_space(fthread_saved_context_t* saved_context) {
+	return (saved_context->pstate & farch_thread_pstate_el1) != 0;
+};
+
+FERRO_DECLARATIONS_END;
+
 #endif // _FERRO_CORE_AARCH64_THREADS_AFTER_H_

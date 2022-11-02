@@ -102,6 +102,18 @@ void flock_semaphore_down(flock_semaphore_t* semaphore);
  */
 FERRO_WUR ferr_t flock_semaphore_try_down(flock_semaphore_t* semaphore);
 
+/**
+ * Like flock_semaphore_down(), but will return early if the thread is marked as interrupted
+ * before the up-count can be decremented.
+ *
+ * @note If the thread is marked as interrupted on entry, this function will not decrement
+ *       the up-count; it will immediately return `ferr_signaled` in that case.
+ *
+ * @retval ferr_ok       The up-count was successfully decremented.
+ * @retval ferr_signaled The thread was marked as interrupted, so the operation was aborted.
+ */
+FERRO_WUR ferr_t flock_semaphore_down_interruptible(flock_semaphore_t* semaphore);
+
 //
 // flock_mutex_t
 //
@@ -150,6 +162,18 @@ void flock_mutex_lock(flock_mutex_t* mutex);
 FERRO_WUR ferr_t flock_mutex_try_lock(flock_mutex_t* mutex);
 
 /**
+ * Like flock_mutex_lock(), but will return early if the thread is marked as interrupted
+ * before the mutex can be locked.
+ *
+ * @note If the thread is marked as interrupted on entry, this function will not lock
+ *       the mutex; it will immediately return `ferr_signaled` in that case.
+ *
+ * @retval ferr_ok       The mutex was successfully locked.
+ * @retval ferr_signaled The thread was marked as interrupted, so the operation was aborted.
+ */
+FERRO_WUR ferr_t flock_mutex_lock_interruptible(flock_mutex_t* mutex);
+
+/**
  * Unlocks the given mutex.
  *
  * @param mutex The mutex to operate on.
@@ -188,6 +212,18 @@ void flock_rw_lock_read(flock_rw_t* rw);
 FERRO_WUR ferr_t flock_rw_try_lock_read(flock_rw_t* rw);
 
 /**
+ * Like flock_rw_lock_read(), but will return early if the thread is marked as interrupted
+ * before the RW lock can be locked for reading.
+ *
+ * @note If the thread is marked as interrupted on entry, this function will not lock
+ *       the RW lock; it will immediately return `ferr_signaled` in that case.
+ *
+ * @retval ferr_ok       The RW lock was successfully locked for reading.
+ * @retval ferr_signaled The thread was marked as interrupted, so the operation was aborted.
+ */
+FERRO_WUR ferr_t flock_rw_lock_read_interruptible(flock_rw_t* rw);
+
+/**
  * Locks the given RW lock for writing.
  *
  * @param rw The RW lock to operate on.
@@ -203,6 +239,18 @@ void flock_rw_lock_write(flock_rw_t* rw);
  * @retval ferr_temporary_outage The RW lock was already for reading or writing; locking it for writing would require blocking.
  */
 FERRO_WUR ferr_t flock_rw_try_lock_write(flock_rw_t* rw);
+
+/**
+ * Like flock_rw_lock_write(), but will return early if the thread is marked as interrupted
+ * before the RW lock can be locked for writing.
+ *
+ * @note If the thread is marked as interrupted on entry, this function will not lock
+ *       the RW lock; it will immediately return `ferr_signaled` in that case.
+ *
+ * @retval ferr_ok       The RW lock was successfully locked for writing.
+ * @retval ferr_signaled The thread was marked as interrupted, so the operation was aborted.
+ */
+FERRO_WUR ferr_t flock_rw_lock_write_interruptible(flock_rw_t* rw);
 
 /**
  * Unlocks the given RW lock.

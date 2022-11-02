@@ -792,3 +792,23 @@ uint8_t fthread_find_hook(fthread_t* thread, uint64_t owner_id) {
 	flock_spin_intsafe_unlock(&thread->lock);
 	return UINT8_MAX;
 };
+
+void fthread_mark_interrupted(fthread_t* thread) {
+	flock_spin_intsafe_lock(&thread->lock);
+	thread->state |= fthread_state_interrupted;
+	flock_spin_intsafe_unlock(&thread->lock);
+};
+
+void fthread_unmark_interrupted(fthread_t* thread) {
+	flock_spin_intsafe_lock(&thread->lock);
+	thread->state &= ~fthread_state_interrupted;
+	flock_spin_intsafe_unlock(&thread->lock);
+};
+
+bool fthread_marked_interrupted(fthread_t* thread) {
+	bool result = false;
+	flock_spin_intsafe_lock(&thread->lock);
+	result = (thread->state & fthread_state_interrupted) != 0;
+	flock_spin_intsafe_unlock(&thread->lock);
+	return result;
+};

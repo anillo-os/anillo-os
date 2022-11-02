@@ -102,6 +102,14 @@ FERRO_OPTIONS(uint64_t, fthread_state) {
 	fthread_state_pending_death      = 1 << 4,
 	fthread_state_holding_waitq_lock = 1 << 5,
 
+	/**
+	 * Indicates that this thread has been interrupted (e.g. by a signal).
+	 *
+	 * This is mainly used by userspace-support code to indicate that a signal
+	 * has arrived and the thread should try to exit kernel-space as soon as possible.
+	 */
+	fthread_state_interrupted = 1 << 6,
+
 	// these are just to shut Clang up
 
 	fthread_state_execution_mask_bit_1 = 1 << 0,
@@ -419,6 +427,12 @@ FERRO_WUR ferr_t fthread_wait(fthread_t* thread, fwaitq_t* waitq);
  * @note Unlike fthread_suspend_timeout(), this function WILL overwrite any pending timeout.
  */
 FERRO_WUR ferr_t fthread_wait_timeout(fthread_t* thread, fwaitq_t* waitq, uint64_t timeout_value, fthread_timeout_type_t timeout_type);
+
+FERRO_ALWAYS_INLINE bool fthread_saved_context_is_kernel_space(fthread_saved_context_t* saved_context);
+
+void fthread_mark_interrupted(fthread_t* thread);
+void fthread_unmark_interrupted(fthread_t* thread);
+FERRO_WUR bool fthread_marked_interrupted(fthread_t* thread);
 
 /**
  * @}

@@ -843,7 +843,7 @@ static bool suspend_each_thread(void* context, fproc_t* process, fthread_t* thre
 		return true;
 	}
 
-	ferr_t tmp = fthread_suspend(thread);
+	ferr_t tmp = fthread_suspend(thread, false);
 	switch (tmp) {
 		case ferr_ok:
 		case ferr_already_in_progress:

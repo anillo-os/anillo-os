@@ -69,6 +69,14 @@ ferr_t fsyscall_handler_futex_wait(uint64_t* address, uint64_t channel, uint64_t
 		fwaitq_unlock(&futex->waitq);
 	}
 
+	if (status == ferr_ok) {
+		// check if the reason we're returning is because we were signaled
+		// (doesn't affect our behavior, just informs userspace)
+		if (fthread_marked_interrupted(fthread_current())) {
+			status = ferr_signaled;
+		}
+	}
+
 out:
 	if (futex) {
 		futex_release(futex);

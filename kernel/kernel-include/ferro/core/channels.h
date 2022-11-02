@@ -81,10 +81,20 @@ FERRO_STRUCT_FWD(fchannel_realm);
 
 FERRO_ENUM(uint64_t, fchannel_connect_flags) {
 	fchannel_connect_flag_no_wait = 1 << 0,
+	fchannel_connect_flag_interruptible = 1 << 1,
 };
 
 FERRO_ENUM(uint64_t, fchannel_receive_flags) {
 	fchannel_receive_flag_no_wait = 1 << 0,
+	fchannel_receive_flag_interruptible = 1 << 1,
+};
+
+FERRO_ENUM(uint64_t, fchannel_send_kernel_flags) {
+	fchannel_send_kernel_flag_interruptible = 1ull << 32,
+};
+
+FERRO_ENUM(uint64_t, fchannel_server_accept_kernel_flags) {
+	fchannel_server_accept_kernel_flag_interruptible = 1ull << 32,
 };
 
 void fchannel_init(void);

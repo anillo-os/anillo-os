@@ -1217,7 +1217,11 @@ ferr_t fsyscall_handler_monitor_poll(uint64_t monitor_handle, fsyscall_monitor_p
 
 	while (true) {
 		if (timeout_type == fsyscall_timeout_type_none) {
-			flock_semaphore_down(&monitor->triggered_items_semaphore);
+			status = flock_semaphore_down_interruptible(&monitor->triggered_items_semaphore);
+			if (status != ferr_ok) {
+				// we were interrupted by a signal; stop polling now
+				goto out;
+			}
 		} else {
 			// assumes timeout of 0
 			if (flock_semaphore_try_down(&monitor->triggered_items_semaphore) != ferr_ok) {
