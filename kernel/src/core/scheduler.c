@@ -52,12 +52,15 @@
 static ferr_t manager_kill(void* context, fthread_t* thread);
 static ferr_t manager_suspend(void* context, fthread_t* thread);
 static ferr_t manager_resume(void* context, fthread_t* thread);
+static ferr_t manager_block(void* context, fthread_t* thread);
+static ferr_t manager_unblock(void* context, fthread_t* thread);
 static ferr_t manager_interrupted(void* context, fthread_t* thread);
 static ferr_t manager_ending_interrupt(void* context, fthread_t* thread);
 
 fsched_info_t** fsched_infos = NULL;
 size_t fsched_info_count = 0;
 fsched_info_t fsched_suspended = {0};
+fsched_info_t fsched_blocked = {0};
 
 // these are scheduled when a CPU has nothing else to do.
 // note that these aren't actually scheduled; they're invisible to queues.
@@ -338,6 +341,8 @@ FERRO_NO_RETURN void fsched_init(fthread_t* thread) {
 		private_idle_thread->hooks[0].suspend = manager_suspend;
 		private_idle_thread->hooks[0].resume = manager_resume;
 		private_idle_thread->hooks[0].kill = manager_kill;
+		private_idle_thread->hooks[0].block = manager_block;
+		private_idle_thread->hooks[0].unblock = manager_unblock;
 		private_idle_thread->hooks[0].interrupted = manager_interrupted;
 		private_idle_thread->hooks[0].ending_interrupt = manager_ending_interrupt;
 		private_idle_thread->hooks[0].owner_id = SCHEDULER_HOOK_OWNER_ID;
@@ -371,6 +376,8 @@ FERRO_NO_RETURN void fsched_init(fthread_t* thread) {
 	private_thread->hooks[0].suspend = manager_suspend;
 	private_thread->hooks[0].resume = manager_resume;
 	private_thread->hooks[0].kill = manager_kill;
+	private_thread->hooks[0].block = manager_block;
+	private_thread->hooks[0].unblock = manager_unblock;
 	private_thread->hooks[0].interrupted = manager_interrupted;
 	private_thread->hooks[0].ending_interrupt = manager_ending_interrupt;
 	private_thread->hooks[0].owner_id = SCHEDULER_HOOK_OWNER_ID;
@@ -505,20 +512,27 @@ static ferr_t manager_suspend(void* context, fthread_t* thread) {
 	fsched_thread_private_t* sched_private = private_thread->hooks[0].context;
 	fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
 
+	// if it's blocked, we still mark it as suspended, but we don't move it to/from queues
+	bool blocked = (thread->state & (fthread_state_blocked | fthread_state_pending_block)) != 0;
+
 	// at this point, the threads subsystem has already ensured that:
 	//   * the thread is neither dead nor dying.
-	//   * the thread is neither fsched_suspended nor pending suspension.
+	//   * the thread is neither suspended nor pending suspension.
 	//   * the pending suspension bit has been set.
 
 	// if it's not currently running, we can take care of it right now
 	if (prev_exec_state != fthread_state_execution_running && prev_exec_state != fthread_state_execution_interrupted) {
-		remove_from_queue(thread, false);
+		if (!blocked) {
+			remove_from_queue(thread, false);
+		}
 
-		// the suspension is no longer pending; it's now fully fsched_suspended
+		// the suspension is no longer pending; it's now fully suspended
 		fthread_state_execution_write_locked(thread, fthread_state_execution_suspended);
 		thread->state &= ~fthread_state_pending_suspend;
 
-		add_to_queue(thread, &fsched_suspended, false);
+		if (!blocked) {
+			add_to_queue(thread, &fsched_suspended, false);
+		}
 
 		// if we want to wait for a waitq, add ourselves to its waiting list now
 		if (thread->waitq) {
@@ -573,17 +587,20 @@ static ferr_t manager_resume(void* context, fthread_t* thread) {
 	fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
 	fsched_info_t* new_queue = NULL;
 
+	// if it's blocked, we still mark it as resumed, but we don't move it to/from queues
+	bool blocked = (thread->state & (fthread_state_blocked | fthread_state_pending_block)) != 0;
+
 	// at this point, the threads subsystem has already ensured that:
 	//   * the thread is neither dead nor dying.
-	//   * the thread is either fsched_suspended or pending suspension.
+	//   * the thread is either suspended or pending suspension.
 	//   * if it was pending suspension, the pending suspension bit has been cleared.
 
 	if (prev_exec_state != fthread_state_execution_suspended) {
-		// if it's not currently fsched_suspended, it's already scheduled on a CPU.
+		// if it's not currently suspended, it's already scheduled on a CPU.
 		// in that case, clearing the pending suspension is enough to keep it running,
 		// which the threads subsystem already does for us.
 
-		// we haven't been fsched_suspended yet, so the thread isn't on the waitq's waiting list yet
+		// we haven't been suspended yet, so the thread isn't on the waitq's waiting list yet
 		thread->waitq = NULL;
 
 		return ferr_permanent_outage;
@@ -610,23 +627,117 @@ static ferr_t manager_resume(void* context, fthread_t* thread) {
 	private_thread->timer_id = FTIMERS_ID_INVALID;
 	private_thread->pending_timeout_value = 0;
 
-	remove_from_queue(thread, false);
+	if (!blocked) {
+		remove_from_queue(thread, false);
+	}
 
 	fthread_state_execution_write_locked(thread, fthread_state_execution_not_running);
 
-	// just as a note, here there are no chances for a deadlock.
-	// at this point, the thread doesn't belong to queue, so we're the only ones that could possibly want to hold its lock.
-	// we want the destination queue's lock, but whoever's holding it can't want our thread's lock until we after insert it.
+	if (!blocked) {
+		// just as a note, here there are no chances for a deadlock.
+		// at this point, the thread doesn't belong to queue, so we're the only ones that could possibly want to hold its lock.
+		// we want the destination queue's lock, but whoever's holding it can't want our thread's lock until we after insert it.
 
-	new_queue = find_lightest_load();
-	if (!new_queue) {
-		fpanic("Failed to find CPU with lightest load (this is impossible)");
+		new_queue = find_lightest_load();
+		if (!new_queue) {
+			fpanic("Failed to find CPU with lightest load (this is impossible)");
+		}
+
+		add_to_queue(thread, new_queue, true);
+
+		// unlock the queue that was locked by find_lightest_load()
+		flock_spin_intsafe_unlock(&new_queue->lock);
 	}
 
-	add_to_queue(thread, new_queue, true);
+	return ferr_permanent_outage;
+};
 
-	// unlock the queue that was locked by find_lightest_load()
-	flock_spin_intsafe_unlock(&new_queue->lock);
+static ferr_t manager_block(void* context, fthread_t* thread) {
+	fthread_private_t* private_thread = (void*)thread;
+	fthread_state_execution_t prev_exec_state = fthread_state_execution_read_locked(thread);
+	fsched_thread_private_t* sched_private = private_thread->hooks[0].context;
+	fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
+
+	// at this point, the threads subsystem has already ensured that:
+	//   * the thread is neither dead nor dying.
+	//   * the thread is neither blocked nor pending blocking.
+	//   * the pending block bit has been set.
+
+	// if it's not currently running, we can take care of it right now
+	if (prev_exec_state != fthread_state_execution_running && prev_exec_state != fthread_state_execution_interrupted) {
+		remove_from_queue(thread, false);
+
+		// the block is no longer pending; it's now fully blocked
+		thread->state &= ~fthread_state_pending_block;
+		thread->state |= fthread_state_blocked;
+
+		add_to_queue(thread, &fsched_blocked, false);
+
+		return ferr_permanent_outage;
+	}
+
+	// we don't want to be interrupted by the timer if it's for our current thread
+	fint_disable();
+
+	// unlock it for the call
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	fsched_preempt_thread(thread);
+
+	// and relock it for the threads subsystem
+	flock_spin_intsafe_lock(&thread->lock);
+
+	fint_enable();
+
+	// that's it; once the thread returns to the context switcher, it should see that it's pending blocking and finish the job
+	return ferr_permanent_outage;
+};
+
+static ferr_t manager_unblock(void* context, fthread_t* thread) {
+	fthread_private_t* private_thread = (void*)thread;
+	fthread_state_execution_t prev_exec_state = fthread_state_execution_read_locked(thread);
+	fsched_thread_private_t* sched_private = private_thread->hooks[0].context;
+	fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
+	fsched_info_t* new_queue = NULL;
+
+	// at this point, the threads subsystem has already ensured that:
+	//   * the thread is neither dead nor dying.
+	//   * the thread is either blocked or pending blocking.
+	//   * if it was pending blocking, the pending block bit has been cleared.
+
+	if ((thread->state & fthread_state_blocked) == 0) {
+		// if it's not currently blocked, it's already in some queue (either scheduled or suspended).
+		// in that case, clearing the pending block is enough to keep it unblocked,
+		// which the threads subsystem already does for us.
+
+		return ferr_permanent_outage;
+	}
+
+	remove_from_queue(thread, false);
+
+	thread->state &= ~fthread_state_blocked;
+
+	if (prev_exec_state == fthread_state_execution_suspended) {
+		// note that, unlike the case in manager_suspend,
+		// we know for a fact that the thread cannot possibly be running here,
+		// not even in an interrupt. this is because the "blocked" bit is only
+		// set once the thread is stopped and added to the blocked thread scheduler queue.
+		add_to_queue(thread, &fsched_suspended, false);
+	} else {
+		// just as a note, here there are no chances for a deadlock.
+		// at this point, the thread doesn't belong to queue, so we're the only ones that could possibly want to hold its lock.
+		// we want the destination queue's lock, but whoever's holding it can't want our thread's lock until we after insert it.
+
+		new_queue = find_lightest_load();
+		if (!new_queue) {
+			fpanic("Failed to find CPU with lightest load (this is impossible)");
+		}
+
+		add_to_queue(thread, new_queue, true);
+
+		// unlock the queue that was locked by find_lightest_load()
+		flock_spin_intsafe_unlock(&new_queue->lock);
+	}
 
 	return ferr_permanent_outage;
 };
@@ -637,17 +748,19 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 
 	flock_spin_intsafe_lock(&queue->lock);
 
-	// we should only have at most a single thread waiting for death or suspension, and it should only be the active thread.
-	// all other threads aren't running, so when they're asked to be killed or fsched_suspended, they can do it immediately.
-	if ((thread->state & (fthread_state_pending_death | fthread_state_pending_suspend)) != 0) {
+	// we should only have at most a single thread waiting for death, suspension, or blocking, and it should only be the active thread.
+	// all other threads aren't running, so when they're asked to be killed, suspended, or blocked, they can do it immediately.
+	if ((thread->state & (fthread_state_pending_death | fthread_state_pending_suspend | fthread_state_pending_block)) != 0) {
+		bool needs_to_die = false;
 		bool needs_to_suspend = false;
+		bool needs_to_block = false;
 		fthread_t* new_thread = thread->next;
 		fthread_state_execution_t prev_exec_state = fthread_state_execution_read_locked(thread);
 		fsched_thread_private_t* sched_private = private_thread->hooks[0].context;
 		fsched_info_t* old_queue = sched_private ? sched_private->queue : NULL;
 
 		if (old_queue != queue) {
-			fpanic("Thread information inconsistency (dying thread's queue is not current CPU's queue)");
+			fpanic("Thread information inconsistency (dying/suspending/blocking thread's queue is not current CPU's queue)");
 		}
 
 		if (new_thread == thread) {
@@ -658,21 +771,34 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 		// save the thread's context and load the context for the new thread
 		fsched_switch(thread, new_thread);
 
-		// mark it as dead or fsched_suspended (depending on what we want)
+		// mark it as dead, suspended, or blocked (depending on what we want)
+		// (it might actually need to be both suspended and blocked)
 		if ((thread->state & fthread_state_pending_death) != 0) {
+			needs_to_die = true;
 			fthread_state_execution_write_locked(thread, fthread_state_execution_dead);
-		} else {
+		} else if ((thread->state & fthread_state_pending_suspend) != 0) {
 			needs_to_suspend = true;
 			fthread_state_execution_write_locked(thread, fthread_state_execution_suspended);
 		}
 
+		if (!needs_to_die && (thread->state & fthread_state_pending_block) != 0) {
+			needs_to_block = true;
+			thread->state |= fthread_state_blocked;
+		}
+
 		// clear the pending status(es) and remove it from the queue
-		thread->state &= ~(fthread_state_pending_death | fthread_state_pending_suspend);
+		thread->state &= ~(fthread_state_pending_death | fthread_state_pending_suspend | fthread_state_pending_block);
 		remove_from_queue(thread, true);
 
-		// if it needs to be fsched_suspended, it needs to be added to the suspension queue
+		// if it needs to be suspended, it needs to be added to the suspension queue
 		if (needs_to_suspend) {
-			add_to_queue(thread, &fsched_suspended, false);
+			// however, we only add ourselves to the suspension queue if we're not going to block immediately.
+			// in that case, we just add ourselves to the blocked queue.
+			if (needs_to_block) {
+				add_to_queue(thread, &fsched_blocked, false);
+			} else {
+				add_to_queue(thread, &fsched_suspended, false);
+			}
 
 			// if we want to wait for a waitq, add ourselves to its waiting list now
 			if (thread->waitq) {
@@ -702,9 +828,25 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 
 			flock_spin_intsafe_unlock(&thread->lock);
 
-			// drop the queue lock here (because we also drop it in the alternative branch)
+			// drop the queue lock here (because we also drop it in the alternative branches)
 			flock_spin_intsafe_unlock(&queue->lock);
-		} else {
+
+			fthread_suspended(thread);
+			if (needs_to_block) {
+				fthread_blocked(thread);
+			}
+		} else if (needs_to_block) {
+			// this is only reached if we need to block and we *don't* need to suspend or die
+
+			// all we have to do is add the thread to the blocked queue, drop some locks, and notify anyone who wants to know.
+
+			add_to_queue(thread, &fsched_blocked, false);
+
+			flock_spin_intsafe_unlock(&thread->lock);
+			flock_spin_intsafe_unlock(&queue->lock);
+
+			fthread_blocked(thread);
+		} else if (needs_to_die) {
 			// if the thread was on a waitq's waiting list, remove it now
 			if (prev_exec_state == fthread_state_execution_suspended && thread->waitq) {
 				if ((thread->state & fthread_state_holding_waitq_lock) == 0) {
@@ -767,9 +909,10 @@ static ferr_t manager_interrupted(void* context, fthread_t* thread) {
 };
 
 static ferr_t manager_ending_interrupt(void* context, fthread_t* thread) {
-	// we actually can't have any more threads to clear due to death or suspension right here
-	// because kill and suspend immediately remove the threads if they're not running
+	// we actually can't have any more threads to clear due to death, suspension, or blocking right here
+	// because kill, suspend, and block immediately remove the threads if they're not running
 	// (and being interrupted counts as not running)
+	// TODO: check this again; i think this may have changed in a later commit.
 	//thread = clear_pending_death_or_suspension(thread);
 
 	flock_spin_intsafe_lock(&thread->lock);
@@ -818,13 +961,15 @@ ferr_t fsched_manage(fthread_t* thread) {
 		goto out;
 	}
 
-	// we now have to set everything on the thread needed to mark it as fsched_suspended
+	// we now have to set everything on the thread needed to mark it as suspended
 
 	thread->prev = NULL;
 	thread->next = NULL;
 	private_thread->hooks[0].suspend = manager_suspend;
 	private_thread->hooks[0].resume = manager_resume;
 	private_thread->hooks[0].kill = manager_kill;
+	private_thread->hooks[0].block = manager_block;
+	private_thread->hooks[0].unblock = manager_unblock;
 	private_thread->hooks[0].interrupted = manager_interrupted;
 	private_thread->hooks[0].ending_interrupt = manager_ending_interrupt;
 	private_thread->hooks[0].owner_id = SCHEDULER_HOOK_OWNER_ID;

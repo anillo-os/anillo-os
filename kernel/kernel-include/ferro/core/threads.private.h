@@ -73,6 +73,28 @@ typedef ferr_t (*fthread_hook_resume_f)(void* context, fthread_t* thread);
 typedef ferr_t (*fthread_hook_kill_f)(void* context, fthread_t* thread);
 
 /**
+ * Requests that the given thread be blocked as soon as possible.
+ *
+ * @note Called with the thread lock held.
+ *
+ * @retval ferr_ok               The request was handled and lower hooks may still be invoked.
+ * @retval ferr_permanent_outage The request was handled and lower hooks may NOT be invoked.
+ * @retval ferr_unknown          The request was not handled; lower hooks (if any) will be invoked.
+ */
+typedef ferr_t (*fthread_hook_block_f)(void* context, fthread_t* thread);
+
+/**
+ * Requests that the given thread be unblocked as soon as possible.
+ *
+ * @note Called with the thread lock held.
+ *
+ * @retval ferr_ok               The request was handled and lower hooks may still be invoked.
+ * @retval ferr_permanent_outage The request was handled and lower hooks may NOT be invoked.
+ * @retval ferr_unknown          The request was not handled; lower hooks (if any) will be invoked.
+ */
+typedef ferr_t (*fthread_hook_unblock_f)(void* context, fthread_t* thread);
+
+/**
  * Informs the hook that the given thread is entering an interrupt.
  *
  * @note Called with the thread lock NOT held.
@@ -117,6 +139,8 @@ FERRO_STRUCT(fthread_hook) {
 	fthread_hook_suspend_f suspend;
 	fthread_hook_resume_f resume;
 	fthread_hook_kill_f kill;
+	fthread_hook_block_f block;
+	fthread_hook_unblock_f unblock;
 	fthread_hook_interrupted_f interrupted;
 	fthread_hook_ending_interrupt_f ending_interrupt;
 };
@@ -183,6 +207,9 @@ void fthread_died(fthread_t* thread);
  * Informs the threads subsystem that the given thread has been suspended.
  */
 void fthread_suspended(fthread_t* thread);
+
+void fthread_blocked(fthread_t* thread);
+
 /**
  * Initializes the given thread with architecture-specific information.
  */

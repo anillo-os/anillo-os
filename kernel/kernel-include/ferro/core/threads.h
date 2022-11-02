@@ -110,6 +110,13 @@ FERRO_OPTIONS(uint64_t, fthread_state) {
 	 */
 	fthread_state_interrupted = 1 << 6,
 
+	/**
+	 * Indicates that this thread is blocked and cannot not be scheduled to run.
+	 */
+	fthread_state_blocked = 1 << 7,
+
+	fthread_state_pending_block = 1 << 8,
+
 	// these are just to shut Clang up
 
 	fthread_state_execution_mask_bit_1 = 1 << 0,
@@ -225,6 +232,10 @@ FERRO_STRUCT(fthread) {
 	 * @note The waiters are notified from any execution context. It may be a worker, but it may be another thread or even an interrupt.
 	 */
 	fwaitq_t suspend_wait;
+
+	fwaitq_t block_wait;
+
+	uint64_t block_count;
 };
 
 /**
@@ -320,6 +331,25 @@ FERRO_WUR ferr_t fthread_suspend(fthread_t* thread, bool wait);
  * @retval ferr_invalid_argument    The thread had no registered manager.
  */
 FERRO_WUR ferr_t fthread_suspend_timeout(fthread_t* thread, bool wait, uint64_t timeout_value, fthread_timeout_type_t timeout_type);
+
+/**
+ * Prevents the given thread from running again until it is unblocked.
+ *
+ * @param thread The thread to block.
+ * @param wait   If `true`, this function will not return until the given thread has stopped
+ *               running and has been fully blocked.
+ *               If `false`, this function will only mark the thread as blocked from running and
+ *               interrupt it if it is currently running, but it will not wait for it to actually stop.
+ *
+ * @note Threads keep track of the number of blocks placed on them and will not become available to run
+ *       until they are unblocked.
+ *
+ * @note Threads that are blocked can still be suspended, resumed, or killed.
+ *       The only difference is that, if the scheduler managing them tries to schedule a blocked thread,
+ *       it will see the thread is blocked and avoid scheduling it.
+ */
+FERRO_WUR ferr_t fthread_block(fthread_t* thread, bool wait);
+FERRO_WUR ferr_t fthread_unblock(fthread_t* thread);
 
 /**
  * Suspends the current thread.

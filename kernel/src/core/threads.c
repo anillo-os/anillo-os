@@ -321,6 +321,169 @@ out_locked:
 	return status;
 };
 
+static void fthread_block_waiter(void* context) {
+	volatile bool* do_wait = context;
+	*do_wait = false;
+};
+
+ferr_t fthread_block(fthread_t* thread, bool wait) {
+	fthread_private_t* private_thread;
+	fthread_state_execution_t prev_exec_state;
+	ferr_t status = ferr_ok;
+	uint8_t hooks_in_use;
+	volatile bool do_wait = false;
+	fwaitq_waiter_t block_waiter;
+
+	fwaitq_waiter_init(&block_waiter, fthread_block_waiter, (void*)&do_wait);
+
+	if (!thread) {
+		thread = fthread_current();
+	}
+
+	private_thread = (void*)thread;
+
+	flock_spin_intsafe_lock(&thread->lock);
+
+	hooks_in_use = private_thread->hooks_in_use;
+
+	if (hooks_in_use == 0) {
+		status = ferr_invalid_argument;
+		goto out_locked;
+	}
+
+	prev_exec_state = fthread_state_execution_read_locked(thread);
+
+	if (prev_exec_state == fthread_state_execution_dead || (thread->state & fthread_state_pending_death) != 0) {
+		status = ferr_permanent_outage;
+	} else if ((thread->state & (fthread_state_pending_block | fthread_state_blocked)) != 0) {
+		++thread->block_count;
+		if ((thread->state & fthread_state_pending_block) != 0 && wait) {
+			do_wait = true;
+		}
+	} else {
+		bool handled = false;
+
+		thread->state |= fthread_state_pending_block;
+		++thread->block_count;
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].block) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].block(private_thread->hooks[slot].context, thread);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+
+				// re-check the state
+				if ((thread->state & fthread_state_pending_block) != 0 && wait) {
+					// if we want to wait and the thread hasn't been blocked yet, we need to go ahead and register a waiter and wait
+					do_wait = true;
+				}
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+
+		if (!handled) {
+			fpanic("No hooks were able to handle the thread block");
+		}
+	}
+
+	if (do_wait && wait) {
+		// register a waiter to be notified when the thread is finally blocked
+		fwaitq_wait(&thread->block_wait, &block_waiter);
+	}
+
+out_locked:
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	if (do_wait && wait) {
+		// wait until the waiter notifies us that the thread was blocked
+		while (do_wait) {
+			// TODO: do something better than just spinning
+		}
+	}
+
+	return status;
+};
+
+ferr_t fthread_unblock(fthread_t* thread) {
+	// we don't accept `NULL` here because if you're blocked, you can't unblock yourself. that's just not possible.
+	fthread_private_t* private_thread = (void*)thread;
+	fthread_state_execution_t prev_exec_state;
+	ferr_t status = ferr_ok;
+	uint8_t hooks_in_use;
+
+	if (!thread) {
+		return ferr_invalid_argument;
+	}
+
+	flock_spin_intsafe_lock(&thread->lock);
+
+	hooks_in_use = private_thread->hooks_in_use;
+
+	if (hooks_in_use == 0) {
+		status = ferr_invalid_argument;
+		goto out_locked;
+	}
+
+	prev_exec_state = fthread_state_execution_read_locked(thread);
+
+	if (prev_exec_state == fthread_state_execution_dead || (thread->state & fthread_state_pending_death) != 0) {
+		status = ferr_permanent_outage;
+	} else if ((thread->state & (fthread_state_pending_block | fthread_state_blocked)) == 0) {
+		status = ferr_already_in_progress;
+	} else {
+		bool handled = false;
+
+		--thread->block_count;
+		if (thread->block_count > 0) {
+			// don't actually unblock it until it reaches 0
+			status = ferr_ok;
+			goto out_locked;
+		}
+
+		thread->state &= ~fthread_state_pending_block;
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].unblock) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].unblock(private_thread->hooks[slot].context, thread);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+
+		if (!handled) {
+			fpanic("No hooks were able to handle the thread unblock");
+		}
+	}
+
+out_locked:
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	return status;
+};
+
 FERRO_NO_RETURN void fthread_kill_self(void) {
 	if (fthread_kill(NULL) != ferr_ok) {
 		fpanic("Failed to kill own thread");
@@ -398,6 +561,10 @@ void fthread_died(fthread_t* thread) {
 
 void fthread_suspended(fthread_t* thread) {
 	fwaitq_wake_many(&thread->suspend_wait, SIZE_MAX);
+};
+
+void fthread_blocked(fthread_t* thread) {
+	fwaitq_wake_many(&thread->block_wait, SIZE_MAX);
 };
 
 fthread_state_execution_t fthread_execution_state(fthread_t* thread) {
