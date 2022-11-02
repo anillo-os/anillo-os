@@ -230,6 +230,8 @@ with io.open(OUTPUT_WRAPPERS_SOURCE_PATH, 'w', newline='\n') as outfile:
 			while index < 6:
 				syscall_arguments += ', (uint64_t)0'
 				index += 1
+		else:
+			syscall_arguments = ', (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0, (uint64_t)0'
 
 		outfile.write(f'\nferr_t libsyscall_wrapper_{syscall.name}({syscall_parameters}) {{\n')
 		outfile.write(f'\treturn libsyscall_invoke({syscall.number}{syscall_arguments});\n')
