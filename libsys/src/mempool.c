@@ -25,6 +25,7 @@
 #include <libsys/abort.h>
 #include <libsys/config.h>
 #include <libsys/console.h>
+#include <libsys/threads.h>
 
 static sys_mutex_t sys_mempool_global_lock = SYS_MUTEX_INIT;
 
@@ -138,15 +139,15 @@ static void sys_mempool_do_init(void* context) {
 };
 
 static void sys_mempool_ensure_init(void) {
-	sys_once(&sys_mempool_init_token, sys_mempool_do_init, NULL);
+	sys_once(&sys_mempool_init_token, sys_mempool_do_init, NULL, sys_once_flag_sigsafe);
 };
 
 LIBSYS_ALWAYS_INLINE void sys_mempool_lock(void) {
-	return sys_mutex_lock(&sys_mempool_global_lock);
+	sys_mutex_lock_sigsafe(&sys_mempool_global_lock);
 };
 
 LIBSYS_ALWAYS_INLINE void sys_mempool_unlock(void) {
-	return sys_mutex_unlock(&sys_mempool_global_lock);
+	sys_mutex_unlock_sigsafe(&sys_mempool_global_lock);
 };
 
 ferr_t sys_mempool_allocate(size_t byte_count, size_t* out_allocated_byte_count, void** out_address) {
@@ -235,6 +236,8 @@ ferr_t sys_mempool_reallocate_advanced(void* old_address, size_t new_byte_count,
 
 		return status;
 	}
+
+	sys_mempool_ensure_init();
 
 	find_target_instance(flags, &target_instance);
 

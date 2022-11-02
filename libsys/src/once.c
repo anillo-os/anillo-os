@@ -19,6 +19,7 @@
 #include <libsys/once.h>
 #include <stdbool.h>
 #include <gen/libsyscall/syscall-wrappers.h>
+#include <libsys/threads.h>
 
 // based on https://github.com/bugaevc/lets-write-sync-primitives
 
@@ -29,8 +30,12 @@ LIBSYS_ENUM(uint64_t, sys_once_state) {
 	sys_once_state_perform_wait = 3,
 };
 
-void sys_once(sys_once_t* token, sys_once_f initializer, void* context) {
+void sys_once(sys_once_t* token, sys_once_f initializer, void* context, sys_once_flags_t flags) {
 	uint64_t old_state = sys_once_state_init;
+
+	if (flags & sys_once_flag_sigsafe) {
+		sys_thread_block_signals(sys_thread_current());
+	}
 
 	if (__atomic_compare_exchange_n(token, &old_state, sys_once_state_perform_no_wait, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
 		// we saw "init" and changed it to "perform_no_wait";
@@ -41,6 +46,10 @@ void sys_once(sys_once_t* token, sys_once_f initializer, void* context) {
 		// now that we're done, we need to check whether anyone was waiting and, if so, wake them up
 		old_state = __atomic_exchange_n(token, sys_once_state_done, __ATOMIC_RELEASE);
 
+		if (flags & sys_once_flag_sigsafe) {
+			sys_thread_unblock_signals(sys_thread_current());
+		}
+
 		if (old_state == sys_once_state_perform_wait) {
 			// wake up everyone who was waiting for us to finish
 			libsyscall_wrapper_futex_wake(token, 0, UINT64_MAX, 0);
@@ -48,6 +57,10 @@ void sys_once(sys_once_t* token, sys_once_f initializer, void* context) {
 
 		// we're done now
 		return;
+	}
+
+	if (flags & sys_once_flag_sigsafe) {
+		sys_thread_unblock_signals(sys_thread_current());
 	}
 
 	// otherwise, we did not see "init", so let's figure out what to do

@@ -56,6 +56,9 @@ void sys_mutex_init(sys_mutex_t* mutex);
 void sys_mutex_lock(sys_mutex_t* mutex);
 void sys_mutex_unlock(sys_mutex_t* mutex);
 LIBSYS_WUR bool sys_mutex_try_lock(sys_mutex_t* mutex);
+void sys_mutex_lock_sigsafe(sys_mutex_t* mutex);
+void sys_mutex_unlock_sigsafe(sys_mutex_t* mutex);
+LIBSYS_WUR bool sys_mutex_try_lock_sigsafe(sys_mutex_t* mutex);
 
 void sys_semaphore_init(sys_semaphore_t* semaphore, uint64_t initial_value);
 void sys_semaphore_down(sys_semaphore_t* semaphore);

@@ -43,6 +43,11 @@ FERRO_OPTIONS(uint64_t, sys_mempool_flags) {
  *                                 This is useful for certain callers that wish to use all the available space allocated for them.
  * @param out_address              A pointer in which a pointer to the start of the allocated region will be written.
  *
+ * @note Unlike malloc()/realloc()/free() on most other systems, the system memory pool
+ *       provided by libsys is async-signal-safe. This means it's perfectly fine to use
+ *       it within signal handlers (though you'll likely want to avoid doing that since
+ *       memory allocation can potentially be costly).
+ *
  * @retval ferr_ok               The memory was successfully allocated and a pointer to the start of the allocated region has been written into @p out_address.
  * @retval ferr_temporary_outage There were insufficient resources to allocate the request number of bytes.
  * @retval ferr_invalid_argument @p out_address was `NULL`.

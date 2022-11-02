@@ -19,6 +19,7 @@
 #include <libsys/locks.private.h>
 #include <ferro/platform.h>
 #include <gen/libsyscall/syscall-wrappers.h>
+#include <libsys/threads.h>
 
 //
 // spinlock
@@ -89,6 +90,52 @@ void sys_mutex_unlock(sys_mutex_t* mutex) {
 bool sys_mutex_try_lock(sys_mutex_t* mutex) {
 	uint64_t old_state = sys_mutex_state_unlocked;
 	return __atomic_compare_exchange_n(&mutex->internal, &old_state, sys_mutex_state_locked_uncontended, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+};
+
+void sys_mutex_lock_sigsafe(sys_mutex_t* mutex) {
+	uint64_t old_state = sys_mutex_state_unlocked;
+
+	sys_thread_block_signals(sys_thread_current());
+
+	if (__atomic_compare_exchange_n(&mutex->internal, &old_state, sys_mutex_state_locked_uncontended, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED)) {
+		// great, we got the lock quickly
+		// (this is the most common case)
+		return;
+	}
+
+	// otherwise, we have to take the slow-path and wait
+
+	if (old_state != sys_mutex_state_locked_contended) {
+		old_state = __atomic_exchange_n(&mutex->internal, sys_mutex_state_locked_contended, __ATOMIC_ACQUIRE);
+	}
+
+	while (old_state != sys_mutex_state_unlocked) {
+		sys_thread_unblock_signals(sys_thread_current());
+		libsyscall_wrapper_futex_wait(&mutex->internal, 0, sys_mutex_state_locked_contended, 0, 0, 0);
+		sys_thread_block_signals(sys_thread_current());
+		old_state = __atomic_exchange_n(&mutex->internal, sys_mutex_state_locked_contended, __ATOMIC_ACQUIRE);
+	}
+};
+
+void sys_mutex_unlock_sigsafe(sys_mutex_t* mutex) {
+	uint64_t old_state = __atomic_exchange_n(&mutex->internal, sys_mutex_state_unlocked, __ATOMIC_RELEASE);
+
+	if (old_state == sys_mutex_state_locked_contended) {
+		// if it's contended, we need to wake someone up
+		libsyscall_wrapper_futex_wake(&mutex->internal, 0, 1, 0);
+	}
+
+	sys_thread_unblock_signals(sys_thread_current());
+};
+
+bool sys_mutex_try_lock_sigsafe(sys_mutex_t* mutex) {
+	uint64_t old_state = sys_mutex_state_unlocked;
+	sys_thread_block_signals(sys_thread_current());
+	bool acquired = __atomic_compare_exchange_n(&mutex->internal, &old_state, sys_mutex_state_locked_uncontended, false, __ATOMIC_ACQUIRE, __ATOMIC_RELAXED);
+	if (!acquired) {
+		sys_thread_unblock_signals(sys_thread_current());
+	}
+	return acquired;
 };
 
 //

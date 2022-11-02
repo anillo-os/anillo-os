@@ -51,7 +51,7 @@ static void do_pci_connection_init(void* context) {
 };
 
 static void ensure_pci_connection(void) {
-	sys_once(&pci_connection_init, do_pci_connection_init, NULL);
+	sys_once(&pci_connection_init, do_pci_connection_init, NULL, 0);
 };
 
 ferr_t pci_visit(pci_visitor_f iterator, void* context) {

@@ -30,7 +30,20 @@ typedef void (*sys_once_f)(void* context);
 
 #define SYS_ONCE_INITIALIZER 0
 
-void sys_once(sys_once_t* token, sys_once_f initializer, void* context);
+LIBSYS_OPTIONS(uint64_t, sys_once_flags) {
+	/**
+	 * Blocks signals while the initializer runs.
+	 *
+	 * This allows you to perform signal-safe initialization.
+	 * It is guaranteed that no signal handler will run on the thread that
+	 * is running the initializer AND the thread will not be suspended by
+	 * any signal (so no other thread can deadlock inside a signal handler
+	 * waiting for it to finish the initialization).
+	 */
+	sys_once_flag_sigsafe = 1 << 0,
+};
+
+void sys_once(sys_once_t* token, sys_once_f initializer, void* context, sys_once_flags_t flags);
 
 LIBSYS_DECLARATIONS_END;
 

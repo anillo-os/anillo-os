@@ -345,7 +345,7 @@ static void loop_tls_init(void* context) {
 };
 
 static void ensure_tls_key(void) {
-	sys_once(&loop_tls_once, loop_tls_init, NULL);
+	sys_once(&loop_tls_once, loop_tls_init, NULL, sys_once_flag_sigsafe);
 };
 
 static void main_loop_init(void* context) {
@@ -353,7 +353,7 @@ static void main_loop_init(void* context) {
 };
 
 eve_loop_t* eve_loop_get_main(void) {
-	sys_once(&main_loop_init_token, main_loop_init, NULL);
+	sys_once(&main_loop_init_token, main_loop_init, NULL, sys_once_flag_sigsafe);
 	sys_abort_status(eve_retain(main_loop));
 	return main_loop;
 };

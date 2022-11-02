@@ -25,6 +25,11 @@ void __sys_thread_setup(sys_thread_object_t* thread) {
 	__sys_thread_setup_common();
 };
 
+extern bool __sys_thread_init_complete;
+
 sys_thread_t* sys_thread_current(void) {
+	if (!__sys_thread_init_complete) {
+		return NULL;
+	}
 	return *(void* LIBSYS_FS_RELATIVE*)(sys_thread_tls_key_self * sizeof(void*));
 };

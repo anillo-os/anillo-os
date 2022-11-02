@@ -25,7 +25,12 @@ void __sys_thread_setup(sys_thread_object_t* thread) {
 	__sys_thread_setup_common();
 };
 
+extern bool __sys_thread_init_complete;
+
 sys_thread_t* sys_thread_current(void) {
+	if (!__sys_thread_init_complete) {
+		return NULL;
+	}
 	void** tls;
 	__asm__ volatile("mrs %0, tpidr_el0" : "=r" (tls));
 	return tls[sys_thread_tls_key_self];

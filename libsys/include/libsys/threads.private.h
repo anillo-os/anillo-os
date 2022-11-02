@@ -30,6 +30,11 @@
 
 LIBSYS_DECLARATIONS_BEGIN;
 
+LIBSYS_STRUCT(sys_thread_signal_handler) {
+	sys_thread_signal_handler_f handler;
+	void* context;
+};
+
 LIBSYS_STRUCT(sys_thread_object) {
 	sys_object_t object;
 	sys_thread_id_t id;
@@ -37,6 +42,9 @@ LIBSYS_STRUCT(sys_thread_object) {
 	void* free_on_death;
 	void* tls[256];
 	simple_ghmap_t external_tls;
+	uint8_t block_signals;
+	uint64_t signal_block_count;
+	simple_ghmap_t signal_handlers;
 };
 
 LIBSYS_ENUM(uint64_t, sys_thread_tls_key) {

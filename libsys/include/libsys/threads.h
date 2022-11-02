@@ -34,6 +34,7 @@ LIBSYS_OBJECT_CLASS(thread);
 
 typedef uint64_t sys_thread_id_t;
 typedef void (*sys_thread_entry_f)(void* context, sys_thread_t* self);
+typedef void (*sys_thread_signal_handler_f)(void* context, sys_thread_t* target_thread, uint64_t signal_number);
 
 #define SYS_THREAD_ID_INVALID UINT64_MAX
 
@@ -42,6 +43,22 @@ LIBSYS_OPTIONS(uint64_t, sys_thread_flags) {
 	 * Immediately start the thread running upon successful creation.
 	 */
 	sys_thread_flag_resume = 1ULL << 0,
+};
+
+LIBSYS_OPTIONS(uint64_t, sys_thread_signal_configuration_flags) {
+	sys_thread_signal_configuration_flag_enabled = 1 << 0,
+	sys_thread_signal_configuration_flag_coalesce = 1 << 1,
+	sys_thread_signal_configuration_flag_allow_redirection = 1 << 2,
+	sys_thread_signal_configuration_flag_preempt = 1 << 3,
+	sys_thread_signal_configuration_flag_block_on_redirect = 1 << 4,
+};
+
+LIBSYS_STRUCT(sys_thread_signal_configuration) {
+	sys_thread_signal_configuration_flags_t flags;
+	sys_thread_signal_handler_f handler;
+	void* context;
+	void* stack;
+	size_t stack_size;
 };
 
 /**
@@ -91,6 +108,28 @@ sys_thread_id_t sys_thread_id(sys_thread_t* thread);
  * @retval ferr_forbidden        Waiting for the given thread was not allowed.
  */
 LIBSYS_WUR ferr_t sys_thread_wait(sys_thread_t* thread);
+
+LIBSYS_WUR ferr_t sys_thread_signal(sys_thread_t* thread, uint64_t signal);
+LIBSYS_WUR ferr_t sys_thread_signal_configure(uint64_t signal, const sys_thread_signal_configuration_t* new_configuration, sys_thread_signal_configuration_t* out_old_configuration);
+LIBSYS_NO_RETURN void sys_thread_signal_return(void);
+
+/**
+ * Prevents the given thread from:
+ * 1. Handling any signals
+ * 2. Having another thread handle its redirected signals
+ *
+ * Any signals that arrive while signals are blocked are queued for handling
+ * after signals are unblocked, except for unblockable signals (e.g. page faults).
+ *
+ * If an unblockable signal arrives while the thread has signals blocked:
+ * 1. If the signal's target thread is @p thread, the thread's process is killed.
+ * 2. If no other thread is able to handle the redirected signal, the target thread's process is killed.
+ *
+ * @note This is only guaranteed to block signals immediately when @p thread
+ *       is the current thread.
+ */
+void sys_thread_block_signals(sys_thread_t* thread);
+void sys_thread_unblock_signals(sys_thread_t* thread);
 
 LIBSYS_DECLARATIONS_END;
 
