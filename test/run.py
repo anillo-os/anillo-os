@@ -64,6 +64,8 @@ parser.add_argument('--hotblocks', action='store_true', help='Run QEMU with the 
 parser.add_argument('-r', '--release', action='store_true', help='Test a release build of Anillo OS rather than a debug build')
 parser.add_argument('-u', '--usb', nargs='+', help='Pass a USB device from the host to the guest (format is `bus.addr`)')
 parser.add_argument('-m', '--memory', help='The amount of memory to give to the VM (128M by default)')
+parser.add_argument('-R', '--record', type=str, default=None, help='Record the execution of the VM into the given recording file')
+parser.add_argument('-P', '--play', type=str, default=None, help='Play the execution of the VM from the given recording file')
 
 args = parser.parse_args()
 
@@ -88,6 +90,15 @@ qemu_args = []
 prefix_args = []
 
 accel_name = "tcg"
+
+record_file = os.path.join(os.getcwd(), args.record) if args.record != None else None
+play_file = os.path.join(os.getcwd(), args.play) if args.play != None else None
+using_rr = record_file != None or play_file != None
+
+if using_rr:
+	qemu_args += [
+		'-icount', f'shift=auto,rr={"record" if record_file != None else "replay"},rrfile={record_file if record_file != None else play_file}'
+	]
 
 if args.kvm:
 	if platform.system() == 'Linux':
@@ -128,7 +139,13 @@ def try_find_path(search_list):
 			return path
 	return None
 
+# TODO: rr support for pflash
 if args.arch == 'aarch64':
+	rr_snapshot = ""
+
+	if using_rr:
+		rr_snapshot = ',"snapshot":true'
+
 	# most of this was copied over from an AARCH64 libvirt VM
 	# some of it was modified afterwards
 	qemu_args += [
@@ -170,9 +187,9 @@ if args.arch == 'aarch64':
 
 		'-device', 'virtio-serial-pci,id=virtio-serial0,bus=pci.3,addr=0x0',
 
-		'-blockdev', f'{{"driver":"file","filename":"{disk_path}","node-name":"anillo-1-storage","auto-read-only":true,"discard":"unmap"}}',
-		'-blockdev', '{"node-name":"anillo-1-format","read-only":false,"driver":"raw","file":"anillo-1-storage"}',
-		'-device', 'virtio-blk-pci,bus=pci.4,addr=0x0,drive=anillo-1-format,id=virtio-disk0,bootindex=1',
+		'-blockdev', f'{{"driver":"file","filename":"{disk_path}","node-name":"anillo-1-storage","auto-read-only":true,"discard":"unmap"{rr_snapshot}}}',
+		'-blockdev', f'{{"node-name":"anillo-1-format","read-only":false,"driver":"raw","file":"anillo-1-storage"}}',
+		'-device', f'virtio-blk-pci,bus=pci.4,addr=0x0,drive=anillo-1-format{"-rr" if using_rr else ""},id=virtio-disk0,bootindex=1',
 
 		'-chardev', f'socket,id=charchannel0,server=on,wait=off,path={os.path.join(args.build_dir, "serial")}',
 		'-device', 'virtserialport,bus=virtio-serial0.0,nr=1,chardev=charchannel0,id=channel0,name=org.qemu.guest_agent.0',
@@ -184,6 +201,11 @@ if args.arch == 'aarch64':
 		'-device', 'usb-mouse',
 	]
 
+	if using_rr:
+		qemu_args += [
+			'-blockdev', '{"node-name":"anillo-1-format-rr","read-only":false,"driver":"blkreplay","image":"anillo-1-storage"}',
+		]
+
 	qemu_debug_args += ['mmu', 'guest_errors']
 
 	if not args.headless:
@@ -191,16 +213,27 @@ if args.arch == 'aarch64':
 			'-device', 'ramfb',
 		]
 elif args.arch == 'x86_64':
+	rr_snapshot = ""
+
+	if using_rr:
+		rr_snapshot = ',snapshot'
+
 	qemu_args += [
 		'-drive', f'if=pflash,format=raw,unit=0,file={efi_code_path}',
 		'-drive', f'if=pflash,format=raw,unit=1,file={efi_vars_path}',
-		'-drive', f'if=virtio,format=raw,file={disk_path}',
+		'-drive', f'if=none,format=raw,file={disk_path},id=anillo-disk0{rr_snapshot}',
+		'-device', f'virtio-blk-pci,drive=anillo-disk0{"-rr" if using_rr else ""}',
 		'-machine', f'type=q35,accel={accel_name}',
 		'-device', 'qemu-xhci',
 		'-device', 'usb-kbd',
 		'-device', 'usb-mouse',
 		'-cpu', 'host' if args.kvm else 'max',
 	]
+
+	if using_rr:
+		qemu_args += [
+		'-drive', 'if=none,driver=blkreplay,image=anillo-disk0,id=anillo-disk0-rr',
+		]
 
 	if args.headless:
 		qemu_args += [
@@ -225,6 +258,10 @@ else:
 		'-netdev', f'{net_name},id=netdev0{net_args}',
 		'-device', 'e1000e,netdev=netdev0,id=net0',
 	]
+	if using_rr:
+		qemu_args += [
+			'-object', 'filter-replay,id=replay,netdev=netdev0',
+		]
 
 if args.headless:
 	qemu_args += ['-nographic']
