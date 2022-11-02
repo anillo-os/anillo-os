@@ -180,6 +180,10 @@ void fthread_interrupt_end(fthread_t* thread);
 void fthread_died(fthread_t* thread);
 
 /**
+ * Informs the threads subsystem that the given thread has been suspended.
+ */
+void fthread_suspended(fthread_t* thread);
+/**
  * Initializes the given thread with architecture-specific information.
  */
 void farch_thread_init_info(fthread_t* thread, fthread_initializer_f initializer, void* data);

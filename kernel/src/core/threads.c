@@ -87,11 +87,20 @@ FERRO_NO_RETURN void fthread_exit(void* exit_data, size_t exit_data_size, bool c
 	__builtin_unreachable();
 };
 
-ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_value, fthread_timeout_type_t timeout_type) {
+static void fthread_suspend_timeout_suspend_waiter(void* context) {
+	volatile bool* do_wait = context;
+	*do_wait = false;
+};
+
+ferr_t fthread_suspend_timeout(fthread_t* thread, bool wait, uint64_t timeout_value, fthread_timeout_type_t timeout_type) {
 	fthread_private_t* private_thread;
 	fthread_state_execution_t prev_exec_state;
 	ferr_t status = ferr_ok;
 	uint8_t hooks_in_use;
+	volatile bool do_wait = false;
+	fwaitq_waiter_t suspend_waiter;
+
+	fwaitq_waiter_init(&suspend_waiter, fthread_suspend_timeout_suspend_waiter, (void*)&do_wait);
 
 	if (!thread) {
 		thread = fthread_current();
@@ -114,6 +123,9 @@ ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_value, fthrea
 		status = ferr_permanent_outage;
 	} else if (prev_exec_state == fthread_state_execution_suspended || (thread->state & fthread_state_pending_suspend) != 0) {
 		status = ferr_already_in_progress;
+		if ((thread->state & fthread_state_pending_suspend) != 0 && wait) {
+			do_wait = true;
+		}
 	} else {
 		bool handled = false;
 
@@ -134,6 +146,12 @@ ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_value, fthrea
 
 			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
 				handled = true;
+
+				// re-check the state
+				if ((thread->state & fthread_state_pending_suspend) != 0 && wait) {
+					// if we want to wait and the thread hasn't been suspended yet, we need to go ahead and register a waiter and wait
+					do_wait = true;
+				}
 			}
 
 			if (hook_status == ferr_permanent_outage) {
@@ -146,18 +164,30 @@ ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_value, fthrea
 		}
 	}
 
+	if (do_wait && wait) {
+		// register a waiter to be notified when the thread is finally suspended
+		fwaitq_wait(&thread->suspend_wait, &suspend_waiter);
+	}
+
 out_locked:
 	flock_spin_intsafe_unlock(&thread->lock);
+
+	if (do_wait && wait) {
+		// wait until the waiter notifies us that the thread was suspended
+		while (do_wait) {
+			// TODO: do something better than just spinning
+		}
+	}
 
 	return status;
 };
 
-ferr_t fthread_suspend(fthread_t* thread) {
-	return fthread_suspend_timeout(thread, 0, 0);
+ferr_t fthread_suspend(fthread_t* thread, bool wait) {
+	return fthread_suspend_timeout(thread, wait, 0, 0);
 };
 
 void fthread_suspend_self(void) {
-	if (fthread_suspend(NULL) != ferr_ok) {
+	if (fthread_suspend(NULL, false) != ferr_ok) {
 		fpanic("Failed to suspend own thread");
 	}
 };
@@ -364,6 +394,10 @@ void fthread_died(fthread_t* thread) {
 	// this is fine even if the thread that's dying is a worker thread, because there's always going to be
 	// at least one worker thread alive and available for the system to use
 	fpanic_status(fwork_schedule_new(fthread_died_worker, thread, 0, NULL));
+};
+
+void fthread_suspended(fthread_t* thread) {
+	fwaitq_wake_many(&thread->suspend_wait, SIZE_MAX);
 };
 
 fthread_state_execution_t fthread_execution_state(fthread_t* thread) {

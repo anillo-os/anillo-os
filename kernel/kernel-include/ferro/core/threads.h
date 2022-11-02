@@ -58,7 +58,6 @@ FERRO_DECLARATIONS_BEGIN;
 
 // only the first 32 bits can be used for public flags
 FERRO_OPTIONS(uint64_t, fthread_flags) {
-
 	/**
 	 * Deallocate the stack using the paging subsystem when the thread exits.
 	 */
@@ -211,6 +210,13 @@ FERRO_STRUCT(fthread) {
 	 * @note The waiters are notified from within a worker.
 	 */
 	fwaitq_t destroy_wait;
+
+	/**
+	 * A waitq used to wait for the thread to be suspended.
+	 *
+	 * @note The waiters are notified from any execution context. It may be a worker, but it may be another thread or even an interrupt.
+	 */
+	fwaitq_t suspend_wait;
 };
 
 /**
@@ -273,8 +279,9 @@ FERRO_NO_RETURN void fthread_exit(void* exit_data, size_t exit_data_size, bool c
  * Suspends the given thread.
  *
  * @param thread The thread to suspend. If this is `NULL`, the current thread is used.
- *
- * @note Suspension might not occur immediately upon invocation of this function.
+ * @param wait   If `true`, this function will not return until the thread has been suspended.
+ *               If `false`, this function will request that the given thread be suspended;
+ *               however, it may not be suspended yet upon return.
  *
  * @note If you suspend your own thread (i.e. the one that is currently running), execution is immediately stopped. It will always succeed in this case.
  *
@@ -284,14 +291,17 @@ FERRO_NO_RETURN void fthread_exit(void* exit_data, size_t exit_data_size, bool c
  * @retval ferr_permanent_outage    The thread was dead (or had an imminent death).
  * @retval ferr_invalid_argument    The thread had no registered manager.
  */
-FERRO_WUR ferr_t fthread_suspend(fthread_t* thread);
+FERRO_WUR ferr_t fthread_suspend(fthread_t* thread, bool wait);
 
 /**
  * Like fthread_suspend(), but once suspended, starts a timer to resume the thread.
  *
  * @param thread        The thread to suspend. If this is `NULL`, the current thread is used.
- * @param timeout_value The value for the timer. How this value is interpretted depends on @p timeout_origin. A value of 0 for this disables the timeout, no matter what timeout type is specified.
- * @param timeout_type  This determines how the timeout value is interpretted. See ::fthread_timeout_origin for details on what each value does.
+ * @param timeout_value The value for the timer. How this value is interpreted depends on @p timeout_origin. A value of 0 for this disables the timeout, no matter what timeout type is specified.
+ * @param timeout_type  This determines how the timeout value is interpreted. See ::fthread_timeout_origin for details on what each value does.
+ * @param wait          If `true`, this function will not return until the thread has been suspended.
+ *                      If `false`, this function will request that the given thread be suspended;
+ *                      however, it may not be suspended yet upon return.
  *
  * @note The timer is started once the thread is suspended, not before.
  *
@@ -301,7 +311,7 @@ FERRO_WUR ferr_t fthread_suspend(fthread_t* thread);
  * @retval ferr_permanent_outage    The thread was dead (or had an imminent death).
  * @retval ferr_invalid_argument    The thread had no registered manager.
  */
-FERRO_WUR ferr_t fthread_suspend_timeout(fthread_t* thread, uint64_t timeout_value, fthread_timeout_type_t timeout_type);
+FERRO_WUR ferr_t fthread_suspend_timeout(fthread_t* thread, bool wait, uint64_t timeout_value, fthread_timeout_type_t timeout_type);
 
 /**
  * Suspends the current thread.

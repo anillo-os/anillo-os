@@ -56,9 +56,9 @@ ferr_t fsyscall_handler_thread_suspend(uint64_t thread_id, uint64_t timeout, fsy
 	// TODO: check whether the calling thread has the ability to suspend the given thread
 
 	if (timeout_type == 0) {
-		status = fthread_suspend(thread);
+		status = fthread_suspend(thread, false);
 	} else {
-		status = fthread_suspend_timeout(thread, timeout, thread_timeout_type);
+		status = fthread_suspend_timeout(thread, false, timeout, thread_timeout_type);
 	}
 
 out:
