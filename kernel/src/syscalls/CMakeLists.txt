@@ -24,7 +24,7 @@ add_library(ferro_syscalls STATIC
 	thread_kill.c
 	thread_suspend.c
 	thread_resume.c
-	thread_signal_configure.c
+	thread_signal.c
 	futex_wait.c
 	futex_wake.c
 	futex_associate.c

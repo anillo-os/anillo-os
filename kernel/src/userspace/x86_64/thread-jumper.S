@@ -247,3 +247,82 @@ _farch_uthread_syscall_handler_wrapper:
 
 	// ...and head back into userspace
 	sysretq
+
+
+// arg 1 (rdi) is the context to load
+.text
+.global _farch_uthread_syscall_exit_preserve_all
+_farch_uthread_syscall_exit_preserve_all:
+	// save the context to r13
+	mov %rdi, %r13
+
+	// load the right interrupt-disable count (0 for userspace)
+	// zero-out rdi
+	xor %edi, %edi
+	call _farch_uthread_set_interrupt_disable_count
+
+	// load the XSAVE area address into a temporary register
+	lea FOFFSET_fthread_saved_context_xsave_area(%r13), %r12
+
+	// load the XSAVE feature mask
+	movq %gs:FOFFSET_farch_per_cpu_data_xsave_features, %rdx
+	mov %edx, %eax
+	shr $32, %rdx
+
+	// now perform XRSTOR
+	xrstor64 (%r12)
+
+	//
+	// load the context
+	//
+	mov FOFFSET_fthread_saved_context_rax(%r13), %rax
+	mov FOFFSET_fthread_saved_context_rcx(%r13), %rcx
+	mov FOFFSET_fthread_saved_context_rdx(%r13), %rdx
+	mov FOFFSET_fthread_saved_context_rbx(%r13), %rbx
+	mov FOFFSET_fthread_saved_context_rsi(%r13), %rsi
+	mov FOFFSET_fthread_saved_context_rdi(%r13), %rdi
+	// rsp is loaded later (by the iretq)
+	mov FOFFSET_fthread_saved_context_rbp(%r13), %rbp
+	mov  FOFFSET_fthread_saved_context_r8(%r13),  %r8
+	mov  FOFFSET_fthread_saved_context_r9(%r13),  %r9
+	// r10 is loaded later
+	mov FOFFSET_fthread_saved_context_r11(%r13), %r11
+	mov FOFFSET_fthread_saved_context_r12(%r13), %r12
+	// r13 is loaded later
+	mov FOFFSET_fthread_saved_context_r14(%r13), %r14
+	mov FOFFSET_fthread_saved_context_r15(%r13), %r15
+
+	// now for the next part, we setup a fake interrupt return frame
+
+	// first, allocate space for the fake frame
+	sub MAKE_IMMEDIATE(FLAYOUT_farch_int_frame_core_SIZE), %rsp
+
+	// now load each of the values
+	mov FOFFSET_fthread_saved_context_rip(%r13), %r10
+	mov %r10, FOFFSET_farch_int_frame_core_rip(%rsp)
+
+	mov FOFFSET_fthread_saved_context_cs(%r13), %r10
+	mov %r10, FOFFSET_farch_int_frame_core_cs(%rsp)
+
+	mov FOFFSET_fthread_saved_context_rflags(%r13), %r10
+	mov %r10, FOFFSET_farch_int_frame_core_rflags(%rsp)
+
+	mov FOFFSET_fthread_saved_context_rsp(%r13), %r10
+	mov %r10, FOFFSET_farch_int_frame_core_rsp(%rsp)
+
+	mov FOFFSET_fthread_saved_context_ss(%r13), %r10
+	mov %r10, FOFFSET_farch_int_frame_core_ss(%rsp)
+
+	// load r10 now
+	// (we don't need it as a temporary register anymore)
+	mov FOFFSET_fthread_saved_context_r10(%r13), %r10
+
+	// load r13 now
+	// (we don't need the context pointer anymore)
+	mov FOFFSET_fthread_saved_context_r13(%r13), %r13
+
+	// finally, let's swap out the gs with the user one...
+	swapgs
+
+	// ...and perform the fake interrupt return
+	iretq

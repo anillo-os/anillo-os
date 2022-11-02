@@ -20,6 +20,8 @@
 #include <ferro/userspace/threads.h>
 #include <ferro/core/panic.h>
 
+#include <gen/ferro/userspace/syscall-index.h>
+
 extern uint64_t farch_syscall_handler_invoke(void* handler, fthread_saved_context_t* user_context);
 
 void fsyscall_table_handler(void* context, fthread_t* uthread, fthread_saved_context_t* user_context) {
@@ -31,6 +33,15 @@ void fsyscall_table_handler(void* context, fthread_t* uthread, fthread_saved_con
 
 	if (user_context->x8 == 0 || user_context->x8 >= table->count) {
 		user_context->x0 = ((fsyscall_handler_lookup_error_f)table->handlers[0])(user_context->x8);
+	} else if (user_context->x8 == FERRO_SYSCALL_thread_signal_return) {
+		// HACK: this should NOT be special-cased, but it is for now
+		ferr_t status = farch_syscall_handler_invoke(table->handlers[user_context->x8], user_context);
+
+		// if the syscall returned ferr_ok, that means it *did* find a signal to exit, so we shouldn't touch
+		// the saved user context (since it may have loaded a new context into it)
+		if (status != ferr_ok) {
+			user_context->x0 = status;
+		}
 	} else {
 		user_context->x0 = farch_syscall_handler_invoke(table->handlers[user_context->x8], user_context);
 	}

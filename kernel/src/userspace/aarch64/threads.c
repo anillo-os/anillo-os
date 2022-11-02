@@ -52,18 +52,49 @@ void futhread_ending_interrupt_arch(fthread_t* uthread, futhread_data_t* udata) 
 
 FERRO_NO_RETURN
 static void farch_uthread_syscall_wrapper(void) {
+	futhread_data_private_t* private_data = (void*)FARCH_PER_CPU(current_uthread_data);
+
 	// load in the address space
 	fpanic_status(fpage_space_swap((void*)FARCH_PER_CPU(current_uthread_data)->saved_syscall_context->address_space));
 
-	if (FARCH_PER_CPU(current_uthread_data)->syscall_handler) {
-		FARCH_PER_CPU(current_uthread_data)->syscall_handler(FARCH_PER_CPU(current_uthread_data)->syscall_handler_context, FARCH_PER_CPU(current_thread), FARCH_PER_CPU(current_uthread_data)->saved_syscall_context);
-	} else {
-		// TODO: indicate that the thread is dying from an error
-		fthread_kill_self();
+	// we know that, coming from userspace, we have no reason to be marked as interrupted;
+	// any possible signals will be checked in a moment anyways. the only time we care about the
+	// thread interrupt flag is *during* a syscall, since it lets us know that we should exit early.
+	fthread_unmark_interrupted(FARCH_PER_CPU(current_thread));
+
+	if (futhread_handle_signals(FARCH_PER_CPU(current_thread), false) != ferr_signaled) {
+		if (FARCH_PER_CPU(current_uthread_data)->syscall_handler) {
+			FARCH_PER_CPU(current_uthread_data)->syscall_handler(FARCH_PER_CPU(current_uthread_data)->syscall_handler_context, FARCH_PER_CPU(current_thread), FARCH_PER_CPU(current_uthread_data)->saved_syscall_context);
+		} else {
+			// TODO: indicate that the thread is dying from an error
+			fthread_kill_self();
+		}
 	}
+
+	flock_mutex_lock(&private_data->signals_mutex);
+
+	// if there are signals to handle, it'll set them up to be handled upon return to userspace.
+	FERRO_WUR_IGNORE(futhread_handle_signals(FARCH_PER_CPU(current_thread), false));
 
 	// disable interrupts so we can return safely
 	fint_disable();
+
+	// we unlock this with interrupts disabled to avoid a race if someone else signals us with a preemptive signal
+	// and sees that we're in kernel-space. if they see we're in kernel-space, they just queue the preemptive signal.
+	// if we unlocked this with interrupts enabled, someone might signal us in the time between the check we just did and
+	// the interrupt-disable.
+	flock_mutex_unlock(&private_data->signals_mutex);
+
+	// we can also unmark the thread as interrupted here.
+	// we know that if someone set the "interrupted" flag, that's because
+	// a signal was pending, which we've already handled.
+	fthread_unmark_interrupted(FARCH_PER_CPU(current_thread));
+
+	if (private_data->use_fake_interrupt_return) {
+		private_data->use_fake_interrupt_return = false;
+		// on AARCH64, the syscall mechanism doesn't clobber any registers, so we don't need to do anything different in this case.
+		// actually, on AARCH64, syscalls are *always* exited with a fake exception return; that's the only way to do it.
+	}
 
 	farch_uthread_return_to_userspace(FARCH_PER_CPU(current_uthread_data)->saved_syscall_context);
 };

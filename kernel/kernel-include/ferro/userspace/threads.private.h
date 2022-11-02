@@ -37,10 +37,39 @@
 	#error Unrecognized/unsupported CPU architecture! (see <ferro/userspace/threads.private.h>)
 #endif
 
+#include <gen/ferro/userspace/syscall-handlers.h>
+#include <ferro/core/ghmap.h>
+#include <libsimple/ring.h>
+
 FERRO_DECLARATIONS_BEGIN;
 
 FERRO_STRUCT_FWD(fproc);
 FERRO_STRUCT_FWD(futex);
+
+FERRO_STRUCT(futhread_signal_handler) {
+	uint64_t signal;
+	fsyscall_signal_configuration_t configuration;
+};
+
+FERRO_STRUCT(futhread_pending_signal) {
+	futhread_pending_signal_t** prev;
+	// the next signal in the chain is lower priority than this one and/or was queued later than this one
+	futhread_pending_signal_t* next;
+	fthread_t* target_uthread;
+	fsyscall_signal_configuration_t configuration;
+	uint64_t signal;
+	fthread_saved_context_t* saved_context;
+	// if true, this signal preempted the handling thread when it was not in a syscall.
+	// this means that, when returning from the thread_signal_return syscall, it should not perform
+	// the usual syscall return (which clobbers certain registers) but instead a fake interrupt return (which
+	// preserves all registers).
+	bool preempted;
+	// if true, this signal blocked the target uthread and is responsible for unblocking it when the signal handler returns.
+	bool was_blocked;
+	bool loaded;
+	bool exited;
+	bool can_block;
+};
 
 FERRO_STRUCT(futhread_data_private) {
 	futhread_data_t public;
@@ -79,10 +108,21 @@ FERRO_STRUCT(futhread_data_private) {
 	futex_t* uthread_death_futex;
 	uint64_t uthread_death_futex_value;
 
+	simple_ghmap_t signal_handler_table;
+	futhread_pending_signal_t* pending_signal;
+	futhread_pending_signal_t* last_pending_signal;
+	futhread_pending_signal_t* current_signal;
+	fsyscall_signal_mapping_t signal_mapping;
+	flock_mutex_t signals_mutex;
+
+	bool use_fake_interrupt_return;
+
 	futhread_data_private_arch_t arch;
 };
 
 futhread_data_t* futhread_data_for_thread(fthread_t* thread);
+
+ferr_t futhread_handle_signals(fthread_t* uthread, bool locked);
 
 // these are architecture-specific function we expect all architectures to implement
 

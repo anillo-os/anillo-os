@@ -74,7 +74,12 @@ static void log_context(fthread_saved_context_t* context) {
 	);
 };
 
+FERRO_NO_RETURN
+extern void farch_uthread_syscall_exit_preserve_all(const fthread_saved_context_t* context);
+
 void farch_uthread_syscall_handler(void) {
+	futhread_data_private_t* private_data = (void*)FARCH_PER_CPU(current_uthread_data);
+
 	// syscalls mask out the interrupt flag, so interrupts are disabled right now
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = 1;
 
@@ -82,15 +87,43 @@ void farch_uthread_syscall_handler(void) {
 	// we're executing in a kernel-space thread context
 	fint_enable();
 
-	if (FARCH_PER_CPU(current_uthread_data)->syscall_handler) {
-		FARCH_PER_CPU(current_uthread_data)->syscall_handler(FARCH_PER_CPU(current_uthread_data)->syscall_handler_context, FARCH_PER_CPU(current_thread), FARCH_PER_CPU(current_uthread_data)->saved_syscall_context);
-	} else {
-		// TODO: indicate that the thread is dying from an error
-		fthread_kill_self();
+	// we know that, coming from userspace, we have no reason to be marked as interrupted;
+	// any possible signals will be checked in a moment anyways. the only time we care about the
+	// thread interrupt flag is *during* a syscall, since it lets us know that we should exit early.
+	fthread_unmark_interrupted(FARCH_PER_CPU(current_thread));
+
+	if (futhread_handle_signals(FARCH_PER_CPU(current_thread), false) != ferr_signaled) {
+		if (FARCH_PER_CPU(current_uthread_data)->syscall_handler) {
+			FARCH_PER_CPU(current_uthread_data)->syscall_handler(FARCH_PER_CPU(current_uthread_data)->syscall_handler_context, FARCH_PER_CPU(current_thread), FARCH_PER_CPU(current_uthread_data)->saved_syscall_context);
+		} else {
+			// TODO: indicate that the thread is dying from an error
+			fthread_kill_self();
+		}
 	}
+
+	flock_mutex_lock(&private_data->signals_mutex);
+
+	// if there are signals to handle, it'll set them up to be handled upon return to userspace.
+	FERRO_WUR_IGNORE(futhread_handle_signals(FARCH_PER_CPU(current_thread), false));
 
 	// since we're heading back into userspace, we want to disable interrupts for the context switching (to avoid corrupting the processor state)
 	fint_disable();
+
+	// we unlock this with interrupts disabled to avoid a race if someone else signals us with a preemptive signal
+	// and sees that we're in kernel-space. if they see we're in kernel-space, they just queue the preemptive signal.
+	// if we unlocked this with interrupts enabled, someone might signal us in the time between the check we just did and
+	// the interrupt-disable.
+	flock_mutex_unlock(&private_data->signals_mutex);
+
+	// we can also unmark the thread as interrupted here.
+	// we know that if someone set the "interrupted" flag, that's because
+	// a signal was pending, which we've already handled.
+	fthread_unmark_interrupted(FARCH_PER_CPU(current_thread));
+
+	if (private_data->use_fake_interrupt_return) {
+		private_data->use_fake_interrupt_return = false;
+		farch_uthread_syscall_exit_preserve_all(FARCH_PER_CPU(current_uthread_data)->saved_syscall_context);
+	}
 };
 
 void futhread_arch_init(void) {
