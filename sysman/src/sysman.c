@@ -57,9 +57,60 @@ static void start_process(const char* filename) {
 	proc = NULL;
 };
 
+#if 0
+#define THE_SIGNAL 8
+
+static void signaling_thread(void* context, sys_thread_t* this_thread) {
+	sys_thread_t* thread_to_signal = context;
+
+	while (true) {
+		sys_console_log("going to signal.\n");
+		//LIBSYS_WUR_IGNORE(sys_thread_signal(thread_to_signal, THE_SIGNAL));
+		LIBSYS_WUR_IGNORE(sys_thread_signal(sys_thread_current(), THE_SIGNAL));
+
+		LIBSYS_WUR_IGNORE(sys_thread_suspend_timeout(sys_thread_current(), 5ull * 1000 * 1000 * 1000, sys_timeout_type_relative_ns_monotonic));
+	}
+};
+
+static void signal_handler(void* context, sys_thread_t* target_thread, uint64_t signal_number) {
+	void* stack_pointer;
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	__asm__ volatile("mov %%rsp, %0" : "=r" (stack_pointer));
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	__asm__ volatile("mov %0, sp" : "=r" (stack_pointer));
+#endif
+	sys_console_log_f("signal (sp = %p; target thread id = %llu)! waiting 10 seconds...\n", stack_pointer, sys_thread_id(target_thread));
+
+	for (size_t i = 0; i < 10; ++i) {
+		sys_console_log_f("%zu\n", i);
+		LIBSYS_WUR_IGNORE(sys_thread_suspend_timeout(sys_thread_current(), 1ull * 1000 * 1000 * 1000, sys_timeout_type_relative_ns_monotonic));
+	}
+
+	sys_release(target_thread);
+};
+#endif
+
 void main(void) {
 	start_process("/sys/netman/netman");
 	start_process("/sys/usbman/usbman");
 
 	eve_loop_run(eve_loop_get_main());
+#if 0
+	sys_thread_signal_configuration_t config = {
+		.flags = sys_thread_signal_configuration_flag_enabled | sys_thread_signal_configuration_flag_allow_redirection | sys_thread_signal_configuration_flag_preempt,
+		.handler = signal_handler,
+		.context = NULL,
+		.stack = NULL,
+		.stack_size = 0,
+	};
+
+	sys_abort_status_log(sys_thread_signal_configure(THE_SIGNAL, &config, NULL));
+
+	sys_abort_status_log(sys_thread_create(NULL, 2ull * 1024 * 1024, signaling_thread, sys_thread_current(), sys_thread_flag_resume, NULL));
+
+	while (true) {
+		sys_console_log("normal.\n");
+		LIBSYS_WUR_IGNORE(sys_thread_suspend_timeout(sys_thread_current(), 1ull * 1000 * 1000 * 1000, sys_timeout_type_relative_ns_monotonic));
+	}
+#endif
 };
