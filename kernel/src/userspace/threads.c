@@ -298,6 +298,8 @@ retry_lookup:
 	private_data->use_fake_interrupt_return = false;
 	private_data->signal_mapping.block_all_flag = NULL;
 
+	simple_memset(&private_data->signal_stack, 0, sizeof(private_data->signal_stack));
+
 	futhread_arch_init_private_data(private_data);
 
 out_locked:
@@ -430,36 +432,44 @@ fproc_t* futhread_process(fthread_t* uthread) {
 };
 
 // must be holding the signal mutex
-static void futhread_signal_setup_context(futhread_pending_signal_t* signal, fthread_saved_context_t* context) {
+static void futhread_signal_setup_context(fsyscall_signal_stack_t* signal_stack, futhread_pending_signal_t* signal, fthread_saved_context_t* context_to_save, fthread_saved_context_t* context) {
 	// first, find the appropriate initial stack pointer to use
 	void* stack_pointer;
 	bool reused = false;
+	fsyscall_signal_info_t* signal_info;
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	void* xsave_area;
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	void* fp_regs;
+#endif
 
-	if (signal->configuration.stack) {
-		stack_pointer = (char*)signal->configuration.stack + signal->configuration.stack_size;
+	if (signal_stack->base) {
+		void* old_sp;
 
-		// look through the current signals to see if any of them have a saved stack pointer within this region
-		for (futhread_pending_signal_t* other_signal = signal; other_signal != NULL; other_signal = other_signal->next) {
-			void* other_stack_pointer;
+		stack_pointer = (char*)signal_stack->base + signal_stack->size;
 
-	#if FERRO_ARCH == FERRO_ARCH_x86_64
-			other_stack_pointer = (void*)other_signal->saved_context->rsp;
-	#elif FERRO_ARCH == FERRO_ARCH_aarch64
-			other_stack_pointer = (void*)other_signal->saved_context->sp;
-	#endif
+		// check if this stack is the one we were just using
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+		old_sp = (void*)context_to_save->rsp;
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+		old_sp = (void*)context_to_save->sp;
+#endif
 
-			if (other_stack_pointer > signal->configuration.stack && other_stack_pointer < stack_pointer) {
-				// this address is within the stack region, so we need to move our stack pointer down to where it is
-				stack_pointer = other_stack_pointer;
-				reused = true;
-			}
+		if (old_sp > signal_stack->base && old_sp < stack_pointer) {
+			// start from the old_sp instead, since this stack is already in-use
+			stack_pointer = old_sp;
+			reused = true;
+		}
+
+		if (signal_stack->flags & fsyscall_signal_stack_flag_clear_on_use) {
+			simple_memset(signal_stack, 0, sizeof(*signal_stack));
 		}
 	} else {
 		// use the stack pointer we were just using, but skip the red zone
 #if FERRO_ARCH == FERRO_ARCH_x86_64
-		stack_pointer = (void*)signal->saved_context->rsp;
+		stack_pointer = (void*)context_to_save->rsp;
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
-		stack_pointer = (void*)signal->saved_context->sp;
+		stack_pointer = (void*)context_to_save->sp;
 #endif
 		reused = true;
 	}
@@ -471,6 +481,100 @@ static void futhread_signal_setup_context(futhread_pending_signal_t* signal, fth
 		stack_pointer = (char*)stack_pointer - 128;
 	}
 
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	// make space on the stack for the xsave area
+	// (align it, too)
+	stack_pointer = (void*)(((uintptr_t)stack_pointer - FARCH_PER_CPU(xsave_area_size)) & ~63);
+	xsave_area = stack_pointer;
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	// make space on the stack for the FP registers
+	// (and align it to 16 bytes)
+	stack_pointer = (void*)(((uintptr_t)stack_pointer - (sizeof(__uint128_t) * 32)) & ~15);
+	fp_regs = stack_pointer;
+#endif
+
+	// make space on the stack for the signal info
+	stack_pointer = (char*)stack_pointer - (sizeof(fsyscall_signal_info_t) + sizeof(ferro_thread_context_t));
+
+	// TODO: verify that this address is valid before writing to it
+	signal_info = stack_pointer;
+
+	// align the stack to 16 bytes
+	stack_pointer = (void*)((uintptr_t)stack_pointer & ~15);
+
+	signal_info->flags = signal->was_blocked ? fsyscall_signal_info_flag_blocked : 0;
+	signal_info->signal_number = signal->signal;
+	signal_info->thread_id = signal->target_uthread->id;
+	signal_info->thread_context = (void*)((char*)signal_info + sizeof(fsyscall_signal_info_t));
+	signal_info->data = 0;
+
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	signal_info->thread_context->rax = context_to_save->rax;
+	signal_info->thread_context->rcx = context_to_save->rcx;
+	signal_info->thread_context->rdx = context_to_save->rdx;
+	signal_info->thread_context->rbx = context_to_save->rbx;
+	signal_info->thread_context->rsi = context_to_save->rsi;
+	signal_info->thread_context->rdi = context_to_save->rdi;
+	signal_info->thread_context->rsp = context_to_save->rsp;
+	signal_info->thread_context->rbp = context_to_save->rbp;
+	signal_info->thread_context->r8 = context_to_save->r8;
+	signal_info->thread_context->r9 = context_to_save->r9;
+	signal_info->thread_context->r10 = context_to_save->r10;
+	signal_info->thread_context->r11 = context_to_save->r11;
+	signal_info->thread_context->r12 = context_to_save->r12;
+	signal_info->thread_context->r13 = context_to_save->r13;
+	signal_info->thread_context->r14 = context_to_save->r14;
+	signal_info->thread_context->r15 = context_to_save->r15;
+	signal_info->thread_context->rip = context_to_save->rip;
+	signal_info->thread_context->rflags = context_to_save->rflags;
+	signal_info->thread_context->xsave_area = xsave_area;
+	signal_info->thread_context->xsave_area_size = FARCH_PER_CPU(xsave_area_size);
+
+	// now copy the xsave area
+	simple_memcpy(signal_info->thread_context->xsave_area, context_to_save->xsave_area, FARCH_PER_CPU(xsave_area_size));
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	signal_info->thread_context->x0 = context_to_save->x0;
+	signal_info->thread_context->x1 = context_to_save->x1;
+	signal_info->thread_context->x2 = context_to_save->x2;
+	signal_info->thread_context->x3 = context_to_save->x3;
+	signal_info->thread_context->x4 = context_to_save->x4;
+	signal_info->thread_context->x5 = context_to_save->x5;
+	signal_info->thread_context->x6 = context_to_save->x6;
+	signal_info->thread_context->x7 = context_to_save->x7;
+	signal_info->thread_context->x8 = context_to_save->x8;
+	signal_info->thread_context->x9 = context_to_save->x9;
+	signal_info->thread_context->x10 = context_to_save->x10;
+	signal_info->thread_context->x11 = context_to_save->x11;
+	signal_info->thread_context->x12 = context_to_save->x12;
+	signal_info->thread_context->x13 = context_to_save->x13;
+	signal_info->thread_context->x14 = context_to_save->x14;
+	signal_info->thread_context->x15 = context_to_save->x15;
+	signal_info->thread_context->x16 = context_to_save->x16;
+	signal_info->thread_context->x17 = context_to_save->x17;
+	signal_info->thread_context->x18 = context_to_save->x18;
+	signal_info->thread_context->x19 = context_to_save->x19;
+	signal_info->thread_context->x20 = context_to_save->x20;
+	signal_info->thread_context->x21 = context_to_save->x21;
+	signal_info->thread_context->x22 = context_to_save->x22;
+	signal_info->thread_context->x23 = context_to_save->x23;
+	signal_info->thread_context->x24 = context_to_save->x24;
+	signal_info->thread_context->x25 = context_to_save->x25;
+	signal_info->thread_context->x26 = context_to_save->x26;
+	signal_info->thread_context->x27 = context_to_save->x27;
+	signal_info->thread_context->x28 = context_to_save->x28;
+	signal_info->thread_context->x29 = context_to_save->x29;
+	signal_info->thread_context->x30 = context_to_save->x30;
+	signal_info->thread_context->pc = context_to_save->pc;
+	signal_info->thread_context->sp = context_to_save->sp;
+	signal_info->thread_context->pstate = context_to_save->pstate;
+	signal_info->thread_context->fpsr = context_to_save->fpsr;
+	signal_info->thread_context->fpcr = context_to_save->fpcr;
+	signal_info->thread_context->fp_registers = fp_regs;
+
+	// now copy the FP registers
+	simple_memcpy(fp_regs, context_to_save->fp_registers, sizeof(context_to_save->fp_registers));
+#endif
+
 	// zero out the context
 	simple_memset(context, 0, sizeof(*context) + FTHREAD_EXTRA_SAVE_SIZE);
 
@@ -481,10 +585,9 @@ static void futhread_signal_setup_context(futhread_pending_signal_t* signal, fth
 	context->rip = (uintptr_t)signal->configuration.handler;
 	context->rsp = (uintptr_t)stack_pointer;
 	context->rdi = (uintptr_t)signal->configuration.context;
-	context->rsi = (uintptr_t)signal->target_uthread->id;
-	context->rdx = signal->signal;
-	context->cs = farch_int_gdt_index_code_user * 8;
-	context->ss = farch_int_gdt_index_data_user * 8;
+	context->rsi = (uintptr_t)signal_info;
+	context->cs = (farch_int_gdt_index_code_user * 8) | 3;
+	context->ss = (farch_int_gdt_index_data_user * 8) | 3;
 
 	// set the reserved bit (bit 1) and the interrupt-enable bit (bit 9)
 	context->rflags = (1ULL << 1) | (1ULL << 9);
@@ -496,8 +599,7 @@ static void futhread_signal_setup_context(futhread_pending_signal_t* signal, fth
 	context->pc = (uintptr_t)signal->configuration.handler;
 	context->sp = (uintptr_t)stack_pointer;
 	context->x0 = (uintptr_t)signal->configuration.context;
-	context->x1 = (uintptr_t)signal->target_uthread->id;
-	context->x2 = signal->signal;
+	context->x1 = (uintptr_t)signal_info;
 
 	// leave the DAIF mask bits cleared to enable interrupts
 	context->pstate = farch_thread_pstate_aarch64 | farch_thread_pstate_el0 | farch_thread_pstate_sp0;
@@ -526,10 +628,7 @@ ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* ta
 		goto out_unlocked;
 	}
 
-	// x86_64 note:
-	// our xsave area doesn't need to be aligned here because we don't save to or load from the xsave area directly.
-	// we only use it as storage space to copy to and from the uthread's saved syscall context.
-	status = fmempool_allocate(sizeof(*signal) + sizeof(*signal->saved_context) + FTHREAD_EXTRA_SAVE_SIZE, NULL, (void*)&signal);
+	status = fmempool_allocate(sizeof(*signal), NULL, (void*)&signal);
 	if (status != ferr_ok) {
 		goto out_unlocked;
 	}
@@ -538,10 +637,7 @@ ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* ta
 	signal->next = NULL;
 	signal->target_uthread = target_uthread;
 	signal->signal = signal_number;
-	signal->saved_context = (void*)((char*)signal + sizeof(*signal));
-	signal->preempted = false; // adjusted later according to the signal configuration
-	signal->was_blocked = should_unblock_on_exit; // also adjusted later
-	signal->loaded = false;
+	signal->was_blocked = should_unblock_on_exit; // adjusted later
 	signal->exited = false;
 	signal->can_block = can_block;
 
@@ -621,7 +717,7 @@ ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* ta
 			block_self = true;
 			signal->was_blocked = true;
 		} else {
-			if (fthread_block(target_uthread, true) == ferr_ok) {
+			if (!should_unblock_on_exit && fthread_block(target_uthread, true) == ferr_ok) {
 				// we blocked the thread, so we're responsible for unblocking it
 				signal->was_blocked = true;
 			}
@@ -678,16 +774,20 @@ ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* ta
 				// (which means we can let the post-handler handle it)
 			} else {
 				// the thread is executing in userspace
-				// so we need to perform a fake interrupt return later to exit the signal handler
-				// and we also need to load it in ourselves right now.
-				signal->preempted = true;
-				signal->loaded = true;
+				// so we need to load it in ourselves right now.
 
-				// save the current context
-				simple_memcpy(signal->saved_context, uthread->saved_context, sizeof(*signal->saved_context) + FTHREAD_EXTRA_SAVE_SIZE);
+				// unlink this signal from the current signal list
+				*signal->prev = signal->next;
+				if (signal->next) {
+					signal->next->prev = signal->prev;
+				}
 
-				// load in the new context
-				futhread_signal_setup_context(signal, uthread->saved_context);
+				// set up the context to load in the signal handler
+				futhread_signal_setup_context(&private_data->signal_stack, signal, uthread->saved_context, uthread->saved_context);
+
+				// we can free the pending signal info now
+				FERRO_WUR_IGNORE(fmempool_free(signal));
+				signal = NULL;
 			}
 
 			FERRO_WUR_IGNORE(fthread_unblock(uthread));
@@ -768,7 +868,7 @@ retry:
 	}
 
 	// if we're blocking signals and we have an unblockable signal that we want to load, we must kill the target uthread and its process (if it has one).
-	if (blocked && private_data->current_signal && !private_data->current_signal->can_block && !private_data->current_signal->loaded) {
+	if (blocked && private_data->current_signal && !private_data->current_signal->can_block) {
 		futhread_pending_signal_t* signal = private_data->current_signal;
 		fthread_t* target_thread = signal->target_uthread;
 
@@ -787,6 +887,7 @@ retry:
 			// normally, this would be freed upon thread death,
 			// but since we already unlinked it, it's not in the list, so it can't be freed.
 			FERRO_WUR_IGNORE(fmempool_free(signal));
+			signal = NULL;
 		}
 
 		if (futhread_process(target_thread)) {
@@ -798,21 +899,29 @@ retry:
 		// if we got here, the target uthread was not the current thread or a member of the current process.
 
 		FERRO_WUR_IGNORE(fmempool_free(signal));
+		signal = NULL;
 
 		goto retry;
 	}
 
-	// if we have a current signal and it's not loaded (and we're not blocking signals), load it
-	if (!blocked && private_data->current_signal && !private_data->current_signal->loaded) {
+	// if we have a signal to load (and we're not blocking signals), load it
+	if (!blocked && private_data->current_signal) {
+		futhread_pending_signal_t* signal = private_data->current_signal;
+
 		status = ferr_signaled;
 
-		// save the user context
-		simple_memcpy(private_data->current_signal->saved_context, data->saved_syscall_context, sizeof(*private_data->current_signal->saved_context) + FTHREAD_EXTRA_SAVE_SIZE);
+		// unlink this signal from the current signal list
+		*signal->prev = signal->next;
+		if (signal->next) {
+			signal->next->prev = signal->prev;
+		}
 
-		// and set up the context to load in the signal handler
-		futhread_signal_setup_context(private_data->current_signal, data->saved_syscall_context);
+		// set up the context to load in the signal handler
+		futhread_signal_setup_context(&private_data->signal_stack, signal, data->saved_syscall_context, data->saved_syscall_context);
 
-		private_data->current_signal->loaded = true;
+		// we can free the pending signal info now
+		FERRO_WUR_IGNORE(fmempool_free(signal));
+		signal = NULL;
 	}
 
 out:

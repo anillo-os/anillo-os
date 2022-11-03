@@ -28,6 +28,8 @@
 
 #include <ferro/error.h>
 
+#include <gen/libsyscall/syscall-wrappers.h>
+
 LIBSYS_DECLARATIONS_BEGIN;
 
 LIBSYS_STRUCT(sys_thread_signal_handler) {
@@ -54,6 +56,11 @@ LIBSYS_ENUM(uint64_t, sys_thread_tls_key) {
 
 #define LIBSYS_GS_RELATIVE __attribute__((address_space(256)))
 #define LIBSYS_FS_RELATIVE __attribute__((address_space(257)))
+
+LIBSYS_STRUCT(sys_thread_signal_info_private) {
+	sys_thread_signal_info_t public;
+	libsyscall_signal_info_t* original;
+};
 
 LIBSYS_WUR ferr_t sys_thread_init(void);
 

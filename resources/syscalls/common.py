@@ -103,6 +103,12 @@ enums.extend([
 		('preempt', '1 << 4'),
 		('block_on_redirect', '1 << 5'),
 	]),
+	Enum('signal_info_flags', 'u64', prefix='signal_info_flag', values=[
+		('blocked', '1 << 0'),
+	]),
+	Enum('signal_stack_flags', 'u64', prefix='signal_stack_flag', values=[
+		('clear_on_use', '1 << 0'),
+	]),
 ])
 
 structures.extend([
@@ -153,11 +159,21 @@ structures.extend([
 		('flags', 'e:signal_configuration_flags'),
 		('handler', '*'),
 		('context', '*'),
-		('stack', '*'),
-		('stack_size', 'u64'),
 	]),
 	Structure('signal_mapping', [
 		('block_all_flag', '*[u8]'),
+	]),
+	Structure('signal_info', [
+		('flags', 'e:signal_info_flags'),
+		('signal_number', 'u64'),
+		('thread_id', 'u64'),
+		('thread_context', '*[!ferro_thread_context_t]'),
+		('data', 'u64'),
+	]),
+	Structure('signal_stack', [
+		('flags', 'e:signal_stack_flags'),
+		('base', '*'),
+		('size', 'u64'),
 	]),
 ])
 
@@ -187,9 +203,10 @@ structures.extend([
 	.add_syscall('thread_suspend', thread_id='u64', timeout='u64', timeout_type='e:timeout_type')
 	.add_syscall('thread_resume', thread_id='u64')
 	.add_syscall('thread_signal_configure', thread_id='u64', signal_number='u64', new_configuration='*c[s:signal_configuration]', out_old_configuration='*[s:signal_configuration]')
-	.add_syscall('thread_signal_return')
+	.add_syscall('thread_signal_return', info='*c[s:signal_info]')
 	.add_syscall('thread_signal', target_thread_id='u64', signal_number='u64')
 	.add_syscall('thread_signal_update_mapping', thread_id='u64', new_mapping='*c[s:signal_mapping]', out_old_mapping='*[s:signal_mapping]')
+	.add_syscall('thread_signal_stack', new_stack='*c[s:signal_stack]', old_stack='*[s:signal_stack]')
 	.add_syscall('futex_wait', address='*[u64]', channel='u64', expected_value='u64', timeout='u64', timeout_type='e:timeout_type', flags='u64')
 	.add_syscall('futex_wake', address='*[u64]', channel='u64', wakeup_count='u64', flags='u64')
 	.add_syscall('futex_associate', address='*[u64]', channel='u64', event='u64', value='u64')

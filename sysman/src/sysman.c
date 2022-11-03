@@ -72,39 +72,50 @@ static void signaling_thread(void* context, sys_thread_t* this_thread) {
 	}
 };
 
-static void signal_handler(void* context, sys_thread_t* target_thread, uint64_t signal_number) {
+static void signal_handler(void* context, sys_thread_signal_info_t* signal_info) {
 	void* stack_pointer;
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	__asm__ volatile("mov %%rsp, %0" : "=r" (stack_pointer));
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
 	__asm__ volatile("mov %0, sp" : "=r" (stack_pointer));
 #endif
-	sys_console_log_f("signal (sp = %p; target thread id = %llu)! waiting 10 seconds...\n", stack_pointer, sys_thread_id(target_thread));
+	sys_console_log_f("signal (sp = %p; target thread id = %llu)! waiting 10 seconds...\n", stack_pointer, sys_thread_id(signal_info->thread));
 
 	for (size_t i = 0; i < 10; ++i) {
 		sys_console_log_f("%zu\n", i);
 		LIBSYS_WUR_IGNORE(sys_thread_suspend_timeout(sys_thread_current(), 1ull * 1000 * 1000 * 1000, sys_timeout_type_relative_ns_monotonic));
 	}
-
-	sys_release(target_thread);
 };
+
+__attribute__((aligned(4096)))
+static char some_signal_stack[16ull * 1024];
 #endif
 
 void main(void) {
+#if 1
 	start_process("/sys/netman/netman");
 	start_process("/sys/usbman/usbman");
 
 	eve_loop_run(eve_loop_get_main());
+#endif
 #if 0
 	sys_thread_signal_configuration_t config = {
-		.flags = sys_thread_signal_configuration_flag_enabled | sys_thread_signal_configuration_flag_allow_redirection | sys_thread_signal_configuration_flag_preempt,
+		.flags = sys_thread_signal_configuration_flag_enabled | sys_thread_signal_configuration_flag_allow_redirection | sys_thread_signal_configuration_flag_preempt | sys_thread_signal_configuration_flag_block_on_redirect,
 		.handler = signal_handler,
 		.context = NULL,
-		.stack = NULL,
-		.stack_size = 0,
+	};
+	sys_thread_signal_stack_t stack = {
+		.flags = 0,
+		.base = some_signal_stack,
+		.size = sizeof(some_signal_stack),
 	};
 
+	sys_console_log_f("signal stack = (base = %p; top = %p)\n", some_signal_stack, &some_signal_stack[sizeof(some_signal_stack)]);
+
 	sys_abort_status_log(sys_thread_signal_configure(THE_SIGNAL, &config, NULL));
+#if 0
+	sys_abort_status_log(sys_thread_signal_stack_configure(sys_thread_current(), &stack, NULL));
+#endif
 
 	sys_abort_status_log(sys_thread_create(NULL, 2ull * 1024 * 1024, signaling_thread, sys_thread_current(), sys_thread_flag_resume, NULL));
 

@@ -89,77 +89,118 @@ out_unlocked:
 	#define FTHREAD_EXTRA_SAVE_SIZE 0
 #endif
 
-ferr_t fsyscall_handler_thread_signal_return(void) {
-	ferr_t status = ferr_no_such_resource;
+ferr_t fsyscall_handler_thread_signal_return(const fsyscall_signal_info_t* info) {
+	ferr_t status = ferr_ok;
 	fthread_t* uthread = fthread_current();
 	futhread_data_t* data = futhread_data_for_thread(uthread);
 	futhread_data_private_t* private_data = (void*)data;
+	fthread_t* target_uthread = fsched_find(info->thread_id, true);
 
-	flock_mutex_lock(&private_data->signals_mutex);
-
-	//
-	// a signal may have come in while the signal mutex was dropped,
-	// so the top-most current signal may be a different signal
-	// than the one that we were called to exit from. however, any signal
-	// that came in while we're in kernel-space cannot have loaded yet
-	// (since it's only loaded when we exit a syscall or when it comes
-	// in while we're in user-space). therefore, we just need to find
-	// the top-most loaded signal, since that must be the one that called
-	// us to exit.
-	//
-
-	// mark the top-most loaded signal as exited
-	for (futhread_pending_signal_t* signal = private_data->current_signal; signal != NULL; signal = signal->next) {
-		if (!signal->loaded) {
-			continue;
-		}
-
-		// we found a signal to exit, so we can mark this syscall as succeeded.
-		status = ferr_ok;
-
-		signal->exited = true;
-		break;
+	if (!target_uthread) {
+		status = ferr_no_such_resource;
+		goto out;
 	}
 
-	// unload all exited signals consecutively starting from the top
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	data->saved_syscall_context->cs = (farch_int_gdt_index_code_user * 8) | 3;
+	data->saved_syscall_context->ss = (farch_int_gdt_index_data_user * 8) | 3;
+
+	data->saved_syscall_context->rax = info->thread_context->rax;
+	data->saved_syscall_context->rcx = info->thread_context->rcx;
+	data->saved_syscall_context->rdx = info->thread_context->rdx;
+	data->saved_syscall_context->rbx = info->thread_context->rbx;
+	data->saved_syscall_context->rsi = info->thread_context->rsi;
+	data->saved_syscall_context->rdi = info->thread_context->rdi;
+	data->saved_syscall_context->rsp = info->thread_context->rsp;
+	data->saved_syscall_context->rbp = info->thread_context->rbp;
+	data->saved_syscall_context->r8 = info->thread_context->r8;
+	data->saved_syscall_context->r9 = info->thread_context->r9;
+	data->saved_syscall_context->r10 = info->thread_context->r10;
+	data->saved_syscall_context->r11 = info->thread_context->r11;
+	data->saved_syscall_context->r12 = info->thread_context->r12;
+	data->saved_syscall_context->r13 = info->thread_context->r13;
+	data->saved_syscall_context->r14 = info->thread_context->r14;
+	data->saved_syscall_context->r15 = info->thread_context->r15;
+	data->saved_syscall_context->rip = info->thread_context->rip;
+
+	// only allow userspace to modify the following CPU flags:
+	//   * carry (bit 0)
+	//   * parity (bit 2)
+	//   * adjust (bit 4)
+	//   * zero (bit 6)
+	//   * sign (bit 7)
+	//   * direction (bit 10)
+	//   * overflow (bit 11)
 	//
-	// the only one who's context really matters is the last one
-	futhread_pending_signal_t* next = NULL;
-	for (futhread_pending_signal_t* signal = private_data->current_signal; signal != NULL; signal = next) {
-		next = signal->next;
+	// additionally, we always OR in the following flags:
+	//   * always-one (bit 1)
+	//   * interrupt-enable (bit 9)
+	data->saved_syscall_context->rflags = (info->thread_context->rflags & 0xcd5) | 0x202;
 
-		if (!signal->exited) {
-			break;
-		}
+	// now copy the xsave area
+	// TODO: verify that the xsave area is valid; this just means we need to validate the xsave header
+	simple_memcpy(data->saved_syscall_context->xsave_area, info->thread_context->xsave_area, FARCH_PER_CPU(xsave_area_size));
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	data->saved_syscall_context->x0 = info->thread_context->x0;
+	data->saved_syscall_context->x1 = info->thread_context->x1;
+	data->saved_syscall_context->x2 = info->thread_context->x2;
+	data->saved_syscall_context->x3 = info->thread_context->x3;
+	data->saved_syscall_context->x4 = info->thread_context->x4;
+	data->saved_syscall_context->x5 = info->thread_context->x5;
+	data->saved_syscall_context->x6 = info->thread_context->x6;
+	data->saved_syscall_context->x7 = info->thread_context->x7;
+	data->saved_syscall_context->x8 = info->thread_context->x8;
+	data->saved_syscall_context->x9 = info->thread_context->x9;
+	data->saved_syscall_context->x10 = info->thread_context->x10;
+	data->saved_syscall_context->x11 = info->thread_context->x11;
+	data->saved_syscall_context->x12 = info->thread_context->x12;
+	data->saved_syscall_context->x13 = info->thread_context->x13;
+	data->saved_syscall_context->x14 = info->thread_context->x14;
+	data->saved_syscall_context->x15 = info->thread_context->x15;
+	data->saved_syscall_context->x16 = info->thread_context->x16;
+	data->saved_syscall_context->x17 = info->thread_context->x17;
+	data->saved_syscall_context->x18 = info->thread_context->x18;
+	data->saved_syscall_context->x19 = info->thread_context->x19;
+	data->saved_syscall_context->x20 = info->thread_context->x20;
+	data->saved_syscall_context->x21 = info->thread_context->x21;
+	data->saved_syscall_context->x22 = info->thread_context->x22;
+	data->saved_syscall_context->x23 = info->thread_context->x23;
+	data->saved_syscall_context->x24 = info->thread_context->x24;
+	data->saved_syscall_context->x25 = info->thread_context->x25;
+	data->saved_syscall_context->x26 = info->thread_context->x26;
+	data->saved_syscall_context->x27 = info->thread_context->x27;
+	data->saved_syscall_context->x28 = info->thread_context->x28;
+	data->saved_syscall_context->x29 = info->thread_context->x29;
+	data->saved_syscall_context->x30 = info->thread_context->x30;
+	data->saved_syscall_context->pc = info->thread_context->pc;
+	data->saved_syscall_context->sp = info->thread_context->sp;
 
-		// we found a signal to exit, so we can mark this syscall as succeeded.
-		// this also prevents the syscall invoker from modifying the saved user context once we return.
-		status = ferr_ok;
+	data->saved_syscall_context->fpsr = info->thread_context->fpsr;
+	data->saved_syscall_context->fpcr = info->thread_context->fpcr;
 
-		// unlink this signal from the current signal list
-		*signal->prev = signal->next;
-		if (signal->next) {
-			signal->next->prev = signal->prev;
-		}
+	// only allow userspace to modify the following CPU flags:
+	//   * negative (bit 31)
+	//   * zero (bit 30)
+	//   * carry (bit 29)
+	//   * overflow (bit 28)
+	data->saved_syscall_context->pstate = (info->thread_context->pstate & 0xf0000000ull) | farch_thread_pstate_aarch64 | farch_thread_pstate_el0 | farch_thread_pstate_sp0;
 
-		simple_memcpy(data->saved_syscall_context, signal->saved_context, sizeof(*data->saved_syscall_context) + FTHREAD_EXTRA_SAVE_SIZE);
+	// now copy the FP registers
+	simple_memcpy(data->saved_syscall_context->fp_registers, info->thread_context->fp_registers, sizeof(data->saved_syscall_context->fp_registers));
+#endif
 
-		// if the signal preempted userspace, we need to use a fake interrupt return to restore the entire userspace context
-		// (without clobbering any registers like we do in a normal syscall return)
-		private_data->use_fake_interrupt_return = signal->preempted;
+	// we need to use a fake interrupt return to restore the entire context without clobbering any registers like we do in a normal syscall return
+	private_data->use_fake_interrupt_return = true;
 
-		if (signal->was_blocked) {
-			// we're responsible for unblocking the target uthread
-			FERRO_WUR_IGNORE(fthread_unblock(signal->target_uthread));
-		}
-
-		// free this signal
-		FERRO_WUR_IGNORE(fmempool_free(signal));
+	if (info->flags & fsyscall_signal_info_flag_blocked) {
+		// we're responsible for unblocking the target uthread
+		FERRO_WUR_IGNORE(fthread_unblock(target_uthread));
 	}
 
 out:
-	flock_mutex_unlock(&private_data->signals_mutex);
-out_unlocked:
+	if (target_uthread) {
+		fthread_release(target_uthread);
+	}
 	return status;
 };
 
@@ -224,7 +265,6 @@ ferr_t fsyscall_handler_thread_signal_update_mapping(uint64_t thread_id, fsyscal
 		goto out_unlocked;
 	}
 
-
 	futhread_data_t* data = futhread_data_for_thread(uthread);
 	futhread_data_private_t* private_data = (void*)data;
 
@@ -239,6 +279,28 @@ ferr_t fsyscall_handler_thread_signal_update_mapping(uint64_t thread_id, fsyscal
 
 	if (new_mapping) {
 		simple_memcpy(&private_data->signal_mapping, new_mapping, sizeof(private_data->signal_mapping));
+	}
+
+out:
+	flock_mutex_unlock(&private_data->signals_mutex);
+out_unlocked:
+	return status;
+};
+
+ferr_t fsyscall_handler_thread_signal_stack(const fsyscall_signal_stack_t* new_stack, fsyscall_signal_stack_t* old_stack) {
+	ferr_t status = ferr_ok;
+	fthread_t* uthread = fthread_current();
+	futhread_data_t* data = futhread_data_for_thread(uthread);
+	futhread_data_private_t* private_data = (void*)data;
+
+	flock_mutex_lock(&private_data->signals_mutex);
+
+	if (old_stack) {
+		simple_memcpy(old_stack, &private_data->signal_stack, sizeof(*old_stack));
+	}
+
+	if (new_stack) {
+		simple_memcpy(&private_data->signal_stack, new_stack, sizeof(private_data->signal_stack));
 	}
 
 out:

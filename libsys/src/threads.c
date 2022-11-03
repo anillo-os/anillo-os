@@ -353,13 +353,21 @@ LIBSYS_NO_RETURN
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 __attribute__((force_align_arg_pointer))
 #endif
-static void sys_thread_signal_handler(void* context, uint64_t thread_id, uint64_t signal_number) {
+static void sys_thread_signal_handler(void* context, libsyscall_signal_info_t* signal_info) {
 	sys_thread_object_t* thread = (void*)sys_thread_current();
 	sys_thread_t* target_thread = NULL;
 	sys_thread_signal_handler_t* handler_ptr;
 	sys_thread_signal_handler_t handler;
+	sys_thread_signal_info_private_t sys_signal_info;
 
-	if (thread_id == thread->id) {
+	sys_signal_info.original = signal_info;
+	sys_signal_info.public.flags = signal_info->flags; // TODO: translate these; they're the same for now
+	sys_signal_info.public.signal_number = signal_info->signal_number;
+	sys_signal_info.public.thread = NULL;
+	sys_signal_info.public.thread_context = signal_info->thread_context;
+	sys_signal_info.public.data = signal_info->data;
+
+	if (signal_info->thread_id == thread->id) {
 		target_thread = (void*)thread;
 		// this cannot fail
 		sys_abort_status(sys_retain(target_thread));
@@ -368,7 +376,7 @@ static void sys_thread_signal_handler(void* context, uint64_t thread_id, uint64_
 
 		sys_mutex_lock_sigsafe(&global_thread_map_mutex);
 
-		status = simple_ghmap_lookup_h(&global_thread_map, thread_id, false, 0, NULL, (void*)&target_thread, NULL);
+		status = simple_ghmap_lookup_h(&global_thread_map, signal_info->thread_id, false, 0, NULL, (void*)&target_thread, NULL);
 
 		if (status == ferr_ok) {
 			status = sys_retain(target_thread);
@@ -382,20 +390,35 @@ static void sys_thread_signal_handler(void* context, uint64_t thread_id, uint64_
 		}
 	}
 
+	sys_signal_info.public.thread = target_thread;
+
 	sys_thread_block_signals((void*)thread);
 
-	if (simple_ghmap_lookup_h(&thread->signal_handlers, signal_number, false, 0, NULL, (void*)&handler_ptr, NULL) == ferr_ok) {
+	if (simple_ghmap_lookup_h(&thread->signal_handlers, signal_info->signal_number, false, 0, NULL, (void*)&handler_ptr, NULL) == ferr_ok) {
 		simple_memcpy(&handler, handler_ptr, sizeof(handler));
 	}
 
 	sys_thread_unblock_signals((void*)thread);
 
 	if (handler.handler) {
-		handler.handler(handler.context, target_thread, signal_number);
+		handler.handler(handler.context, &sys_signal_info.public);
 	}
 
 out:
-	sys_thread_signal_return();
+	if (sys_signal_info.public.thread) {
+		sys_release(sys_signal_info.public.thread);
+	}
+
+	// TODO: translate these; they're the same for now
+	signal_info->flags = sys_signal_info.public.flags;
+	signal_info->data = sys_signal_info.public.data;
+
+	while (true) {
+		ferr_t status = libsyscall_wrapper_thread_signal_return(signal_info);
+		if (status != ferr_signaled) {
+			sys_abort();
+		}
+	}
 };
 
 ferr_t sys_thread_signal_configure(uint64_t signal, const sys_thread_signal_configuration_t* new_configuration, sys_thread_signal_configuration_t* out_old_configuration) {
@@ -428,8 +451,6 @@ ferr_t sys_thread_signal_configure(uint64_t signal, const sys_thread_signal_conf
 	if (new_configuration) {
 		new_config.context = NULL;
 		new_config.handler = sys_thread_signal_handler;
-		new_config.stack = new_configuration->stack;
-		new_config.stack_size = new_configuration->stack_size;
 		new_config.flags = 0;
 
 		if (new_configuration->flags & sys_thread_signal_configuration_flag_enabled) {
@@ -462,8 +483,6 @@ ferr_t sys_thread_signal_configure(uint64_t signal, const sys_thread_signal_conf
 		out_old_configuration->handler = handler->handler;
 		out_old_configuration->context = handler->context;
 
-		out_old_configuration->stack = old_config.stack;
-		out_old_configuration->stack_size = old_config.stack_size;
 		out_old_configuration->flags = 0;
 
 		if (old_config.flags & libsyscall_signal_configuration_flag_enabled) {
@@ -502,15 +521,6 @@ out:
 	return status;
 };
 
-void sys_thread_signal_return(void) {
-	while (true) {
-		ferr_t status = libsyscall_wrapper_thread_signal_return();
-		if (status != ferr_signaled) {
-			sys_abort();
-		}
-	}
-};
-
 void sys_thread_block_signals(sys_thread_t* object) {
 	sys_thread_object_t* thread = (void*)object;
 
@@ -533,6 +543,41 @@ void sys_thread_unblock_signals(sys_thread_t* object) {
 	if (__atomic_sub_fetch(&thread->signal_block_count, 1, __ATOMIC_RELAXED) == 0) {
 		thread->block_signals = false;
 	}
+};
+
+ferr_t sys_thread_signal_stack_configure(sys_thread_t* object, const sys_thread_signal_stack_t* new_stack, sys_thread_signal_stack_t* out_old_stack) {
+	sys_thread_object_t* thread = (void*)object;
+	ferr_t status = ferr_ok;
+	libsyscall_signal_stack_t libsyscall_new_stack;
+	libsyscall_signal_stack_t libsyscall_old_stack;
+
+	if (object != sys_thread_current()) {
+		// for now
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (new_stack) {
+		// TODO: translate flags; for now, we can just copy, since they're the same (just with different names)
+		libsyscall_new_stack.flags = new_stack->flags;
+		libsyscall_new_stack.base = new_stack->base;
+		libsyscall_new_stack.size = new_stack->size;
+	}
+
+	status = libsyscall_wrapper_thread_signal_stack(new_stack ? &libsyscall_new_stack : NULL, out_old_stack ? &libsyscall_old_stack : NULL);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (out_old_stack) {
+		// TODO: translate flags
+		out_old_stack->flags = libsyscall_old_stack.flags;
+		out_old_stack->base = libsyscall_old_stack.base;
+		out_old_stack->size = libsyscall_old_stack.size;
+	}
+
+out:
+	return status;
 };
 
 //

@@ -58,15 +58,8 @@ FERRO_STRUCT(futhread_pending_signal) {
 	fthread_t* target_uthread;
 	fsyscall_signal_configuration_t configuration;
 	uint64_t signal;
-	fthread_saved_context_t* saved_context;
-	// if true, this signal preempted the handling thread when it was not in a syscall.
-	// this means that, when returning from the thread_signal_return syscall, it should not perform
-	// the usual syscall return (which clobbers certain registers) but instead a fake interrupt return (which
-	// preserves all registers).
-	bool preempted;
 	// if true, this signal blocked the target uthread and is responsible for unblocking it when the signal handler returns.
 	bool was_blocked;
-	bool loaded;
 	bool exited;
 	bool can_block;
 };
@@ -113,6 +106,7 @@ FERRO_STRUCT(futhread_data_private) {
 	futhread_pending_signal_t* last_pending_signal;
 	futhread_pending_signal_t* current_signal;
 	fsyscall_signal_mapping_t signal_mapping;
+	fsyscall_signal_stack_t signal_stack;
 	flock_mutex_t signals_mutex;
 
 	bool use_fake_interrupt_return;

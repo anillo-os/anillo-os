@@ -26,15 +26,18 @@
 #include <libsys/objects.h>
 #include <libsys/timeout.h>
 
+#include <ferro/api.h>
 #include <ferro/error.h>
 
 LIBSYS_DECLARATIONS_BEGIN;
 
 LIBSYS_OBJECT_CLASS(thread);
 
+LIBSYS_STRUCT_FWD(sys_thread_signal_info);
+
 typedef uint64_t sys_thread_id_t;
 typedef void (*sys_thread_entry_f)(void* context, sys_thread_t* self);
-typedef void (*sys_thread_signal_handler_f)(void* context, sys_thread_t* target_thread, uint64_t signal_number);
+typedef void (*sys_thread_signal_handler_f)(void* context, sys_thread_signal_info_t* signal_info);
 
 #define SYS_THREAD_ID_INVALID UINT64_MAX
 
@@ -57,8 +60,28 @@ LIBSYS_STRUCT(sys_thread_signal_configuration) {
 	sys_thread_signal_configuration_flags_t flags;
 	sys_thread_signal_handler_f handler;
 	void* context;
-	void* stack;
-	size_t stack_size;
+};
+
+LIBSYS_OPTIONS(uint64_t, sys_thread_signal_stack_flags) {
+	sys_thread_signal_stack_flag_clear_on_use = 1 << 0,
+};
+
+LIBSYS_STRUCT(sys_thread_signal_stack) {
+	sys_thread_signal_stack_flags_t flags;
+	void* base;
+	size_t size;
+};
+
+LIBSYS_OPTIONS(uint64_t, sys_thread_signal_info_flags) {
+	sys_thread_signal_info_flag_blocked = 1 << 0,
+};
+
+LIBSYS_STRUCT(sys_thread_signal_info) {
+	sys_thread_signal_info_flags_t flags;
+	uint64_t signal_number;
+	sys_thread_t* thread;
+	ferro_thread_context_t* thread_context;
+	uint64_t data;
 };
 
 /**
@@ -111,7 +134,7 @@ LIBSYS_WUR ferr_t sys_thread_wait(sys_thread_t* thread);
 
 LIBSYS_WUR ferr_t sys_thread_signal(sys_thread_t* thread, uint64_t signal);
 LIBSYS_WUR ferr_t sys_thread_signal_configure(uint64_t signal, const sys_thread_signal_configuration_t* new_configuration, sys_thread_signal_configuration_t* out_old_configuration);
-LIBSYS_NO_RETURN void sys_thread_signal_return(void);
+LIBSYS_WUR ferr_t sys_thread_signal_stack_configure(sys_thread_t* thread, const sys_thread_signal_stack_t* new_stack, sys_thread_signal_stack_t* out_old_stack);
 
 /**
  * Prevents the given thread from:
