@@ -57,7 +57,7 @@ static void start_process(const char* filename) {
 	proc = NULL;
 };
 
-#if 0
+#if 1
 #define THE_SIGNAL 8
 
 static void signaling_thread(void* context, sys_thread_t* this_thread) {
@@ -92,15 +92,15 @@ static char some_signal_stack[16ull * 1024];
 #endif
 
 void main(void) {
-#if 1
+#if 0
 	start_process("/sys/netman/netman");
 	start_process("/sys/usbman/usbman");
 
 	eve_loop_run(eve_loop_get_main());
 #endif
-#if 0
+#if 1
 	sys_thread_signal_configuration_t config = {
-		.flags = sys_thread_signal_configuration_flag_enabled | sys_thread_signal_configuration_flag_allow_redirection | sys_thread_signal_configuration_flag_preempt | sys_thread_signal_configuration_flag_block_on_redirect,
+		.flags = sys_thread_signal_configuration_flag_enabled | sys_thread_signal_configuration_flag_allow_redirection | sys_thread_signal_configuration_flag_preempt | sys_thread_signal_configuration_flag_mask_on_handle,
 		.handler = signal_handler,
 		.context = NULL,
 	};

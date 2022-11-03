@@ -54,6 +54,7 @@ LIBSYS_OPTIONS(uint64_t, sys_thread_signal_configuration_flags) {
 	sys_thread_signal_configuration_flag_allow_redirection = 1 << 2,
 	sys_thread_signal_configuration_flag_preempt = 1 << 3,
 	sys_thread_signal_configuration_flag_block_on_redirect = 1 << 4,
+	sys_thread_signal_configuration_flag_mask_on_handle = 1 << 5,
 };
 
 LIBSYS_STRUCT(sys_thread_signal_configuration) {
@@ -82,6 +83,7 @@ LIBSYS_STRUCT(sys_thread_signal_info) {
 	sys_thread_t* thread;
 	ferro_thread_context_t* thread_context;
 	uint64_t data;
+	uint64_t mask;
 };
 
 /**

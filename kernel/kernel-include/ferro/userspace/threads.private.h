@@ -107,6 +107,7 @@ FERRO_STRUCT(futhread_data_private) {
 	futhread_pending_signal_t* current_signal;
 	fsyscall_signal_mapping_t signal_mapping;
 	fsyscall_signal_stack_t signal_stack;
+	uint64_t signal_mask;
 	flock_mutex_t signals_mutex;
 
 	bool use_fake_interrupt_return;

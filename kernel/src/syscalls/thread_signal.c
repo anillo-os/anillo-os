@@ -101,6 +101,10 @@ ferr_t fsyscall_handler_thread_signal_return(const fsyscall_signal_info_t* info)
 		goto out;
 	}
 
+	flock_mutex_lock(&private_data->signals_mutex);
+	private_data->signal_mask = info->mask;
+	flock_mutex_unlock(&private_data->signals_mutex);
+
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	data->saved_syscall_context->cs = (farch_int_gdt_index_code_user * 8) | 3;
 	data->saved_syscall_context->ss = (farch_int_gdt_index_data_user * 8) | 3;

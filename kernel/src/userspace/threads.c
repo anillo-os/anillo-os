@@ -299,6 +299,7 @@ retry_lookup:
 	private_data->signal_mapping.block_all_flag = NULL;
 
 	simple_memset(&private_data->signal_stack, 0, sizeof(private_data->signal_stack));
+	private_data->signal_mask = 0;
 
 	futhread_arch_init_private_data(private_data);
 
@@ -432,7 +433,7 @@ fproc_t* futhread_process(fthread_t* uthread) {
 };
 
 // must be holding the signal mutex
-static void futhread_signal_setup_context(fsyscall_signal_stack_t* signal_stack, futhread_pending_signal_t* signal, fthread_saved_context_t* context_to_save, fthread_saved_context_t* context) {
+static void futhread_signal_setup_context(fsyscall_signal_stack_t* signal_stack, futhread_pending_signal_t* signal, fthread_saved_context_t* context_to_save, fthread_saved_context_t* context, uint64_t* signal_mask) {
 	// first, find the appropriate initial stack pointer to use
 	void* stack_pointer;
 	bool reused = false;
@@ -507,6 +508,12 @@ static void futhread_signal_setup_context(fsyscall_signal_stack_t* signal_stack,
 	signal_info->thread_id = signal->target_uthread->id;
 	signal_info->thread_context = (void*)((char*)signal_info + sizeof(fsyscall_signal_info_t));
 	signal_info->data = 0;
+	signal_info->mask = *signal_mask;
+
+	// mask the signal now, if asked to do so
+	if (signal->signal < 64 && (signal->configuration.flags & fsyscall_signal_configuration_flag_mask_on_handle) != 0) {
+		*signal_mask |= 1ull << signal->signal;
+	}
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	signal_info->thread_context->rax = context_to_save->rax;
@@ -680,6 +687,12 @@ ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* ta
 		blocked = true;
 	}
 
+	// however, the signal mask is only allowed to block *delivery* of signals to the given thread, in order to comply with POSIX.
+	// (that's really the only reason it exists; for all other purposes, blocking all signals is preferable)
+	if (signal_number < 64 && (private_data->signal_mask & (1ull << signal_number)) != 0) {
+		blocked = true;
+	}
+
 	if (blocked && !can_block) {
 		status = ferr_should_restart;
 		goto out;
@@ -783,7 +796,7 @@ ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* ta
 				}
 
 				// set up the context to load in the signal handler
-				futhread_signal_setup_context(&private_data->signal_stack, signal, uthread->saved_context, uthread->saved_context);
+				futhread_signal_setup_context(&private_data->signal_stack, signal, uthread->saved_context, uthread->saved_context, &private_data->signal_mask);
 
 				// we can free the pending signal info now
 				FERRO_WUR_IGNORE(fmempool_free(signal));
@@ -865,6 +878,10 @@ retry:
 		if (target_private_data->signal_mapping.block_all_flag && __atomic_load_n(target_private_data->signal_mapping.block_all_flag, __ATOMIC_RELAXED)) {
 			blocked = true;
 		}
+
+		if (private_data->current_signal->signal < 64 && (private_data->signal_mask & (1ull << private_data->current_signal->signal)) != 0) {
+			blocked = true;
+		}
 	}
 
 	// if we're blocking signals and we have an unblockable signal that we want to load, we must kill the target uthread and its process (if it has one).
@@ -917,7 +934,7 @@ retry:
 		}
 
 		// set up the context to load in the signal handler
-		futhread_signal_setup_context(&private_data->signal_stack, signal, data->saved_syscall_context, data->saved_syscall_context);
+		futhread_signal_setup_context(&private_data->signal_stack, signal, data->saved_syscall_context, data->saved_syscall_context, &private_data->signal_mask);
 
 		// we can free the pending signal info now
 		FERRO_WUR_IGNORE(fmempool_free(signal));

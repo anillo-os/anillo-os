@@ -102,6 +102,7 @@ enums.extend([
 		('allow_redirection', '1 << 3'),
 		('preempt', '1 << 4'),
 		('block_on_redirect', '1 << 5'),
+		('mask_on_handle', '1 << 6'),
 	]),
 	Enum('signal_info_flags', 'u64', prefix='signal_info_flag', values=[
 		('blocked', '1 << 0'),
@@ -169,6 +170,7 @@ structures.extend([
 		('thread_id', 'u64'),
 		('thread_context', '*[!ferro_thread_context_t]'),
 		('data', 'u64'),
+		('mask', 'u64'),
 	]),
 	Structure('signal_stack', [
 		('flags', 'e:signal_stack_flags'),

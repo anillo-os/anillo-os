@@ -412,6 +412,7 @@ out:
 	// TODO: translate these; they're the same for now
 	signal_info->flags = sys_signal_info.public.flags;
 	signal_info->data = sys_signal_info.public.data;
+	signal_info->mask = sys_signal_info.public.mask;
 
 	while (true) {
 		ferr_t status = libsyscall_wrapper_thread_signal_return(signal_info);
@@ -472,6 +473,10 @@ ferr_t sys_thread_signal_configure(uint64_t signal, const sys_thread_signal_conf
 		if (new_configuration->flags & sys_thread_signal_configuration_flag_block_on_redirect) {
 			new_config.flags |= libsyscall_signal_configuration_flag_block_on_redirect;
 		}
+
+		if (new_configuration->flags & sys_thread_signal_configuration_flag_mask_on_handle) {
+			new_config.flags |= libsyscall_signal_configuration_flag_mask_on_handle;
+		}
 	}
 
 	status = libsyscall_wrapper_thread_signal_configure(thread->id, signal, new_configuration ? &new_config : NULL, out_old_configuration ? &old_config : NULL);
@@ -503,6 +508,10 @@ ferr_t sys_thread_signal_configure(uint64_t signal, const sys_thread_signal_conf
 
 		if (old_config.flags & libsyscall_signal_configuration_flag_block_on_redirect) {
 			out_old_configuration->flags |= sys_thread_signal_configuration_flag_block_on_redirect;
+		}
+
+		if (old_config.flags & libsyscall_signal_configuration_flag_mask_on_handle) {
+			out_old_configuration->flags |= sys_thread_signal_configuration_flag_mask_on_handle;
 		}
 	}
 

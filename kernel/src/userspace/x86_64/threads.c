@@ -104,7 +104,7 @@ void farch_uthread_syscall_handler(void) {
 	flock_mutex_lock(&private_data->signals_mutex);
 
 	// if there are signals to handle, it'll set them up to be handled upon return to userspace.
-	FERRO_WUR_IGNORE(futhread_handle_signals(FARCH_PER_CPU(current_thread), false));
+	FERRO_WUR_IGNORE(futhread_handle_signals(FARCH_PER_CPU(current_thread), true));
 
 	// since we're heading back into userspace, we want to disable interrupts for the context switching (to avoid corrupting the processor state)
 	fint_disable();
