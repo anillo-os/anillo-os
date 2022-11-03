@@ -296,7 +296,8 @@ retry_lookup:
 	flock_mutex_init(&private_data->signals_mutex);
 
 	private_data->use_fake_interrupt_return = false;
-	private_data->signal_mapping.block_all_flag = NULL;
+
+	simple_memset(&private_data->signal_mapping, 0, sizeof(private_data->signal_mapping));
 
 	simple_memset(&private_data->signal_stack, 0, sizeof(private_data->signal_stack));
 	private_data->signal_mask = 0;
@@ -613,44 +614,20 @@ static void futhread_signal_setup_context(fsyscall_signal_stack_t* signal_stack,
 #endif
 };
 
-// FIXME: we need to handle the case when the handling thread is suspended
-//        while another thread handles its redirected signal, but then a signal
-//        arrives for the handling thread that is set as a preempting signal.
-//        in this case, we need to simply queue up the preempting signal at the head of the
-//        signal queue and have the thread handle it once it gets resumed.
-ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* target_uthread, bool should_unblock_on_exit, bool can_block) {
+// must be called with the signal mutex held
+// returns with the signal mutex dropped
+static ferr_t futhread_signal_internal(fthread_t* uthread, futhread_pending_signal_t* signal, fthread_t* target_uthread, futhread_signal_flags_t flags) {
 	futhread_data_t* data = futhread_data_for_thread(uthread);
 	futhread_data_private_t* private_data = (void*)data;
 	futhread_data_t* target_data = futhread_data_for_thread(target_uthread);
 	futhread_data_private_t* target_private_data = (void*)target_data;
-	futhread_pending_signal_t* signal = NULL;
 	ferr_t status = ferr_ok;
 	futhread_signal_handler_t* handler = NULL;
 	bool block_self = false;
 	bool mark_as_interrupted = true;
 	bool blocked = false;
 
-	if (!data || !target_data) {
-		status = ferr_invalid_argument;
-		goto out_unlocked;
-	}
-
-	status = fmempool_allocate(sizeof(*signal), NULL, (void*)&signal);
-	if (status != ferr_ok) {
-		goto out_unlocked;
-	}
-
-	signal->prev = NULL;
-	signal->next = NULL;
-	signal->target_uthread = target_uthread;
-	signal->signal = signal_number;
-	signal->was_blocked = should_unblock_on_exit; // adjusted later
-	signal->exited = false;
-	signal->can_block = can_block;
-
-	flock_mutex_lock(&private_data->signals_mutex);
-
-	status = simple_ghmap_lookup_h(&private_data->signal_handler_table, signal_number, false, 0, NULL, (void*)&handler, NULL);
+	status = simple_ghmap_lookup_h(&private_data->signal_handler_table, signal->signal, false, 0, NULL, (void*)&handler, NULL);
 	if (status != ferr_ok) {
 		// this means that the given signal is not configured
 		goto out;
@@ -658,7 +635,12 @@ ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* ta
 
 	if ((handler->configuration.flags & fsyscall_signal_configuration_flag_enabled) == 0) {
 		// this signal is not enabled
-		status = ferr_no_such_resource;
+		if ((handler->configuration.flags & fsyscall_signal_configuration_flag_kill_if_unhandled) != 0) {
+			// we couldn't handle it, but if no one else can handle it, the target should be killed.
+			status = ferr_aborted;
+		} else {
+			status = ferr_no_such_resource;
+		}
 		goto out;
 	}
 
@@ -689,11 +671,11 @@ ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* ta
 
 	// however, the signal mask is only allowed to block *delivery* of signals to the given thread, in order to comply with POSIX.
 	// (that's really the only reason it exists; for all other purposes, blocking all signals is preferable)
-	if (signal_number < 64 && (private_data->signal_mask & (1ull << signal_number)) != 0) {
+	if (signal->signal < 64 && (private_data->signal_mask & (1ull << signal->signal)) != 0) {
 		blocked = true;
 	}
 
-	if (blocked && !can_block) {
+	if (blocked && (flags & futhread_signal_flag_blockable) == 0) {
 		status = ferr_should_restart;
 		goto out;
 	}
@@ -704,7 +686,7 @@ ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* ta
 		// this signal can be coalesed; try to see if we already have it queued
 		status = ferr_no_such_resource;
 		for (futhread_pending_signal_t* pending_signal = private_data->pending_signal; pending_signal != NULL; pending_signal = pending_signal->next) {
-			if (pending_signal->signal == signal_number && pending_signal->target_uthread == target_uthread) {
+			if (pending_signal->signal == signal->signal && pending_signal->target_uthread == target_uthread) {
 				status = ferr_ok;
 				break;
 			}
@@ -730,7 +712,7 @@ ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* ta
 			block_self = true;
 			signal->was_blocked = true;
 		} else {
-			if (!should_unblock_on_exit && fthread_block(target_uthread, true) == ferr_ok) {
+			if ((flags & futhread_signal_flag_unblock_on_exit) == 0 && fthread_block(target_uthread, true) == ferr_ok) {
 				// we blocked the thread, so we're responsible for unblocking it
 				signal->was_blocked = true;
 			}
@@ -825,7 +807,119 @@ out_unlocked:
 		if (block_self) {
 			FERRO_WUR_IGNORE(fthread_block(fthread_current(), false));
 		}
-	} else {
+	}
+	return status;
+};
+
+// FIXME: we need to handle the case when the handling thread is suspended
+//        while another thread handles its redirected signal, but then a signal
+//        arrives for the handling thread that is set as a preempting signal.
+//        in this case, we need to simply queue up the preempting signal at the head of the
+//        signal queue and have the thread handle it once it gets resumed.
+ferr_t futhread_signal(fthread_t* uthread, uint64_t signal_number, fthread_t* target_uthread, futhread_signal_flags_t flags) {
+	futhread_data_t* data = futhread_data_for_thread(uthread);
+	futhread_data_private_t* private_data = (void*)data;
+	futhread_data_t* target_data = futhread_data_for_thread(target_uthread);
+	futhread_data_private_t* target_private_data = (void*)target_data;
+	ferr_t status = ferr_ok;
+	futhread_pending_signal_t* signal = NULL;
+
+	if (!data || !target_data) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (signal_number == 0) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = fmempool_allocate(sizeof(*signal), NULL, (void*)&signal);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	signal->prev = NULL;
+	signal->next = NULL;
+	signal->target_uthread = target_uthread;
+	signal->signal = signal_number;
+	signal->was_blocked = (flags & futhread_signal_flag_unblock_on_exit) != 0; // adjusted later
+	signal->exited = false;
+	signal->can_block = (flags & futhread_signal_flag_blockable) != 0;
+
+	flock_mutex_lock(&private_data->signals_mutex);
+
+	status = futhread_signal_internal(uthread, signal, target_uthread, flags);
+
+out:
+	if (status != ferr_ok) {
+		if (signal) {
+			FERRO_WUR_IGNORE(fmempool_free(signal));
+		}
+	}
+	return status;
+};
+
+ferr_t futhread_signal_special(fthread_t* uthread, futhread_special_signal_t special_signal, fthread_t* target_uthread, futhread_signal_flags_t flags) {
+	futhread_data_t* data = futhread_data_for_thread(uthread);
+	futhread_data_private_t* private_data = (void*)data;
+	futhread_data_t* target_data = futhread_data_for_thread(target_uthread);
+	futhread_data_private_t* target_private_data = (void*)target_data;
+	ferr_t status = ferr_ok;
+	futhread_pending_signal_t* signal = NULL;
+
+	if (!data || !target_data) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = fmempool_allocate(sizeof(*signal), NULL, (void*)&signal);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	signal->prev = NULL;
+	signal->next = NULL;
+	signal->target_uthread = target_uthread;
+	//signal->signal = signal_number;
+	signal->was_blocked = (flags & futhread_signal_flag_unblock_on_exit) != 0; // adjusted later
+	signal->exited = false;
+	signal->can_block = (flags & futhread_signal_flag_blockable) != 0;
+
+	flock_mutex_lock(&private_data->signals_mutex);
+
+	switch (special_signal) {
+		case futhread_special_signal_bus_error:
+			signal->signal = private_data->signal_mapping.bus_error_signal;
+			break;
+		case futhread_special_signal_page_fault:
+			signal->signal = private_data->signal_mapping.page_fault_signal;
+			break;
+		case futhread_special_signal_floating_point_exception:
+			signal->signal = private_data->signal_mapping.floating_point_exception_signal;
+			break;
+		case futhread_special_signal_illegal_instruction:
+			signal->signal = private_data->signal_mapping.illegal_instruction_signal;
+			break;
+		case futhread_special_signal_debug:
+			signal->signal = private_data->signal_mapping.debug_signal;
+			break;
+
+		default:
+			status = ferr_invalid_argument;
+			goto out;
+	}
+
+	if (signal->signal == 0) {
+		flock_mutex_unlock(&private_data->signals_mutex);
+		status = ferr_no_such_resource;
+		goto out;
+	}
+
+	status = futhread_signal_internal(uthread, signal, target_uthread, flags);
+
+out:
+	if (status != ferr_ok) {
 		if (signal) {
 			FERRO_WUR_IGNORE(fmempool_free(signal));
 		}

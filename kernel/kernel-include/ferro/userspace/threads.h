@@ -138,6 +138,35 @@ FERRO_STRUCT(futhread_data) {
 	fwaitq_t destroy_wait;
 };
 
+FERRO_OPTIONS(uint64_t, futhread_signal_flags) {
+	/**
+	 * The target uthread should be unblocked when the signal handler exits.
+	 * Note that this has nothing to do with blocking signals; this refers to the thread's
+	 * availability to be scheduled to run.
+	 */
+	futhread_signal_flag_unblock_on_exit = 1 << 0,
+
+	/**
+	 * If set, the signal can be blocked; in this case, if the handling uthread is blocking signals,
+	 * this signal will simply be queued, even if it's configured as a preemptive signal.
+	 *
+	 * If not set, the signal cannot be blocked; in this case, if the handling uthread is blocking signals,
+	 * trying to queue the signal will fail. Additionally, if the signal is successfully queued but the handling
+	 * uthread is blocking the signal later when it is going to be handled, the target uthread will be killed along
+	 * with its process (if it belongs to one).
+	 */
+	futhread_signal_flag_blockable = 1 << 1,
+};
+
+FERRO_ENUM(uint64_t, futhread_special_signal) {
+	futhread_special_signal_invalid,
+	futhread_special_signal_bus_error,
+	futhread_special_signal_page_fault,
+	futhread_special_signal_floating_point_exception,
+	futhread_special_signal_illegal_instruction,
+	futhread_special_signal_debug,
+};
+
 /**
  * Returns `true` if the given thread is a uthread or `false` if it is not.
  */
@@ -237,20 +266,18 @@ void futhread_init(void);
 fproc_t* futhread_process(fthread_t* uthread);
 
 /**
- * @param uthread                The uthread that will handle the signal.
- * @param signal                 The signal number to signal the target uthread with.
- * @param target_uthread         The uthread that is being signaled.
- * @param should_unblock_on_exit If `true`, the target uthread should be unblocked when the signal handler exits.
- *                               Note that this has nothing to do with blocking signals; this refers to the thread's
- *                               availability to be scheduled to run.
- * @param can_block              If `true`, the signal can be blocked; in this case, if the handling uthread is blocking signals,
- *                               this signal will simply be queued, even if it's configured as a preemptive signal.
- *                               If `false`, the signal cannot be blocked; in this case, if the handling uthread is blocking signals,
- *                               trying to queue the signal will fail.
- *                               Additionally, if the signal is successfully queued but the handling uthread is blocking the signal later
- *                               when it is going to be handled, the target uthread will be killed along with its process (if it belongs to one).
+ * @param uthread        The uthread that will handle the signal.
+ * @param signal         The signal number to signal the target uthread with.
+ * @param target_uthread The uthread that is being signaled.
+ * @param flags          An optional set of flags to modify how the uthread is signaled.
+ *
+ * @retval ferr_aborted The signal could not be handled by the given thread, but the thread had the signal configured as "kill-if-unhandled".
+ *                      This indicates that, if the caller is unable to handle the signal otherwise (e.g. with another thread),
+ *                      they should kill the target thread and/or process.
  */
-FERRO_WUR ferr_t futhread_signal(fthread_t* uthread, uint64_t signal, fthread_t* target_uthread, bool should_unblock_on_exit, bool can_block);
+FERRO_WUR ferr_t futhread_signal(fthread_t* uthread, uint64_t signal, fthread_t* target_uthread, futhread_signal_flags_t flags);
+
+FERRO_WUR ferr_t futhread_signal_special(fthread_t* uthread, futhread_special_signal_t special_signal, fthread_t* target_uthread, futhread_signal_flags_t flags);
 
 FERRO_DECLARATIONS_END;
 

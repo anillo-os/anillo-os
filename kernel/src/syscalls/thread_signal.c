@@ -24,6 +24,19 @@
 #include <ferro/userspace/processes.h>
 #include <ferro/core/mempool.h>
 
+#define SPECIAL_SIGNAL_CONFIG (fsyscall_signal_configuration_flag_preempt | fsyscall_signal_configuration_flag_kill_if_unhandled | fsyscall_signal_configuration_flag_block_on_redirect)
+
+// must be called with the signal mutex held
+static bool is_special_signal(futhread_data_private_t* private_data, uint64_t signal) {
+	return (
+		signal == private_data->signal_mapping.bus_error_signal                ||
+		signal == private_data->signal_mapping.page_fault_signal               ||
+		signal == private_data->signal_mapping.floating_point_exception_signal ||
+		signal == private_data->signal_mapping.illegal_instruction_signal      ||
+		signal == private_data->signal_mapping.debug_signal
+	);
+};
+
 ferr_t fsyscall_handler_thread_signal_configure(uint64_t thread_id, uint64_t signal_number, const fsyscall_signal_configuration_t* new_configuration, fsyscall_signal_configuration_t* out_old_configuration) {
 	ferr_t status = ferr_ok;
 	fthread_t* uthread = fsched_find(thread_id, true);
@@ -38,7 +51,7 @@ ferr_t fsyscall_handler_thread_signal_configure(uint64_t thread_id, uint64_t sig
 	bool created = false;
 	futhread_signal_handler_t* handler = NULL;
 
-	if (!data) {
+	if (!data || signal_number == 0) {
 		status = ferr_invalid_argument;
 		goto out_unlocked;
 	}
@@ -73,6 +86,11 @@ ferr_t fsyscall_handler_thread_signal_configure(uint64_t thread_id, uint64_t sig
 	}
 
 	if (new_configuration) {
+		if (is_special_signal(private_data, signal_number) && (new_configuration->flags & SPECIAL_SIGNAL_CONFIG) != SPECIAL_SIGNAL_CONFIG) {
+			status = ferr_invalid_argument;
+			goto out;
+		}
+
 		handler->signal = signal_number;
 		simple_memcpy(&handler->configuration, new_configuration, sizeof(handler->configuration));
 	}
@@ -211,18 +229,25 @@ out:
 FERRO_STRUCT(thread_signal_iterator_context) {
 	fthread_t* target_uthread;
 	uint64_t signal_number;
+	bool should_kill;
 };
 
 static bool thread_signal_iterator(void* _context, fproc_t* process, fthread_t* uthread) {
 	thread_signal_iterator_context_t* context = _context;
+	ferr_t status = ferr_ok;
 
 	if (uthread == context->target_uthread) {
 		// skip this uthread
 		return true;
 	}
 
-	if (futhread_signal(uthread, context->signal_number, context->target_uthread, false, true) == ferr_ok) {
+	status = futhread_signal(uthread, context->signal_number, context->target_uthread, futhread_signal_flag_blockable);
+	if (status == ferr_ok) {
 		return false;
+	}
+
+	if (status == ferr_aborted) {
+		context->should_kill = true;
 	}
 
 	return true;
@@ -237,9 +262,9 @@ ferr_t fsyscall_handler_thread_signal(uint64_t target_thread_id, uint64_t signal
 		goto out;
 	}
 
-	status = futhread_signal(uthread, signal_number, uthread, false, true);
+	status = futhread_signal(uthread, signal_number, uthread, futhread_signal_flag_blockable);
 
-	if (status == ferr_no_such_resource) {
+	if (status == ferr_no_such_resource || status == ferr_aborted) {
 		// try one of the other threads in its process (if it has one)
 		fproc_t* process = futhread_process(uthread);
 
@@ -247,17 +272,43 @@ ferr_t fsyscall_handler_thread_signal(uint64_t target_thread_id, uint64_t signal
 			thread_signal_iterator_context_t context = {
 				.target_uthread = uthread,
 				.signal_number = signal_number,
+				.should_kill = (status == ferr_aborted),
 			};
 
 			if (fproc_for_each_thread(process, thread_signal_iterator, &context) != ferr_cancelled) {
-				status = ferr_no_such_resource;
-				goto out;
+				status = (context.should_kill) ? ferr_aborted : ferr_no_such_resource;
+			} else {
+				status = ferr_ok;
 			}
 		}
 	}
 
+	if (status == ferr_aborted) {
+		// kill the target thread/process
+		fproc_t* process = futhread_process(uthread);
+
+		if (process) {
+			fproc_kill(process);
+		} else {
+			FERRO_WUR_IGNORE(fthread_kill(uthread));
+		}
+
+		status = ferr_ok;
+	}
+
 out:
 	return status;
+};
+
+// must be called with the signal mutex held
+static bool check_valid_handler_for_special_signal(futhread_data_private_t* private_data, uint64_t signal_number) {
+	futhread_signal_handler_t* handler = NULL;
+
+	if (signal_number != 0 && simple_ghmap_lookup_h(&private_data->signal_handler_table, signal_number, false, 0, NULL, (void*)&handler, NULL) == ferr_ok) {
+		return (handler->configuration.flags & SPECIAL_SIGNAL_CONFIG) == SPECIAL_SIGNAL_CONFIG;
+	}
+
+	return true;
 };
 
 ferr_t fsyscall_handler_thread_signal_update_mapping(uint64_t thread_id, fsyscall_signal_mapping_t const* new_mapping, fsyscall_signal_mapping_t* out_old_mapping) {
@@ -282,6 +333,18 @@ ferr_t fsyscall_handler_thread_signal_update_mapping(uint64_t thread_id, fsyscal
 	}
 
 	if (new_mapping) {
+		// check that the signals have valid configurations
+		if (!(
+			check_valid_handler_for_special_signal(private_data, new_mapping->bus_error_signal)                &&
+			check_valid_handler_for_special_signal(private_data, new_mapping->page_fault_signal)               &&
+			check_valid_handler_for_special_signal(private_data, new_mapping->floating_point_exception_signal) &&
+			check_valid_handler_for_special_signal(private_data, new_mapping->illegal_instruction_signal)      &&
+			check_valid_handler_for_special_signal(private_data, new_mapping->debug_signal)
+		)) {
+			status = ferr_invalid_argument;
+			goto out;
+		}
+
 		simple_memcpy(&private_data->signal_mapping, new_mapping, sizeof(private_data->signal_mapping));
 	}
 

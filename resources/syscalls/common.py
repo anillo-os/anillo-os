@@ -103,6 +103,7 @@ enums.extend([
 		('preempt', '1 << 4'),
 		('block_on_redirect', '1 << 5'),
 		('mask_on_handle', '1 << 6'),
+		('kill_if_unhandled', '1 << 7'),
 	]),
 	Enum('signal_info_flags', 'u64', prefix='signal_info_flag', values=[
 		('blocked', '1 << 0'),
@@ -163,6 +164,11 @@ structures.extend([
 	]),
 	Structure('signal_mapping', [
 		('block_all_flag', '*[u8]'),
+		('bus_error_signal', 'u64'),
+		('page_fault_signal', 'u64'),
+		('floating_point_exception_signal', 'u64'),
+		('illegal_instruction_signal', 'u64'),
+		('debug_signal', 'u64'),
 	]),
 	Structure('signal_info', [
 		('flags', 'e:signal_info_flags'),

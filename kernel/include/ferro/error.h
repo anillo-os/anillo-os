@@ -127,9 +127,14 @@ FERRO_ENUM(int, ferr) {
 	ferr_timed_out            = -16,
 
 	/**
-	 * Indicates that a signal arrived before or during the operation and it was not completed.
+	 * A signal arrived before or during the operation and it was not completed.
 	 */
 	ferr_signaled             = -17,
+
+	/**
+	 * The operation was aborted and should not be tried again.
+	 */
+	ferr_aborted              = -18,
 };
 
 static const char* ferr_names[] = {
@@ -151,6 +156,7 @@ static const char* ferr_names[] = {
 	"ferr_no_wait",
 	"ferr_timed_out",
 	"ferr_signaled",
+	"ferr_aborted",
 };
 
 static const char* ferr_descriptions[] = {
@@ -171,7 +177,8 @@ static const char* ferr_descriptions[] = {
 	"The requested resource was unavailable.",
 	"Completing the requested action/service/operation would require waiting but doing so has been disallowed.",
 	"A timeout was set for the given action/service/operation and it expired before the action/service/operation could be completed.",
-	"Indicates that a signal arrived before or during the operation and it was not completed.",
+	"A signal arrived before or during the operation and it was not completed.",
+	"The operation was aborted and should not be tried again.",
 };
 
 FERRO_ALWAYS_INLINE const char* ferr_name(ferr_t error) {

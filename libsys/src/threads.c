@@ -114,6 +114,13 @@ ferr_t sys_thread_init(void) {
 
 	signal_mapping.block_all_flag = &thread->block_signals;
 
+	// these are mapped to 0, meaning their default actions (which is killing us) should be taken instead
+	signal_mapping.bus_error_signal = 0;
+	signal_mapping.page_fault_signal = 0;
+	signal_mapping.floating_point_exception_signal = 0;
+	signal_mapping.illegal_instruction_signal = 0;
+	signal_mapping.debug_signal = 0;
+
 	status = libsyscall_wrapper_thread_signal_update_mapping(thread->id, &signal_mapping, NULL);
 	if (status != ferr_ok) {
 		goto out;
@@ -252,6 +259,13 @@ ferr_t sys_thread_create(void* stack, size_t stack_size, sys_thread_entry_f entr
 	*(void**)(stack_top - 0x18) = thread;
 
 	signal_mapping.block_all_flag = &thread->block_signals;
+
+	// these are mapped to 0, meaning their default actions (which is killing us) should be taken instead
+	signal_mapping.bus_error_signal = 0;
+	signal_mapping.page_fault_signal = 0;
+	signal_mapping.floating_point_exception_signal = 0;
+	signal_mapping.illegal_instruction_signal = 0;
+	signal_mapping.debug_signal = 0;
 
 	status = libsyscall_wrapper_thread_signal_update_mapping(thread->id, &signal_mapping, NULL);
 	if (status != ferr_ok) {
