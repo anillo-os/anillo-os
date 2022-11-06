@@ -18,6 +18,7 @@
 
 #include <libsys/libsys.h>
 #include <libeve/libeve.h>
+#include <stdatomic.h>
 
 #define SYNC_LOG 1
 
@@ -130,8 +131,22 @@ __attribute__((aligned(4096)))
 static char some_signal_stack[16ull * 1024];
 #endif
 
-void main(void) {
 #if 1
+#define THREADS 2
+
+atomic_uintmax_t counters[THREADS];
+
+static void counting_thread(void* context, sys_thread_t* this_thread) {
+	size_t id = (size_t)context;
+
+	while (true) {
+		++counters[id];
+	}
+};
+#endif
+
+void main(void) {
+#if 0
 	start_process("/sys/netman/netman");
 	start_process("/sys/usbman/usbman");
 
@@ -176,6 +191,39 @@ void main(void) {
 
 	while (true) {
 		sys_console_log("normal.\n");
+		LIBSYS_WUR_IGNORE(sys_thread_suspend_timeout(sys_thread_current(), 1ull * 1000 * 1000 * 1000, sys_timeout_type_relative_ns_monotonic));
+	}
+#endif
+#if 1
+	sys_thread_t* threads[THREADS];
+
+	// we create the threads and then resume them separately to avoid starting them at different times
+	// (since thread creation can take a relatively long time)
+
+	for (size_t id = 0; id < THREADS; ++id) {
+		sys_abort_status_log(sys_thread_create(NULL, 512ull * 1024, counting_thread, (void*)id, 0, &threads[id]));
+	}
+
+	for (size_t id = 0; id < THREADS; ++id) {
+		sys_abort_status(sys_thread_resume(threads[id]));
+	}
+
+	for (size_t iteration = 0; true; ++iteration) {
+		atomic_uintmax_t values[THREADS];
+
+		// we read the values first and the log them, because logging can be relatively slow
+		// and we want to read the values as quickly as possible to avoid having too much difference between them
+
+		for (size_t id = 0; id < THREADS; ++id) {
+			values[id] = counters[id];
+		}
+
+		sys_console_log_f("Iteration %zu\n", iteration);
+
+		for (size_t id = 0; id < THREADS; ++id) {
+			sys_console_log_f("  Thread %zu = %lu\n", id, values[id]);
+		}
+
 		LIBSYS_WUR_IGNORE(sys_thread_suspend_timeout(sys_thread_current(), 1ull * 1000 * 1000 * 1000, sys_timeout_type_relative_ns_monotonic));
 	}
 #endif
