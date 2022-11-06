@@ -205,7 +205,7 @@ FERRO_PACKED_STRUCT(fint_gdt_pointer) {
 };
 
 FERRO_STRUCT(fint_handler_common_data) {
-	fint_frame_t* previous_exception_frame;
+	char reserved;
 };
 
 FERRO_STRUCT(fint_handler_entry) {
@@ -266,7 +266,7 @@ static void fint_handler_common_begin(fint_handler_common_data_t* data, fint_fra
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = 1;
 
 	// we also need to set the current interrupt frame
-	data->previous_exception_frame = FARCH_PER_CPU(current_exception_frame);
+	frame->previous_frame = FARCH_PER_CPU(current_exception_frame);
 	FARCH_PER_CPU(current_exception_frame) = frame;
 
 	// we also need to save the current address space
@@ -278,13 +278,16 @@ static void fint_handler_common_begin(fint_handler_common_data_t* data, fint_fra
 };
 
 static void fint_handler_common_end(fint_handler_common_data_t* data, fint_frame_t* frame, bool safe_mode) {
-	if (!safe_mode && FARCH_PER_CPU(current_thread)) {
+	if (FARCH_PER_CPU(current_thread)) {
+		// HACK: this assumes that the ending-interrupt hooks should not be doing anything expensive or dangerous.
+		//       currently, we only have two ending-interrupt hooks: one for scheduler (which marks threads as running)
+		//       and one for uthreads (which sets the per-thread data pointer).
 		fthread_interrupt_end(FARCH_PER_CPU(current_thread));
 	}
 
 	fpanic_status(fpage_space_swap((void*)frame->saved_registers.address_space));
 
-	FARCH_PER_CPU(current_exception_frame) = data->previous_exception_frame;
+	FARCH_PER_CPU(current_exception_frame) = frame->previous_frame;
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = frame->saved_registers.interrupt_disable;
 };
 
@@ -498,13 +501,46 @@ INTERRUPT_HANDLER_NORETURN(double_fault) {
 
 INTERRUPT_HANDLER(general_protection) {
 	fint_handler_common_data_t data;
+	bool handled = false;
 
 	fint_handler_common_begin(&data, frame, true);
 
-	fconsole_logf("general protection fault; code=%llu; frame:\n", frame->code);
-	print_frame(frame);
-	trace_stack((void*)frame->saved_registers.rbp);
-	fpanic("general protection fault");
+	if (fint_current_frame() == fint_root_frame(fint_current_frame()) && FARCH_PER_CPU(current_thread)) {
+		fthread_t* thread = FARCH_PER_CPU(current_thread);
+		fthread_private_t* private_thread = (void*)thread;
+		uint8_t hooks_in_use;
+
+		flock_spin_intsafe_lock(&thread->lock);
+		hooks_in_use = private_thread->hooks_in_use;
+		flock_spin_intsafe_unlock(&thread->lock);
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].illegal_instruction) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].illegal_instruction(private_thread->hooks[slot].context, thread);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+	}
+
+	if (!handled) {
+		fconsole_logf("general protection fault; code=%llu; frame:\n", frame->code);
+		print_frame(frame);
+		trace_stack((void*)frame->saved_registers.rbp);
+		fpanic("general protection fault");
+	}
 
 	fint_handler_common_end(&data, frame, true);
 };
@@ -573,13 +609,46 @@ INTERRUPT_HANDLER(simd_exception) {
 	fint_handler_common_data_t data;
 	uint64_t mxcsr = ((farch_xsave_area_legacy_t*)frame->xsave_area)->mxcsr;
 	farch_xsave_header_t* xsave_header = (void*)((char*)frame->xsave_area + 512);
+	bool handled = false;
 
 	fint_handler_common_begin(&data, frame, true);
 
-	fconsole_logf("simd exception with MXCSR=%llu, XSTATE_BV=%llu, XCOMP_BV=%llu; frame:\n", mxcsr, xsave_header->xstate_bv, xsave_header->xcomp_bv);
-	fint_log_frame(frame);
-	fint_trace_interrupted_stack(frame);
-	fpanic("simd exception");
+	if (fint_current_frame() == fint_root_frame(fint_current_frame()) && FARCH_PER_CPU(current_thread)) {
+		fthread_t* thread = FARCH_PER_CPU(current_thread);
+		fthread_private_t* private_thread = (void*)thread;
+		uint8_t hooks_in_use;
+
+		flock_spin_intsafe_lock(&thread->lock);
+		hooks_in_use = private_thread->hooks_in_use;
+		flock_spin_intsafe_unlock(&thread->lock);
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].floating_point_exception) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].floating_point_exception(private_thread->hooks[slot].context, thread);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+	}
+
+	if (!handled) {
+		fconsole_logf("simd exception with MXCSR=%llu, XSTATE_BV=%llu, XCOMP_BV=%llu; frame:\n", mxcsr, xsave_header->xstate_bv, xsave_header->xcomp_bv);
+		fint_log_frame(frame);
+		fint_trace_interrupted_stack(frame);
+		fpanic("simd exception");
+	}
 
 	fint_handler_common_end(&data, frame, true);
 };

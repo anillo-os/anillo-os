@@ -22,6 +22,7 @@ add_library(ferro_syscalls STATIC
 	thread_create.c
 	thread_id.c
 	thread_kill.c
+	thread_misc.c
 	thread_suspend.c
 	thread_resume.c
 	thread_signal.c
@@ -35,6 +36,7 @@ add_library(ferro_syscalls STATIC
 	process_resume.c
 	channels.c
 	monitors.c
+	constants.c
 )
 
 add_dependencies(ferro_syscalls

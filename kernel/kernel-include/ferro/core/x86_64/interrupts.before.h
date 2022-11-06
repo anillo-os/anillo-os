@@ -26,6 +26,7 @@
 #define _FERRO_CORE_X86_64_INTERRUPTS_BEFORE_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include <ferro/base.h>
 
@@ -86,7 +87,7 @@ FERRO_PACKED_STRUCT(farch_int_frame_with_code) {
 };
 
 FERRO_PACKED_STRUCT(fint_frame) {
-	char reserved[8];
+	fint_frame_t* previous_frame;
 	void* xsave_area;
 	farch_int_saved_registers_t saved_registers;
 	uint64_t code;

@@ -115,6 +115,20 @@ FERRO_STRUCT(ferro_thread_context) {
 };
 #endif
 
+FERRO_STRUCT(ferro_constants) {
+	uint64_t page_size;
+	uint64_t minimum_stack_size;
+
+	// including padding
+	uint64_t total_thread_context_size;
+
+	uint64_t minimum_thread_context_alignment_power;
+
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	uint64_t xsave_area_size;
+#endif
+};
+
 FERRO_DECLARATIONS_END;
 
 #endif // _FERRO_API_H_

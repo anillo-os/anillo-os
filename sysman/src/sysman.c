@@ -57,16 +57,24 @@ static void start_process(const char* filename) {
 	proc = NULL;
 };
 
-#if 1
+#if 0
 #define THE_SIGNAL 8
+#define PAGE_FAULT_SIGNAL 1
+
+static void* good_addr = NULL;
 
 static void signaling_thread(void* context, sys_thread_t* this_thread) {
 	sys_thread_t* thread_to_signal = context;
 
+	good_addr = &&jump_here_to_fix;
+
 	while (true) {
 		sys_console_log("going to signal.\n");
 		//LIBSYS_WUR_IGNORE(sys_thread_signal(thread_to_signal, THE_SIGNAL));
-		LIBSYS_WUR_IGNORE(sys_thread_signal(sys_thread_current(), THE_SIGNAL));
+		//LIBSYS_WUR_IGNORE(sys_thread_signal(sys_thread_current(), THE_SIGNAL));
+
+		*(volatile uint8_t*)NULL = 255;
+jump_here_to_fix:
 
 		LIBSYS_WUR_IGNORE(sys_thread_suspend_timeout(sys_thread_current(), 5ull * 1000 * 1000 * 1000, sys_timeout_type_relative_ns_monotonic));
 	}
@@ -87,21 +95,57 @@ static void signal_handler(void* context, sys_thread_signal_info_t* signal_info)
 	}
 };
 
+static void page_fault_handler(void* context, sys_thread_signal_info_t* signal_info) {
+	uint64_t alignment = 1ull << sys_config_read_minimum_thread_context_alignment_power();
+
+	sys_console_log_f("page faulted\n");
+
+	// to align this with a dynamic alignment, we have to over-allocate and then move over to an aligned address
+	ferro_thread_context_t* target_thread_context = __builtin_alloca(sys_config_read_total_thread_context_size() + (alignment - 1));
+	target_thread_context = (void*)(((uintptr_t)target_thread_context + (alignment - 1)) & ~(alignment - 1));
+	void* instruction_pointer;
+
+	sys_abort_status_log(sys_thread_execution_context(signal_info->thread, NULL, target_thread_context));
+
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	instruction_pointer = (void*)target_thread_context->rip;
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	instruction_pointer = (void*)target_thread_context->pc;
+#endif
+
+	sys_console_log_f("fault occurred at %p\n", instruction_pointer);
+
+	instruction_pointer = good_addr;
+
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	target_thread_context->rip = (uintptr_t)instruction_pointer;
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	target_thread_context->pc = (uintptr_t)instruction_pointer;
+#endif
+
+	sys_abort_status_log(sys_thread_execution_context(signal_info->thread, target_thread_context, NULL));
+};
+
 __attribute__((aligned(4096)))
 static char some_signal_stack[16ull * 1024];
 #endif
 
 void main(void) {
-#if 0
+#if 1
 	start_process("/sys/netman/netman");
 	start_process("/sys/usbman/usbman");
 
 	eve_loop_run(eve_loop_get_main());
 #endif
-#if 1
+#if 0
 	sys_thread_signal_configuration_t config = {
 		.flags = sys_thread_signal_configuration_flag_enabled | sys_thread_signal_configuration_flag_allow_redirection | sys_thread_signal_configuration_flag_preempt | sys_thread_signal_configuration_flag_mask_on_handle,
 		.handler = signal_handler,
+		.context = NULL,
+	};
+	sys_thread_signal_configuration_t page_fault_config = {
+		.flags = sys_thread_signal_configuration_flag_enabled | sys_thread_signal_configuration_flag_allow_redirection | sys_thread_signal_configuration_flag_preempt | sys_thread_signal_configuration_flag_block_on_redirect | sys_thread_signal_configuration_flag_kill_if_unhandled,
+		.handler = page_fault_handler,
 		.context = NULL,
 	};
 	sys_thread_signal_stack_t stack = {
@@ -109,10 +153,21 @@ void main(void) {
 		.base = some_signal_stack,
 		.size = sizeof(some_signal_stack),
 	};
+	sys_thread_special_signal_mapping_t mapping = {
+		.bus_error = 0,
+		.page_fault = PAGE_FAULT_SIGNAL,
+		.floating_point_exception = 0,
+		.illegal_instruction = 0,
+		.debug = 0,
+	};
 
 	sys_console_log_f("signal stack = (base = %p; top = %p)\n", some_signal_stack, &some_signal_stack[sizeof(some_signal_stack)]);
 
 	sys_abort_status_log(sys_thread_signal_configure(THE_SIGNAL, &config, NULL));
+	sys_abort_status_log(sys_thread_signal_configure(PAGE_FAULT_SIGNAL, &page_fault_config, NULL));
+
+	sys_abort_status_log(sys_thread_signal_configure_special_mapping(sys_thread_current(), &mapping));
+
 #if 0
 	sys_abort_status_log(sys_thread_signal_stack_configure(sys_thread_current(), &stack, NULL));
 #endif

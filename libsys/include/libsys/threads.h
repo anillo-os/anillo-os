@@ -55,6 +55,7 @@ LIBSYS_OPTIONS(uint64_t, sys_thread_signal_configuration_flags) {
 	sys_thread_signal_configuration_flag_preempt = 1 << 3,
 	sys_thread_signal_configuration_flag_block_on_redirect = 1 << 4,
 	sys_thread_signal_configuration_flag_mask_on_handle = 1 << 5,
+	sys_thread_signal_configuration_flag_kill_if_unhandled = 1 << 6,
 };
 
 LIBSYS_STRUCT(sys_thread_signal_configuration) {
@@ -81,9 +82,17 @@ LIBSYS_STRUCT(sys_thread_signal_info) {
 	sys_thread_signal_info_flags_t flags;
 	uint64_t signal_number;
 	sys_thread_t* thread;
-	ferro_thread_context_t* thread_context;
+	ferro_thread_context_t* handling_thread_context;
 	uint64_t data;
 	uint64_t mask;
+};
+
+LIBSYS_STRUCT(sys_thread_special_signal_mapping) {
+	uint64_t bus_error;
+	uint64_t page_fault;
+	uint64_t floating_point_exception;
+	uint64_t illegal_instruction;
+	uint64_t debug;
 };
 
 /**
@@ -138,6 +147,8 @@ LIBSYS_WUR ferr_t sys_thread_signal(sys_thread_t* thread, uint64_t signal);
 LIBSYS_WUR ferr_t sys_thread_signal_configure(uint64_t signal, const sys_thread_signal_configuration_t* new_configuration, sys_thread_signal_configuration_t* out_old_configuration);
 LIBSYS_WUR ferr_t sys_thread_signal_stack_configure(sys_thread_t* thread, const sys_thread_signal_stack_t* new_stack, sys_thread_signal_stack_t* out_old_stack);
 
+LIBSYS_WUR ferr_t sys_thread_signal_configure_special_mapping(sys_thread_t* thread, const sys_thread_special_signal_mapping_t* mapping);
+
 /**
  * Prevents the given thread from:
  * 1. Handling any signals
@@ -155,6 +166,14 @@ LIBSYS_WUR ferr_t sys_thread_signal_stack_configure(sys_thread_t* thread, const 
  */
 void sys_thread_block_signals(sys_thread_t* thread);
 void sys_thread_unblock_signals(sys_thread_t* thread);
+
+LIBSYS_WUR ferr_t sys_thread_block(sys_thread_t* thread);
+LIBSYS_WUR ferr_t sys_thread_unblock(sys_thread_t* thread);
+
+/**
+ * Can only be called on either the current thread or a blocked thread.
+ */
+LIBSYS_WUR ferr_t sys_thread_execution_context(sys_thread_t* thread, const ferro_thread_context_t* new_context, ferro_thread_context_t* out_old_context);
 
 LIBSYS_DECLARATIONS_END;
 

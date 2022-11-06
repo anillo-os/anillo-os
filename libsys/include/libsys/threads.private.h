@@ -47,6 +47,7 @@ LIBSYS_STRUCT(sys_thread_object) {
 	uint8_t block_signals;
 	uint64_t signal_block_count;
 	simple_ghmap_t signal_handlers;
+	sys_thread_special_signal_mapping_t special_signal_mapping;
 };
 
 LIBSYS_ENUM(uint64_t, sys_thread_tls_key) {

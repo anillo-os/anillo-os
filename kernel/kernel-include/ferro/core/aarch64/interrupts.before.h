@@ -88,6 +88,9 @@ FERRO_PACKED_STRUCT(fint_frame) {
 	uint64_t fpsr;
 	uint64_t fpcr;
 	__uint128_t fp_registers[32];
+
+	fint_frame_t* previous_frame;
+	char reserved[8];
 };
 
 // needs to be 16-byte aligned so we can push it onto the stack

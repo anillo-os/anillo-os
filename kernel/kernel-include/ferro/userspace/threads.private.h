@@ -113,6 +113,8 @@ FERRO_STRUCT(futhread_data_private) {
 	bool use_fake_interrupt_return;
 
 	futhread_data_private_arch_t arch;
+
+	void* faulted_memory_address;
 };
 
 futhread_data_t* futhread_data_for_thread(fthread_t* thread);

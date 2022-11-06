@@ -117,6 +117,86 @@ typedef ferr_t (*fthread_hook_interrupted_f)(void* context, fthread_t* thread);
 typedef ferr_t (*fthread_hook_ending_interrupt_f)(void* context, fthread_t* thread);
 
 /**
+ * Allows the hook to handle a bus error on the given thread.
+ *
+ * @note Called with the thread lock NOT held.
+ *
+ * If none of the thread's hooks are able able to handle the bus error, the kernel panics.
+ *
+ * @retval ferr_ok               The request was handled and lower hooks may still be invoked.
+ * @retval ferr_permanent_outage The request was handled and lower hooks may NOT be invoked.
+ * @retval ferr_unknown          The request was not handled; lower hooks (if any) will be invoked.
+ */
+typedef ferr_t (*fthread_hook_bus_error_f)(void* context, fthread_t* thread, void* address);
+
+/**
+ * Allows the hook to handle a page fault on the given thread.
+ *
+ * @note Called with the thread lock NOT held.
+ *
+ * If none of the thread's hooks are able able to handle the page fault, the kernel panics.
+ *
+ * @retval ferr_ok               The request was handled and lower hooks may still be invoked.
+ * @retval ferr_permanent_outage The request was handled and lower hooks may NOT be invoked.
+ * @retval ferr_unknown          The request was not handled; lower hooks (if any) will be invoked.
+ */
+typedef ferr_t (*fthread_hook_page_fault_f)(void* context, fthread_t* thread, void* address);
+
+/**
+ * Allows the hook to handle a floating point exception on the given thread.
+ *
+ * @note Called with the thread lock NOT held.
+ *
+ * If none of the thread's hooks are able able to handle the exception, the kernel panics.
+ *
+ * @retval ferr_ok               The request was handled and lower hooks may still be invoked.
+ * @retval ferr_permanent_outage The request was handled and lower hooks may NOT be invoked.
+ * @retval ferr_unknown          The request was not handled; lower hooks (if any) will be invoked.
+ */
+typedef ferr_t (*fthread_hook_floating_point_exception_f)(void* context, fthread_t* thread);
+
+/**
+ * Allows the hook to handle an illegal instruction on the given thread.
+ *
+ * @note Called with the thread lock NOT held.
+ *
+ * If none of the thread's hooks are able able to handle the illegal instruction, the kernel panics.
+ *
+ * @retval ferr_ok               The request was handled and lower hooks may still be invoked.
+ * @retval ferr_permanent_outage The request was handled and lower hooks may NOT be invoked.
+ * @retval ferr_unknown          The request was not handled; lower hooks (if any) will be invoked.
+ */
+typedef ferr_t (*fthread_hook_illegal_instruction_f)(void* context, fthread_t* thread);
+
+/**
+ * Allows the hook to handle a debug trap on the given thread.
+ *
+ * @note Called with the thread lock NOT held.
+ *
+ * If none of the thread's hooks are able able to handle the debug trap, the kernel panics.
+ *
+ * @retval ferr_ok               The request was handled and lower hooks may still be invoked.
+ * @retval ferr_permanent_outage The request was handled and lower hooks may NOT be invoked.
+ * @retval ferr_unknown          The request was not handled; lower hooks (if any) will be invoked.
+ */
+typedef ferr_t (*fthread_hook_debug_trap_f)(void* context, fthread_t* thread);
+
+FERRO_STRUCT(fthread_hook_callbacks) {
+	fthread_hook_suspend_f suspend;
+	fthread_hook_resume_f resume;
+	fthread_hook_kill_f kill;
+	fthread_hook_block_f block;
+	fthread_hook_unblock_f unblock;
+	fthread_hook_interrupted_f interrupted;
+	fthread_hook_ending_interrupt_f ending_interrupt;
+	fthread_hook_bus_error_f bus_error;
+	fthread_hook_page_fault_f page_fault;
+	fthread_hook_floating_point_exception_f floating_point_exception;
+	fthread_hook_illegal_instruction_f illegal_instruction;
+	fthread_hook_debug_trap_f debug_trap;
+};
+
+/**
  * Thread hooks are a way of intercepting certain actions/events for a thread.
  *
  * Thread hooks are invoked in order of precedence, with hook 0 having the highest precedence.
@@ -143,6 +223,11 @@ FERRO_STRUCT(fthread_hook) {
 	fthread_hook_unblock_f unblock;
 	fthread_hook_interrupted_f interrupted;
 	fthread_hook_ending_interrupt_f ending_interrupt;
+	fthread_hook_bus_error_f bus_error;
+	fthread_hook_page_fault_f page_fault;
+	fthread_hook_floating_point_exception_f floating_point_exception;
+	fthread_hook_illegal_instruction_f illegal_instruction;
+	fthread_hook_debug_trap_f debug_trap;
 };
 
 FERRO_OPTIONS(uint64_t, fthread_private_flags) {
@@ -228,7 +313,7 @@ FERRO_WUR ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq);
 
 FERRO_WUR ferr_t fthread_wait_timeout_locked(fthread_t* thread, fwaitq_t* waitq, uint64_t timeout_value, fthread_timeout_type_t timeout_type);
 
-uint8_t fthread_register_hook(fthread_t* thread, uint64_t owner_id, void* context, fthread_hook_suspend_f suspend, fthread_hook_resume_f resume, fthread_hook_kill_f kill, fthread_hook_interrupted_f interrupted, fthread_hook_ending_interrupt_f ending_interrupt);
+uint8_t fthread_register_hook(fthread_t* thread, uint64_t owner_id, void* context, const fthread_hook_callbacks_t* callbacks);
 
 uint8_t fthread_find_hook(fthread_t* thread, uint64_t owner_id);
 

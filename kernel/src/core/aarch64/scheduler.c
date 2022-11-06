@@ -93,7 +93,12 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 		fthread_saved_context_t* saved = NULL;
 
 		// save the current context
-		if (current_thread) {
+		//
+		// note that we do NOT save the old frame data to the current thread if the frame
+		// has already been set up as the switching frame. if the frame has already been set up
+		// as the switching frame. that means that the data in the current thread's saved context
+		// is already up-to-date (it's either been freshly switched from or we we're going to switch to it)
+		if (current_thread && frame->elr != farch_sched_delayed_switch) {
 			current_thread->saved_context->x0                = frame->x0;
 			current_thread->saved_context->x1                = frame->x1;
 			current_thread->saved_context->x2                = frame->x2;

@@ -32,6 +32,7 @@
 #include <ferro/core/interrupts.h>
 #include <ferro/core/console.h>
 #include <ferro/core/mempool.h>
+#include <ferro/core/threads.private.h>
 
 // magic value used to identify pages that need to mapped on-demand
 #define ON_DEMAND_MAGIC (0xdeadfeeedULL << FPAGE_VIRT_L1_SHIFT)
@@ -3962,6 +3963,42 @@ static void page_fault_handler(void* context) {
 	if (space != fpage_space_kernel() && try_handling_fault_with_space(faulting_address, fpage_space_kernel())) {
 		// we've successfully mapped it; exit the interrupt
 		return;
+	}
+
+	// try to see if the current thread can handle it
+	if (fint_current_frame() == fint_root_frame(fint_current_frame()) && FARCH_PER_CPU(current_thread)) {
+		fthread_t* thread = FARCH_PER_CPU(current_thread);
+		fthread_private_t* private_thread = (void*)thread;
+		bool handled = false;
+		uint8_t hooks_in_use;
+
+		flock_spin_intsafe_lock(&thread->lock);
+		hooks_in_use = private_thread->hooks_in_use;
+		flock_spin_intsafe_unlock(&thread->lock);
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].page_fault) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].page_fault(private_thread->hooks[slot].context, thread, (void*)faulting_address);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+
+		if (handled) {
+			return;
+		}
 	}
 
 	// okay, let's give up

@@ -41,6 +41,20 @@ LIBSYS_ENUM(uint64_t, sys_config_key) {
 	 * **Type**: `uint64_t`
 	 */
 	sys_config_key_page_size = 2,
+
+	/**
+	 * The total size (including padding) of a thread context structure, in bytes.
+	 *
+	 * **Type**: `uint64_t`
+	 */
+	sys_config_key_total_thread_context_size = 3,
+
+	/**
+	 * The minimum required alignment of a thread context structure, as a power of 2.
+	 *
+	 * **Type**: `uint8_t`
+	 */
+	sys_config_key_minimum_thread_context_alignment_power = 4,
 };
 
 LIBSYS_WUR ferr_t sys_config_read(sys_config_key_t key, void* buffer, size_t buffer_size, size_t* out_written_count);
@@ -51,6 +65,8 @@ LIBSYS_WUR ferr_t sys_config_read(sys_config_key_t key, void* buffer, size_t buf
 
 uint64_t sys_config_read_minimum_stack_size(void);
 uint64_t sys_config_read_page_size(void);
+uint64_t sys_config_read_total_thread_context_size(void);
+uint8_t sys_config_read_minimum_thread_context_alignment_power(void);
 
 LIBSYS_DECLARATIONS_END;
 

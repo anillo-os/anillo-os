@@ -98,6 +98,7 @@ ferr_t sys_thread_init(void) {
 	thread->signal_block_count = 0;
 
 	simple_memset(thread->tls, 0, sizeof(thread->tls));
+	simple_memset(&thread->special_signal_mapping, 0, sizeof(thread->special_signal_mapping));
 
 	thread->tls[sys_thread_tls_key_tls] = &thread->tls[sys_thread_tls_key_tls];
 	thread->tls[sys_thread_tls_key_self] = thread;
@@ -253,6 +254,8 @@ ferr_t sys_thread_create(void* stack, size_t stack_size, sys_thread_entry_f entr
 	thread->block_signals = false;
 	thread->signal_block_count = 0;
 
+	simple_memset(&thread->special_signal_mapping, 0, sizeof(thread->special_signal_mapping));
+
 	// set up the stack
 	*(void**)(stack_top - 0x08) = entry;
 	*(void**)(stack_top - 0x10) = context;
@@ -378,7 +381,7 @@ static void sys_thread_signal_handler(void* context, libsyscall_signal_info_t* s
 	sys_signal_info.public.flags = signal_info->flags; // TODO: translate these; they're the same for now
 	sys_signal_info.public.signal_number = signal_info->signal_number;
 	sys_signal_info.public.thread = NULL;
-	sys_signal_info.public.thread_context = signal_info->thread_context;
+	sys_signal_info.public.handling_thread_context = signal_info->thread_context;
 	sys_signal_info.public.data = signal_info->data;
 
 	if (signal_info->thread_id == thread->id) {
@@ -491,6 +494,10 @@ ferr_t sys_thread_signal_configure(uint64_t signal, const sys_thread_signal_conf
 		if (new_configuration->flags & sys_thread_signal_configuration_flag_mask_on_handle) {
 			new_config.flags |= libsyscall_signal_configuration_flag_mask_on_handle;
 		}
+
+		if (new_configuration->flags & sys_thread_signal_configuration_flag_kill_if_unhandled) {
+			new_config.flags |= libsyscall_signal_configuration_flag_kill_if_unhandled;
+		}
 	}
 
 	status = libsyscall_wrapper_thread_signal_configure(thread->id, signal, new_configuration ? &new_config : NULL, out_old_configuration ? &old_config : NULL);
@@ -526,6 +533,10 @@ ferr_t sys_thread_signal_configure(uint64_t signal, const sys_thread_signal_conf
 
 		if (old_config.flags & libsyscall_signal_configuration_flag_mask_on_handle) {
 			out_old_configuration->flags |= sys_thread_signal_configuration_flag_mask_on_handle;
+		}
+
+		if (old_config.flags & libsyscall_signal_configuration_flag_kill_if_unhandled) {
+			out_old_configuration->flags |= sys_thread_signal_configuration_flag_kill_if_unhandled;
 		}
 	}
 
@@ -601,6 +612,44 @@ ferr_t sys_thread_signal_stack_configure(sys_thread_t* object, const sys_thread_
 
 out:
 	return status;
+};
+
+ferr_t sys_thread_signal_configure_special_mapping(sys_thread_t* object, const sys_thread_special_signal_mapping_t* mapping) {
+	ferr_t status = ferr_ok;
+	sys_thread_object_t* thread = (void*)object;
+	libsyscall_signal_mapping_t libsyscall_mapping = {
+		.block_all_flag = &thread->block_signals,
+		.bus_error_signal = mapping->bus_error,
+		.page_fault_signal = mapping->page_fault,
+		.floating_point_exception_signal = mapping->floating_point_exception,
+		.illegal_instruction_signal = mapping->illegal_instruction,
+		.debug_signal = mapping->debug,
+	};
+
+	sys_thread_block_signals(object);
+	status = libsyscall_wrapper_thread_signal_update_mapping(thread->id, &libsyscall_mapping, NULL);
+	if (status == ferr_ok) {
+		simple_memcpy(&thread->special_signal_mapping, mapping, sizeof(*mapping));
+	}
+	sys_thread_unblock_signals(object);
+
+out:
+	return status;
+};
+
+ferr_t sys_thread_block(sys_thread_t* object) {
+	sys_thread_object_t* thread = (void*)object;
+	return libsyscall_wrapper_thread_block(thread->id);
+};
+
+ferr_t sys_thread_unblock(sys_thread_t* object) {
+	sys_thread_object_t* thread = (void*)object;
+	return libsyscall_wrapper_thread_unblock(thread->id);
+};
+
+ferr_t sys_thread_execution_context(sys_thread_t* object, const ferro_thread_context_t* new_context, ferro_thread_context_t* out_old_context) {
+	sys_thread_object_t* thread = (void*)object;
+	return libsyscall_wrapper_thread_execution_context(thread->id, new_context, out_old_context);
 };
 
 //

@@ -101,7 +101,6 @@ if os.path.exists(OUTPUT_DEPFILE_PATH):
 		file_content = outfile.read().strip()
 		if hashlib.sha256(dep_headers.encode()).hexdigest() != hashlib.sha256(file_content.encode()).hexdigest():
 			write_depfile = True
-			print("NOT MATCHING 1")
 else:
 	write_depfile = True
 

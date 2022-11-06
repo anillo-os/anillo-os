@@ -462,6 +462,8 @@ jump_here_for_virtual:;
 	stack_base = __builtin_frame_address(0);
 	stack_base = (void*)round_down_power_of_2((uintptr_t)stack_base, FPAGE_LARGE_PAGE_SIZE);
 
+	fthread_init();
+
 	if (fthread_new(ferro_entry_threaded, NULL, stack_base, FPAGE_LARGE_PAGE_SIZE, 0, &main_thread) != ferr_ok) {
 		fpanic("Failed to create main kernel thread");
 	}

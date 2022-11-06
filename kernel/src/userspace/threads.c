@@ -27,6 +27,7 @@
 #include <ferro/core/paging.private.h>
 #include <ferro/userspace/futex.h>
 #include <ferro/userspace/processes.h>
+#include <ferro/core/console.h>
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	#include <ferro/core/x86_64/xsave.h>
@@ -169,6 +170,117 @@ static ferr_t uthread_ending_interrupt(void* context, fthread_t* thread) {
 	return ferr_ok;
 };
 
+FERRO_STRUCT(uthread_signal_iterator_context) {
+	fthread_t* target_uthread;
+	futhread_special_signal_t special_signal;
+};
+
+static bool uthread_signal_iterator(void* _context, fproc_t* process, fthread_t* uthread) {
+	uthread_signal_iterator_context_t* context = _context;
+	ferr_t status = ferr_ok;
+
+	if (uthread == context->target_uthread) {
+		// skip this uthread
+		return true;
+	}
+
+	if (futhread_signal_special(uthread, context->special_signal, context->target_uthread, 0) == ferr_ok) {
+		return false;
+	}
+
+	return true;
+};
+
+#define SPECIAL_SIGNAL_WORKER(_special_signal) \
+	static void uthread_ ## _special_signal ## _worker(void* context) { \
+		fthread_t* uthread = context; \
+		fproc_t* process = futhread_process(uthread); \
+		\
+		ferr_t status = futhread_signal_special(uthread, futhread_special_signal_ ## _special_signal, uthread, 0); \
+		\
+		if (status != ferr_ok && process) { \
+			/* try to see if another thread in the process can handle it */ \
+			uthread_signal_iterator_context_t iterator_context = { \
+				.target_uthread = uthread, \
+				.special_signal = futhread_special_signal_ ## _special_signal, \
+			}; \
+			if (fproc_for_each_thread(process, uthread_signal_iterator, &iterator_context) == ferr_cancelled) { \
+				status = ferr_ok; \
+			} \
+		} \
+		\
+		if (status != ferr_ok) { \
+			/* kill the target thread/process */ \
+			if (process) { \
+				fproc_kill(process); \
+			} else { \
+				FERRO_WUR_IGNORE(fthread_kill(uthread)); \
+			} \
+			fconsole_logf("killed thread/process because of special signal " #_special_signal "\n"); \
+		} \
+		\
+		/* remove our block; the signal should have placed a block of its own */ \
+		FERRO_WUR_IGNORE(fthread_unblock(uthread)); \
+		fthread_release(uthread); \
+	};
+
+SPECIAL_SIGNAL_WORKER(bus_error);
+SPECIAL_SIGNAL_WORKER(page_fault);
+SPECIAL_SIGNAL_WORKER(floating_point_exception);
+SPECIAL_SIGNAL_WORKER(illegal_instruction);
+SPECIAL_SIGNAL_WORKER(debug);
+
+static ferr_t uthread_bus_error(void* context, fthread_t* thread, void* address) {
+	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
+	FERRO_WUR_IGNORE(fthread_retain(thread));
+	FERRO_WUR_IGNORE(fthread_block(thread, false));
+	private_data->faulted_memory_address = address;
+	FERRO_WUR_IGNORE(fwork_schedule_new(uthread_bus_error_worker, thread, 0, NULL));
+	return ferr_permanent_outage;
+};
+
+static ferr_t uthread_page_fault(void* context, fthread_t* thread, void* address) {
+	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
+	FERRO_WUR_IGNORE(fthread_retain(thread));
+	FERRO_WUR_IGNORE(fthread_block(thread, false));
+	private_data->faulted_memory_address = address;
+	FERRO_WUR_IGNORE(fwork_schedule_new(uthread_page_fault_worker, thread, 0, NULL));
+	return ferr_permanent_outage;
+};
+
+static ferr_t uthread_floating_point_exception(void* context, fthread_t* thread) {
+	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
+	FERRO_WUR_IGNORE(fthread_retain(thread));
+	FERRO_WUR_IGNORE(fthread_block(thread, false));
+	FERRO_WUR_IGNORE(fwork_schedule_new(uthread_floating_point_exception_worker, thread, 0, NULL));
+	return ferr_permanent_outage;
+};
+
+static ferr_t uthread_illegal_instruction(void* context, fthread_t* thread) {
+	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
+	FERRO_WUR_IGNORE(fthread_retain(thread));
+	FERRO_WUR_IGNORE(fthread_block(thread, false));
+	FERRO_WUR_IGNORE(fwork_schedule_new(uthread_illegal_instruction_worker, thread, 0, NULL));
+	return ferr_permanent_outage;
+};
+
+static ferr_t uthread_debug_trap(void* context, fthread_t* thread) {
+	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
+	FERRO_WUR_IGNORE(fthread_retain(thread));
+	FERRO_WUR_IGNORE(fthread_block(thread, false));
+	FERRO_WUR_IGNORE(fwork_schedule_new(uthread_debug_worker, thread, 0, NULL));
+	return ferr_permanent_outage;
+};
+
+static const fthread_hook_callbacks_t hook_callbacks = {
+	.ending_interrupt = uthread_ending_interrupt,
+	.bus_error = uthread_bus_error,
+	.page_fault = uthread_page_fault,
+	.floating_point_exception = uthread_floating_point_exception,
+	.illegal_instruction = uthread_illegal_instruction,
+	.debug_trap = uthread_debug_trap,
+};
+
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	#define FTHREAD_EXTRA_SAVE_SIZE FARCH_PER_CPU(xsave_area_size)
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
@@ -269,7 +381,7 @@ retry_lookup:
 
 	simple_memset(data->saved_syscall_context, 0, sizeof(*data->saved_syscall_context) + FTHREAD_EXTRA_SAVE_SIZE);
 
-	if (fthread_register_hook(thread, UTHREAD_HOOK_OWNER_ID, data, NULL, NULL, NULL, NULL, uthread_ending_interrupt) == UINT8_MAX) {
+	if (fthread_register_hook(thread, UTHREAD_HOOK_OWNER_ID, data, &hook_callbacks) == UINT8_MAX) {
 		status = ferr_temporary_outage;
 		goto out_locked;
 	}
@@ -626,6 +738,7 @@ static ferr_t futhread_signal_internal(fthread_t* uthread, futhread_pending_sign
 	bool block_self = false;
 	bool mark_as_interrupted = true;
 	bool blocked = false;
+	fpage_space_t* saved_space = NULL;
 
 	status = simple_ghmap_lookup_h(&private_data->signal_handler_table, signal->signal, false, 0, NULL, (void*)&handler, NULL);
 	if (status != ferr_ok) {
@@ -650,6 +763,12 @@ static ferr_t futhread_signal_internal(fthread_t* uthread, futhread_pending_sign
 		goto out;
 	}
 
+	saved_space = fpage_space_current();
+	status = fpage_space_swap(data->user_space);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
 	// FIXME: we shouldn't access the flag directly; we should have some sort of wrapper function
 	//        that can gracefully handle invalid addresses.
 	if (private_data->signal_mapping.block_all_flag && __atomic_load_n(private_data->signal_mapping.block_all_flag, __ATOMIC_RELAXED)) {
@@ -667,6 +786,10 @@ static ferr_t futhread_signal_internal(fthread_t* uthread, futhread_pending_sign
 	//    for the signal handler we want to run.
 	if (uthread != target_uthread && target_private_data->signal_mapping.block_all_flag && __atomic_load_n(target_private_data->signal_mapping.block_all_flag, __ATOMIC_RELAXED)) {
 		blocked = true;
+	}
+
+	if (saved_space) {
+		FERRO_WUR_IGNORE(fpage_space_swap(saved_space));
 	}
 
 	// however, the signal mask is only allowed to block *delivery* of signals to the given thread, in order to comply with POSIX.
@@ -778,7 +901,15 @@ static ferr_t futhread_signal_internal(fthread_t* uthread, futhread_pending_sign
 				}
 
 				// set up the context to load in the signal handler
+				saved_space = fpage_space_current();
+				status = fpage_space_swap(data->user_space);
+				if (status != ferr_ok) {
+					goto out;
+				}
 				futhread_signal_setup_context(&private_data->signal_stack, signal, uthread->saved_context, uthread->saved_context, &private_data->signal_mask);
+				if (saved_space) {
+					FERRO_WUR_IGNORE(fpage_space_swap(saved_space));
+				}
 
 				// we can free the pending signal info now
 				FERRO_WUR_IGNORE(fmempool_free(signal));

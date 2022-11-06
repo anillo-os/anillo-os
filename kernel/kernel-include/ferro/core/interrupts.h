@@ -27,6 +27,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include <stddef.h>
 
 #include <ferro/base.h>
 #include <ferro/platform.h>
@@ -166,6 +167,13 @@ void fint_log_frame(const fint_frame_t* frame);
 void fint_trace_interrupted_stack(const fint_frame_t* frame);
 
 void fint_trace_current_stack(void);
+
+FERRO_ALWAYS_INLINE fint_frame_t* fint_root_frame(fint_frame_t* frame) {
+	while (frame && frame->previous_frame != NULL) {
+		frame = frame->previous_frame;
+	}
+	return frame;
+};
 
 /**
  * @}

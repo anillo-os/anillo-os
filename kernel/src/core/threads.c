@@ -28,6 +28,8 @@
 #include <ferro/core/paging.h>
 #include <ferro/core/waitq.private.h>
 #include <ferro/core/workers.h>
+#include <ferro/core/console.h>
+#include <ferro/core/interrupts.h>
 
 #include <libsimple/libsimple.h>
 
@@ -593,6 +595,112 @@ static void wakeup_thread(void* data) {
 	#define FTHREAD_SAVED_CONTEXT_EXTRA_SIZE 0
 #endif
 
+static void thread_invalid_instruction_handler(void* context) {
+	fthread_t* thread = fthread_current();
+	fthread_private_t* private_thread = (void*)thread;
+	bool handled = false;
+	uint8_t hooks_in_use;
+
+	if (!thread) {
+		goto out_fault;
+	}
+
+	if (fint_current_frame() != fint_root_frame(fint_current_frame())) {
+		// we only handle faults for the current thread;
+		// if this is a nested interrupt, the fault did not occur on the current thread
+		goto out_fault;
+	}
+
+	flock_spin_intsafe_lock(&thread->lock);
+	hooks_in_use = private_thread->hooks_in_use;
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+		if ((hooks_in_use & (1 << slot)) == 0) {
+			continue;
+		}
+
+		if (!private_thread->hooks[slot].illegal_instruction) {
+			continue;
+		}
+
+		ferr_t hook_status = private_thread->hooks[slot].illegal_instruction(private_thread->hooks[slot].context, thread);
+
+		if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+			handled = true;
+		}
+
+		if (hook_status == ferr_permanent_outage) {
+			break;
+		}
+	}
+
+	if (handled) {
+		return;
+	}
+
+out_fault:
+	fconsole_logf("invalid instruction; frame:\n");
+	fint_log_frame(fint_current_frame());
+	fint_trace_interrupted_stack(fint_current_frame());
+	fpanic("invalid instruction");
+};
+
+static void thread_debug_handler(void* context) {
+	fthread_t* thread = fthread_current();
+	fthread_private_t* private_thread = (void*)thread;
+	bool handled = false;
+	uint8_t hooks_in_use;
+
+	if (!thread) {
+		goto out_ignore;
+	}
+
+	if (fint_current_frame() != fint_root_frame(fint_current_frame())) {
+		// we only handle single steps for the current thread;
+		// if this is a nested interrupt, the single step did not occur on the current thread
+		goto out_ignore;
+	}
+
+	flock_spin_intsafe_lock(&thread->lock);
+	hooks_in_use = private_thread->hooks_in_use;
+	flock_spin_intsafe_unlock(&thread->lock);
+
+	for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+		if ((hooks_in_use & (1 << slot)) == 0) {
+			continue;
+		}
+
+		if (!private_thread->hooks[slot].debug_trap) {
+			continue;
+		}
+
+		ferr_t hook_status = private_thread->hooks[slot].debug_trap(private_thread->hooks[slot].context, thread);
+
+		if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+			handled = true;
+		}
+
+		if (hook_status == ferr_permanent_outage) {
+			break;
+		}
+	}
+
+	if (handled) {
+		return;
+	}
+
+out_ignore:
+	return;
+};
+
+void fthread_init(void) {
+	fpanic_status(fint_register_special_handler(fint_special_interrupt_invalid_instruction, thread_invalid_instruction_handler, NULL));
+	fpanic_status(fint_register_special_handler(fint_special_interrupt_common_single_step, thread_debug_handler, NULL));
+	fpanic_status(fint_register_special_handler(fint_special_interrupt_common_breakpoint, thread_debug_handler, NULL));
+	fpanic_status(fint_register_special_handler(fint_special_interrupt_common_watchpoint, thread_debug_handler, NULL));
+};
+
 ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_base, size_t stack_size, fthread_flags_t flags, fthread_t** out_thread) {
 	fthread_private_t* new_thread = NULL;
 	bool release_stack_on_fail = false;
@@ -906,7 +1014,7 @@ ferr_t fthread_wait_locked(fthread_t* thread, fwaitq_t* waitq) {
 	return fthread_wait_timeout_locked(thread, waitq, 0, 0);
 };
 
-uint8_t fthread_register_hook(fthread_t* thread, uint64_t owner_id, void* context, fthread_hook_suspend_f suspend, fthread_hook_resume_f resume, fthread_hook_kill_f kill, fthread_hook_interrupted_f interrupted, fthread_hook_ending_interrupt_f ending_interrupt) {
+uint8_t fthread_register_hook(fthread_t* thread, uint64_t owner_id, void* context, const fthread_hook_callbacks_t* callbacks) {
 	fthread_private_t* private_thread = (void*)thread;
 
 	flock_spin_intsafe_lock(&thread->lock);
@@ -920,11 +1028,19 @@ uint8_t fthread_register_hook(fthread_t* thread, uint64_t owner_id, void* contex
 
 		private_thread->hooks[slot].context = context;
 		private_thread->hooks[slot].owner_id = owner_id;
-		private_thread->hooks[slot].suspend = suspend;
-		private_thread->hooks[slot].resume = resume;
-		private_thread->hooks[slot].kill = kill;
-		private_thread->hooks[slot].interrupted = interrupted;
-		private_thread->hooks[slot].ending_interrupt = ending_interrupt;
+
+		private_thread->hooks[slot].suspend = callbacks->suspend;
+		private_thread->hooks[slot].resume = callbacks->resume;
+		private_thread->hooks[slot].kill = callbacks->kill;
+		private_thread->hooks[slot].block = callbacks->block;
+		private_thread->hooks[slot].unblock = callbacks->unblock;
+		private_thread->hooks[slot].interrupted = callbacks->interrupted;
+		private_thread->hooks[slot].ending_interrupt = callbacks->ending_interrupt;
+		private_thread->hooks[slot].bus_error = callbacks->bus_error;
+		private_thread->hooks[slot].page_fault = callbacks->page_fault;
+		private_thread->hooks[slot].floating_point_exception = callbacks->floating_point_exception;
+		private_thread->hooks[slot].illegal_instruction = callbacks->illegal_instruction;
+		private_thread->hooks[slot].debug_trap = callbacks->debug_trap;
 
 		flock_spin_intsafe_unlock(&thread->lock);
 		return slot;

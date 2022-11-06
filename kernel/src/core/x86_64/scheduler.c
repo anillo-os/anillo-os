@@ -60,7 +60,7 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 	fint_disable();
 
 	if (fint_is_interrupt_context()) {
-		fint_frame_t* frame = FARCH_PER_CPU(current_exception_frame);
+		fint_frame_t* frame = fint_root_frame(FARCH_PER_CPU(current_exception_frame));
 		fint_frame_t* new_frame;
 		void* xsave_area;
 
@@ -69,7 +69,11 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 		//
 		// to do this, we modify the return frame to load our own helper (farch_sched_delayed_switch())
 
-		if (current_thread) {
+		// note that we do NOT save the old frame data to the current thread if the frame
+		// has already been set up as the switching frame. if the frame has already been set up
+		// as the switching frame. that means that the data in the current thread's saved context
+		// is already up-to-date (it's either been freshly switched from or we we're going to switch to it)
+		if (current_thread && frame->core.rip != farch_sched_delayed_switch) {
 			// first, save the old frame data to the current thread
 			current_thread->saved_context->rax    = frame->saved_registers.rax;
 			current_thread->saved_context->rcx    = frame->saved_registers.rcx;

@@ -79,7 +79,7 @@ FERRO_ALWAYS_INLINE uint32_t iss_from_esr(uint64_t esr) {
 };
 
 static void fint_handler_common_begin(fint_handler_common_data_t* data, fint_frame_t* frame, bool safe_mode) {
-	data->previous_exception_frame = FARCH_PER_CPU(current_exception_frame);
+	frame->previous_frame = FARCH_PER_CPU(current_exception_frame);
 	FARCH_PER_CPU(current_exception_frame) = frame;
 
 	// ARM automatically disables interrupts when handling an interrupt
@@ -96,7 +96,8 @@ static void fint_handler_common_begin(fint_handler_common_data_t* data, fint_fra
 };
 
 static void fint_handler_common_end(fint_handler_common_data_t* data, fint_frame_t* frame, bool safe_mode) {
-	if (!safe_mode && FARCH_PER_CPU(current_thread)) {
+	if (FARCH_PER_CPU(current_thread)) {
+		// HACK: see x86_64/interrupts.c
 		fthread_interrupt_end(FARCH_PER_CPU(current_thread));
 	}
 
@@ -104,7 +105,7 @@ static void fint_handler_common_end(fint_handler_common_data_t* data, fint_frame
 
 	FARCH_PER_CPU(outstanding_interrupt_disable_count) = frame->interrupt_disable;
 
-	FARCH_PER_CPU(current_exception_frame) = data->previous_exception_frame;
+	FARCH_PER_CPU(current_exception_frame) = frame->previous_frame;
 };
 
 void farch_int_print_frame(const fint_frame_t* frame) {

@@ -245,6 +245,8 @@ FERRO_STRUCT(fthread) {
  */
 typedef void (*fthread_initializer_f)(void* data);
 
+void fthread_init(void);
+
 // these are arch-dependent functions we expect all architectures to implement
 
 /**

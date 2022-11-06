@@ -676,6 +676,47 @@ static ferr_t manager_block(void* context, fthread_t* thread) {
 		return ferr_permanent_outage;
 	}
 
+	// special case to avoid nested interrupts if possible
+	if (thread == fthread_current() && fint_is_interrupt_context()) {
+		fsched_info_t* queue = fsched_per_cpu_info();
+
+		flock_spin_intsafe_lock(&queue->lock);
+
+		fthread_t* new_thread = thread->next;
+
+		if (new_thread == thread) {
+			// that means we've reached the end of this queue; the new thread will instead be the idle thread for this CPU
+			new_thread = idle_threads[fcpu_id()];
+		}
+
+		remove_from_queue(thread, true);
+
+		// the block is no longer pending; it's now fully blocked
+		thread->state &= ~fthread_state_pending_block;
+		thread->state |= fthread_state_blocked;
+
+		add_to_queue(thread, &fsched_blocked, false);
+
+		fthread_state_execution_write_locked(thread, fthread_state_execution_not_running);
+
+		// save the thread's context and load the context for the new thread
+		fsched_switch(thread, new_thread);
+
+		flock_spin_intsafe_unlock(&thread->lock);
+
+		// mark the new thread as interrupted
+		flock_spin_intsafe_lock(&new_thread->lock);
+		fthread_state_execution_write_locked(new_thread, fthread_state_execution_interrupted);
+		flock_spin_intsafe_unlock(&new_thread->lock);
+
+		flock_spin_intsafe_unlock(&queue->lock);
+
+		// re-lock the old thread for the threads subsystem
+		flock_spin_intsafe_lock(&thread->lock);
+
+		return ferr_permanent_outage;
+	}
+
 	// we don't want to be interrupted by the timer if it's for our current thread
 	fint_disable();
 
