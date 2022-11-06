@@ -36,6 +36,8 @@
 #include <ferro/core/x86_64/msr.h>
 #include <ferro/core/mempool.h>
 #include <cpuid.h>
+#include <ferro/core/cpu.private.h>
+#include <libsimple/general.h>
 
 #define HZ_PER_KHZ 1000
 #define MAX_CALIBRATION_ATTEMPTS 10
@@ -451,6 +453,7 @@ FERRO_ENUM(size_t, farch_ioapic_node_mmio_index) {
 static uint64_t cpu_count = 0;
 static farch_ioapic_node_t* ioapic_nodes = NULL;
 static size_t ioapic_node_count = 0;
+static fcpu_t** cpu_structs = NULL;
 
 FERRO_STRUCT(farch_apic_legacy_mapping) {
 	uint32_t gsi;
@@ -482,12 +485,20 @@ static farch_apic_legacy_mapping_t legacy_irq_to_gsi[16] = {
 	{ .gsi = 15 },
 };
 
-uint64_t fcpu_id(void) {
+fcpu_id_t fcpu_current_id(void) {
 	return FARCH_PER_CPU(processor_id);
 };
 
 uint64_t fcpu_count(void) {
 	return cpu_count;
+};
+
+fcpu_t* fcpu_current(void) {
+	return FARCH_PER_CPU(current_cpu);
+};
+
+fcpu_id_t fcpu_id(fcpu_t* cpu) {
+	return cpu->apic_id;
 };
 
 void farch_apic_signal_eoi(void) {
@@ -501,6 +512,7 @@ void farch_apic_init(void) {
 	uintptr_t lapic_address = 0;
 	uint64_t lapic_frequency = UINT64_MAX;
 	size_t ioapic_node_index = 0;
+	size_t cpu_index = 0;
 
 	if (!supports_apic()) {
 		fpanic("CPU has no APIC");
@@ -558,6 +570,20 @@ void farch_apic_init(void) {
 		fpanic("failed to allocate IOAPIC node descriptor array");
 	}
 
+	fconsole_logf("Found %llu CPU(s)\n", cpu_count);
+
+	if (fmempool_allocate(sizeof(*cpu_structs) * cpu_count, NULL, (void*)&cpu_structs) != ferr_ok) {
+		fpanic("Failed to allocate CPU struct array");
+	}
+
+	for (size_t i = 0; i < cpu_count; ++i) {
+		if (fmempool_allocate(sizeof(**cpu_structs), NULL, (void*)&cpu_structs[i]) != ferr_ok) {
+			fpanic("Failed to allocate CPU struct");
+		}
+
+		simple_memset(cpu_structs[i], 0, sizeof(*cpu_structs[i]));
+	}
+
 	for (size_t offset = 0; offset < madt->header.length - offsetof(facpi_madt_t, entries); /* handled in the body */) {
 		facpi_madt_entry_header_t* header = (void*)&madt->entries[offset];
 
@@ -580,6 +606,30 @@ void farch_apic_init(void) {
 				ioapic_node->gsi_base = ioapic_node_info->gsi_base;
 
 				fconsole_logf("IOAPIC node found: id=%u; version=%u; GSI base=%u; GSI count=%u\n", ioapic_node->id, ioapic_node->version, ioapic_node->gsi_base, ioapic_node->redirection_entry_count);
+			} break;
+
+			case facpi_madt_entry_type_processor_lapic: {
+				facpi_madt_entry_processor_lapic_t* cpu = (void*)header;
+				fcpu_t* cpu_info = cpu_structs[cpu_index];
+
+				++cpu_index;
+
+				if (cpu->flags & facpi_madt_entry_process_lapic_flag_enabled) {
+					cpu_info->flags |= farch_cpu_flag_usable;
+				}
+
+				// ignore the "online capable" flag for now since we're not using ACPI yet
+				// (so we can't enable processors if they're not already enabled)
+
+				cpu_info->apic_id = cpu->apic_id;
+
+				if (cpu_info->apic_id == FARCH_PER_CPU(processor_id)) {
+					cpu_info->flags |= farch_cpu_flag_online;
+					FARCH_PER_CPU(current_cpu) = cpu_info;
+					cpu_info->per_cpu_data = FARCH_PER_CPU(base);
+				}
+
+				fconsole_logf("CPU found: apic_id=%llu; usable=%s; online=%s\n", cpu_info->apic_id, (cpu_info->flags & farch_cpu_flag_usable) ? "yes" : "no", (cpu_info->flags & farch_cpu_flag_online) ? "yes" : "no");
 			} break;
 		}
 
@@ -692,7 +742,7 @@ ferr_t farch_ioapic_map(uint32_t gsi_number, bool active_low, bool level_trigger
 	farch_ioapic_node_write_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2, low);
 
 	high = farch_ioapic_node_read_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2 +1);
-	high = (high & ~(0xffULL << 24)) | ((fcpu_id() & 0x0fULL) << 24);
+	high = (high & ~(0xffULL << 24)) | ((fcpu_current_id() & 0x0fULL) << 24);
 	farch_ioapic_node_write_u32(ioapic_node, farch_ioapic_node_mmio_index_redirection_base + gsi_number * 2 + 1, high);
 
 	return ferr_ok;

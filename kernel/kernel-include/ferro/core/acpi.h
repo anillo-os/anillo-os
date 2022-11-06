@@ -175,12 +175,17 @@ FERRO_PACKED_STRUCT(facpi_madt_entry_header) {
 	uint8_t length;
 };
 
+FERRO_OPTIONS(uint32_t, facpi_madt_entry_process_lapic_flags) {
+	facpi_madt_entry_process_lapic_flag_enabled = 1 << 0,
+	facpi_madt_entry_process_lapic_flag_online_capable = 1 << 1,
+};
+
 // LAPIC = Local APIC (Advanced Programmable Interrupt Controller)
 FERRO_PACKED_STRUCT(facpi_madt_entry_processor_lapic) {
 	facpi_madt_entry_header_t header;
 	uint8_t acpi_processor_id;
 	uint8_t apic_id;
-	uint32_t flags;
+	facpi_madt_entry_process_lapic_flags_t flags;
 };
 
 FERRO_PACKED_STRUCT(facpi_madt_entry_ioapic) {

@@ -39,14 +39,25 @@ FERRO_DECLARATIONS_BEGIN;
  * @{
  */
 
+typedef uint64_t fcpu_id_t;
+
+FERRO_STRUCT_FWD(fcpu);
+
 // these are arch-dependent functions that each architecture is expected to implement
+
+/**
+ * Retrieves the CPU info structure for the current CPU.
+ */
+fcpu_t* fcpu_current(void);
 
 /**
  * Retrieves the ID of the current processor.
  *
  * @note This is guaranteed to be unique for the entire system.
  */
-uint64_t fcpu_id(void);
+fcpu_id_t fcpu_current_id(void);
+
+fcpu_id_t fcpu_id(fcpu_t* cpu);
 
 /**
  * Retrieves the total number of available CPUs, including any that have been disabled.

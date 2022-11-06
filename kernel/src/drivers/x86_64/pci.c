@@ -52,7 +52,7 @@ ferr_t farch_pci_function_register_msi_handler(fpci_capability_info_t* msi) {
 
 	msi->mmio_base[0] = (message_control << 16) | (msi->mmio_base[0] & 0xffff);
 
-	msi->mmio_base[1] = (0xfee << 20) | (fcpu_id() << 12);
+	msi->mmio_base[1] = (0xfee << 20) | (fcpu_current_id() << 12);
 
 	is_64_bit = (message_control & (1 << 7)) != 0;
 
@@ -92,7 +92,7 @@ ferr_t farch_pci_function_register_msi_x_handler(fpci_function_info_t* function,
 	// map all interrupts to the same handler for now
 	// TODO: allow interrupts to be directed to different handlers
 	for (size_t i = 0; i < entry_count; ++i) {
-		table[i].message_address_low = (0xfee << 20) | (fcpu_id() << 12);
+		table[i].message_address_low = (0xfee << 20) | (fcpu_current_id() << 12);
 		table[i].message_address_high = 0;
 
 		// edge triggered, fixed destination

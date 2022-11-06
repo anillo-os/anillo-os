@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,35 +16,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * @file
- *
- * AARCH64 implementation of per-CPU data.
- */
+#ifndef _FERRO_CORE_CPU_PRIVATE_H_
+#define _FERRO_CORE_CPU_PRIVATE_H_
 
-#include <ferro/core/per-cpu.private.h>
+// include the arch-dependent header
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#include <ferro/core/x86_64/cpu.private.h>
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#include <ferro/core/aarch64/cpu.private.h>
+#else
+	#error Unrecognized/unsupported CPU architecture! (see <ferro/core/cpu.private.h>)
+#endif
 
-// for now, we only ever operate on a single CPU
-// however, once we enable SMP, we can extend this
-
-static farch_per_cpu_data_t data = {
-	.base = &data,
-};
-
-farch_per_cpu_data_t* farch_per_cpu_base_address(void) {
-	uint64_t addr = 0;
-	__asm__ volatile("mrs %0, tpidr_el1" : "=r" (addr));
-	return (void*)addr;
-};
-
-uint64_t fcpu_current_id(void) {
-	return 0;
-};
-
-uint64_t fcpu_count(void) {
-	return 1;
-};
-
-void farch_per_cpu_init(void) {
-	__asm__ volatile("msr tpidr_el1, %0" :: "r" (&data));
-};
+#endif // _FERRO_CORE_CPU_PRIVATE_H_

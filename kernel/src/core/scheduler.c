@@ -131,7 +131,7 @@ retry:
 };
 
 fsched_info_t* fsched_per_cpu_info(void) {
-	return fsched_infos[fcpu_id()];
+	return fsched_infos[fcpu_current_id()];
 };
 
 // returns with the queue in the same lock state as on entry
@@ -233,7 +233,7 @@ static void rotate_queue_forward(fsched_info_t* queue, bool queue_is_locked) {
 static void timed_context_switch(void* data) {
 	// we'll take care of pending deaths or suspensions later, when we're about to return from the interrupt
 	fsched_info_t* queue = fsched_per_cpu_info();
-	fthread_t* idle_thread = idle_threads[fcpu_id()];
+	fthread_t* idle_thread = idle_threads[fcpu_current_id()];
 	fthread_t* old_thread = fthread_current();
 
 	flock_spin_intsafe_lock(&queue->lock);
@@ -686,7 +686,7 @@ static ferr_t manager_block(void* context, fthread_t* thread) {
 
 		if (new_thread == thread) {
 			// that means we've reached the end of this queue; the new thread will instead be the idle thread for this CPU
-			new_thread = idle_threads[fcpu_id()];
+			new_thread = idle_threads[fcpu_current_id()];
 		}
 
 		remove_from_queue(thread, true);
@@ -806,7 +806,7 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 
 		if (new_thread == thread) {
 			// that means we've reached the end of this queue; the new thread will instead be the idle thread for this CPU
-			new_thread = idle_threads[fcpu_id()];
+			new_thread = idle_threads[fcpu_current_id()];
 		}
 
 		// save the thread's context and load the context for the new thread
@@ -925,7 +925,7 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 		// the active thread may have changed while we had the lock dropped, so check again
 		flock_spin_intsafe_lock(&queue->lock);
 
-		thread = queue->head ? queue->head : idle_threads[fcpu_id()];
+		thread = queue->head ? queue->head : idle_threads[fcpu_current_id()];
 		private_thread = (void*)thread;
 		// the queue should still be the same
 
