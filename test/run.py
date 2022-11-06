@@ -21,26 +21,32 @@ VALID_TRACES = ['net', 'usb', 'ps2', 'ioapic', 'gic']
 
 QEMU_TCG_HOTBLOCKS_PLUGIN_PATH='/usr/local/lib/qemu/contrib/plugins/libhotblocks.so'
 
+def which_or_die(name: str) -> str:
+	result = shutil.which(name)
+	if result == None:
+		raise FileNotFoundError
+	return result
+
 EFI_CODE_PATHS_TO_TRY = {
 	'x86_64': [
-		os.path.join(os.path.dirname(os.path.realpath(shutil.which('qemu-system-x86_64'))), '..', 'share', 'qemu', 'edk2-x86_64-code.fd'),
+		os.path.join(os.path.dirname(os.path.realpath(which_or_die('qemu-system-x86_64'))), '..', 'share', 'qemu', 'edk2-x86_64-code.fd'),
 		'/usr/share/OVMF/OVMF_CODE.fd',
 		'/usr/share/OVMF/x64/OVMF_CODE.fd',
 	],
 	'aarch64': [
-		os.path.join(os.path.dirname(os.path.realpath(shutil.which('qemu-system-aarch64'))), '..', 'share', 'qemu', 'edk2-aarch64-code.fd'),
+		os.path.join(os.path.dirname(os.path.realpath(which_or_die('qemu-system-aarch64'))), '..', 'share', 'qemu', 'edk2-aarch64-code.fd'),
 		'/usr/share/AAVMF/AAVMF_CODE.fd',
 	],
 }
 
 EFI_VARS_PATHS_TO_TRY = {
 	'x86_64': [
-		os.path.join(os.path.dirname(os.path.realpath(shutil.which('qemu-system-x86_64'))), '..', 'share', 'qemu', 'edk2-i386-vars.fd'),
+		os.path.join(os.path.dirname(os.path.realpath(which_or_die('qemu-system-x86_64'))), '..', 'share', 'qemu', 'edk2-i386-vars.fd'),
 		'/usr/share/OVMF/OVMF_VARS.fd',
 		'/usr/share/OVMF/x64/OVMF_VARS.fd',
 	],
 	'aarch64': [
-		os.path.join(os.path.dirname(os.path.realpath(shutil.which('qemu-system-aarch64'))), '..', 'share', 'qemu', 'edk2-arm-vars.fd'),
+		os.path.join(os.path.dirname(os.path.realpath(which_or_die('qemu-system-aarch64'))), '..', 'share', 'qemu', 'edk2-arm-vars.fd'),
 		'/usr/share/AAVMF/AAVMF_VARS.fd',
 	],
 }
@@ -66,6 +72,7 @@ parser.add_argument('-u', '--usb', nargs='+', help='Pass a USB device from the h
 parser.add_argument('-m', '--memory', help='The amount of memory to give to the VM (128M by default)')
 parser.add_argument('-R', '--record', type=str, default=None, help='Record the execution of the VM into the given recording file')
 parser.add_argument('-P', '--play', type=str, default=None, help='Play the execution of the VM from the given recording file')
+parser.add_argument('-c', '--cores', type=int, nargs='?', const=1, default=1, help='The number of CPU cores to virtualize (this can be greater or lesser than the number of host CPU cores)')
 
 args = parser.parse_args()
 
@@ -132,6 +139,8 @@ if args.net_dump != None:
 
 if args.memory != None:
 	qemu_args += ['-m', args.memory]
+
+qemu_args += ['-smp', str(args.cores)]
 
 def try_find_path(search_list):
 	for path in search_list:
@@ -344,7 +353,7 @@ if args.net_dump != None and args.wireshark:
 	if Path(cap_file).exists():
 		Path(cap_file).unlink()
 	Path(cap_file).touch()
-	proc1 = subprocess.Popen([shutil.which('tail'), '-f', '-c', '+0', cap_file], stdin=PIPE, stdout=PIPE, stderr=DEVNULL)
-	proc2 = subprocess.Popen([shutil.which('wireshark'), '-k', '-i', '-'], stdin=proc1.stdout, stdout=DEVNULL, stderr=DEVNULL)
+	proc1 = subprocess.Popen([which_or_die('tail'), '-f', '-c', '+0', cap_file], stdin=PIPE, stdout=PIPE, stderr=DEVNULL)
+	proc2 = subprocess.Popen([which_or_die('wireshark'), '-k', '-i', '-'], stdin=proc1.stdout, stdout=DEVNULL, stderr=DEVNULL)
 
 subprocess.run(prefix_args + [f'qemu-system-{args.arch}'] + qemu_args, cwd=args.build_dir, stdin=sys.stdin)
