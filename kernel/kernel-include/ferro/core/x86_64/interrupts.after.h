@@ -165,6 +165,48 @@ FERRO_ALWAYS_INLINE fint_frame_t* fint_current_frame(void) {
 	return FARCH_PER_CPU(current_exception_frame);
 };
 
+FERRO_OPTIONS(uint64_t, farch_int_gdt_flags) {
+	farch_int_gdt_flag_accessed     = 1ULL << 40,
+	farch_int_gdt_flag_writable     = 1ULL << 41,
+	farch_int_gdt_flag_executable   = 1ULL << 43,
+	farch_int_gdt_flag_user_segment = 1ULL << 44,
+	farch_int_gdt_flag_dpl_ring_3   = 3ULL << 45,
+	farch_int_gdt_flag_present      = 1ULL << 47,
+	farch_int_gdt_flag_long         = 1ULL << 53,
+
+	farch_int_gdt_flags_common      = farch_int_gdt_flag_accessed | farch_int_gdt_flag_writable | farch_int_gdt_flag_present | farch_int_gdt_flag_user_segment,
+
+	// just to shut clang up
+	farch_int_gdt_flag_dpl_ring_3_hi = 1ULL << 46,
+	farch_int_gdt_flag_dpl_ring_3_lo = 1ULL << 45,
+};
+
+FERRO_PACKED_STRUCT(farch_int_gdt) {
+	uint64_t entries[8];
+};
+
+FERRO_STRUCT_FWD(farch_int_idt);
+
+FERRO_PACKED_STRUCT(farch_int_idt_pointer) {
+	uint16_t limit;
+	farch_int_idt_t* base;
+};
+
+FERRO_PACKED_STRUCT(farch_int_idt_legacy_pointer) {
+	uint16_t limit;
+	uint32_t base;
+};
+
+FERRO_PACKED_STRUCT(farch_int_gdt_pointer) {
+	uint16_t limit;
+	farch_int_gdt_t* base;
+};
+
+FERRO_PACKED_STRUCT(farch_int_gdt_legacy_pointer) {
+	uint16_t limit;
+	uint32_t base;
+};
+
 /**
  * @}
  */

@@ -100,11 +100,21 @@
 #define FSTRINGIFY_HELPER(x) #x
 #define FSTRINGIFY(x) FSTRINGIFY_HELPER(x)
 
+#if defined(__ASSEMBLER__) && __ASSEMBLER__
+	#define FERRO_ASSEMBLER 1
+#else
+	#define FERRO_ASSEMBLER 0
+#endif
+
+#if !FERRO_ASSEMBLER
+
 FERRO_ALWAYS_INLINE void fassert_helper(int result, const char* expr) {
 	if (!result) {
 		__builtin_unreachable();
 	}
 };
+
+#endif
 
 #define fassert(x) fassert_helper(!!(x), #x)
 

@@ -38,6 +38,8 @@
 #include <cpuid.h>
 #include <ferro/core/cpu.private.h>
 #include <libsimple/general.h>
+#include <ferro/core/x86_64/smp-init.h>
+#include <ferro/core/paging.private.h>
 
 #define HZ_PER_KHZ 1000
 #define MAX_CALIBRATION_ATTEMPTS 10
@@ -116,11 +118,13 @@ FERRO_ENUM(uint8_t, fapic_timer_mode) {
 #define fapic_timer_mode_mask (3ULL << 17)
 
 FERRO_ENUM(uint8_t, fapic_lvt_delivery_mode) {
-	fapic_lvt_delivery_mode_fixed  = 0,
-	fapic_lvt_delivery_mode_smi    = 2,
-	fapic_lvt_delivery_mode_nmi    = 4,
-	fapic_lvt_delivery_mode_init   = 5,
-	fapic_lvt_delivery_mode_extint = 7,
+	fapic_lvt_delivery_mode_fixed           = 0,
+	fapic_lvt_delivery_mode_lowest_priority = 1,
+	fapic_lvt_delivery_mode_smi             = 2,
+	fapic_lvt_delivery_mode_nmi             = 4,
+	fapic_lvt_delivery_mode_init            = 5,
+	fapic_lvt_delivery_mode_start_up        = 6,
+	fapic_lvt_delivery_mode_extint          = 7,
 };
 
 FERRO_OPTIONS(uint32_t, fapic_lvt_flags) {
@@ -131,6 +135,17 @@ FERRO_OPTIONS(uint32_t, fapic_lvt_flags) {
 	fapic_lvt_flag_active_high      = 0 << 13,
 	fapic_lvt_flag_active_low       = 1 << 13,
 	fapic_lvt_flag_delivery_pending = 1 << 12,
+};
+
+FERRO_OPTIONS(uint32_t, fapic_icr_flags) {
+	fapic_icr_flag_trigger_mode_edge = 0 << 15,
+	fapic_icr_flag_trigger_mode_level = 1 << 15,
+	fapic_icr_flag_level_deassert = 0 << 14,
+	fapic_icr_flag_level_assert = 1 << 14,
+	fapic_icr_flag_delivery_status_idle = 0 << 12,
+	fapic_icr_flag_delivery_status_pending = 1 << 12,
+	fapic_icr_flag_destination_mode_physical = 0 << 11,
+	fapic_icr_flag_destination_mode_logical = 1 << 11,
 };
 
 static fapic_block_t* lapic = NULL;
@@ -695,6 +710,139 @@ void farch_apic_init(void) {
 	} else {
 		fconsole_log("warning: CPU/APIC doesn't support TSC-deadline mode; no TSC-deadline timer will be available\n");
 	}
+
+	// now initialize other processors
+	void* smp_init_code = NULL;
+	farch_smp_init_data_t* smp_init_data = NULL;
+	fpage_table_t* smp_init_root_table = NULL;
+	fpage_table_t* smp_init_p3_table = NULL;
+	fpage_table_t* smp_init_p2_table = NULL;
+	fpage_table_t* smp_init_p1_table = NULL;
+	size_t smp_init_code_length = (size_t)(&farch_smp_init_code_end - &farch_smp_init_code_start);
+
+	// make sure the SMP init code fits in a single page
+	fassert(smp_init_code_length <= FPAGE_PAGE_SIZE);
+
+	// first, copy the AP init code into low memory, set up some SMP init data, and set up the (stubbed) root page table
+	fpanic_status(fpage_space_map_any(fpage_space_kernel(), (void*)FARCH_SMP_INIT_BASE, 1, &smp_init_code, 0));
+	fpanic_status(fpage_space_map_any(fpage_space_kernel(), (void*)FARCH_SMP_INIT_DATA_BASE, 1, (void*)&smp_init_data, 0));
+	fpanic_status(fpage_space_map_any(fpage_space_kernel(), (void*)FARCH_SMP_INIT_ROOT_TABLE_BASE, 1, (void*)&smp_init_root_table, 0));
+	fpanic_status(fpage_space_map_any(fpage_space_kernel(), (void*)FARCH_SMP_INIT_P3_TABLE_BASE, 1, (void*)&smp_init_p3_table, 0));
+	fpanic_status(fpage_space_map_any(fpage_space_kernel(), (void*)FARCH_SMP_INIT_P2_TABLE_BASE, 1, (void*)&smp_init_p2_table, 0));
+	fpanic_status(fpage_space_map_any(fpage_space_kernel(), (void*)FARCH_SMP_INIT_P1_TABLE_BASE, 1, (void*)&smp_init_p1_table, 0));
+
+	simple_memcpy(smp_init_code, &farch_smp_init_code_start, smp_init_code_length);
+
+	// clear out the SMP init data
+	simple_memset(smp_init_data, 0, sizeof(*smp_init_data));
+
+	// stub the root page table by copying the root page table we use for this CPU
+	simple_memcpy(smp_init_root_table, (void*)fpage_virtual_address_for_table(0, 0, 0, 0), sizeof(*smp_init_root_table));
+
+	// now identity-map the addresses we use for SMP initialization
+	//
+	// note that, because all our addresses are below 1MiB, they all fit within a single P1 table
+	smp_init_root_table->entries[FPAGE_VIRT_L4(FARCH_SMP_INIT_BASE)] = fpage_table_entry(FARCH_SMP_INIT_P3_TABLE_BASE, true);
+	smp_init_p3_table->entries[FPAGE_VIRT_L3(FARCH_SMP_INIT_BASE)] = fpage_table_entry(FARCH_SMP_INIT_P2_TABLE_BASE, true);
+	smp_init_p2_table->entries[FPAGE_VIRT_L2(FARCH_SMP_INIT_BASE)] = fpage_table_entry(FARCH_SMP_INIT_P1_TABLE_BASE, true);
+	smp_init_p1_table->entries[FPAGE_VIRT_L1(FARCH_SMP_INIT_BASE)] = fpage_page_entry(FARCH_SMP_INIT_BASE, true);
+	smp_init_p1_table->entries[FPAGE_VIRT_L1(FARCH_SMP_INIT_DATA_BASE)] = fpage_page_entry(FARCH_SMP_INIT_DATA_BASE, true);
+
+	// initialize the stub GDT
+	smp_init_data->gdt.entries[0] = 0; // null segment
+	smp_init_data->gdt.entries[1] = farch_int_gdt_flags_common | farch_int_gdt_flag_long | farch_int_gdt_flag_executable; // code segment
+	smp_init_data->gdt.entries[2] = farch_int_gdt_flags_common; // data segment
+
+	// initialize the GDT pointer (with the physical address)
+	smp_init_data->gdt_pointer.limit = sizeof(smp_init_data->gdt) - 1;
+	smp_init_data->gdt_pointer.base = FARCH_SMP_INIT_DATA_BASE + offsetof(farch_smp_init_data_t, gdt);
+
+	// initialize the stub IDT pointer
+	// (with a length of 0 to cause triple faults on interrupts during initialization)
+	smp_init_data->idt_pointer.limit = 0;
+	smp_init_data->idt_pointer.base = 0;
+
+	for (size_t i = 0; i < cpu_count; ++i) {
+		fcpu_t* cpu = cpu_structs[i];
+
+		if (cpu == FARCH_PER_CPU(current_cpu) || (cpu->flags & farch_cpu_flag_usable) == 0) {
+			continue;
+		}
+
+		// reset the "initialization done" flag
+		__atomic_store_n(&smp_init_data->init_done, 0, __ATOMIC_RELAXED);
+
+		// set the processor's APIC ID
+		smp_init_data->apic_id = cpu->apic_id;
+
+		// allocate a new init stack for this CPU
+		fpanic_status(fpage_space_allocate(fpage_space_kernel(), fpage_round_up_to_page_count(FARCH_SMP_INIT_STACK_SIZE), &smp_init_data->stack, fpage_flag_prebound));
+
+		// clear APIC errors
+		lapic->error_status = 0;
+
+		//
+		// send an INIT IPI
+		//
+
+		// first, set the destination
+		lapic->interrupt_command_32_63 = (cpu->apic_id & 0xff) << 24;
+
+		// now set the rest of the ICR to issue the INIT
+		lapic->interrupt_command_0_31 = fapic_icr_flag_trigger_mode_edge | fapic_icr_flag_level_assert | fapic_icr_flag_delivery_status_idle | fapic_icr_flag_destination_mode_physical | (fapic_lvt_delivery_mode_init << 8);
+
+		// wait 10ms
+		ftimers_delay_spin(10ull * 1000 * 1000, NULL);
+
+		// try to issue a SIPI for the processor twice
+		// first we try 1ms, then we try 1s
+		for (size_t j = 0; j < 2; ++j) {
+			// clear APIC errors
+			lapic->error_status = 0;
+
+			//
+			// send a start-up IPI
+			//
+
+			// first, set the destination
+			lapic->interrupt_command_32_63 = (cpu->apic_id & 0xff) << 24;
+
+			// now set the rest of the ICR to issue the SIPI
+			lapic->interrupt_command_0_31 = fapic_icr_flag_trigger_mode_edge | fapic_icr_flag_level_assert | fapic_icr_flag_delivery_status_idle | fapic_icr_flag_destination_mode_physical | (fapic_lvt_delivery_mode_start_up << 8) | ((FARCH_SMP_INIT_BASE >> 12) & 0xff);
+
+			// wait
+			//
+			// we wait 1ms the first time around, and then we try 1 second the second time around
+			if (ftimers_delay_spin(1ull * 1000 * 1000 * ((j == 1) ? 1000 : 1), &smp_init_data->init_done)) {
+				// great, we're done!
+				break;
+			}
+		}
+
+		if (__atomic_load_n(&smp_init_data->init_done, __ATOMIC_RELAXED) == 0) {
+			// we were unable to bring up this processor :(
+			fconsole_logf("Unable to spin up processor with APIC ID %llu\n", cpu->apic_id);
+
+			// go ahead and free the stack we allocate for it
+			fpanic_status(fpage_space_free(fpage_space_kernel(), smp_init_data->stack, fpage_round_up_to_page_count(FARCH_SMP_INIT_STACK_SIZE)));
+			continue;
+		}
+
+		fconsole_logf("Successfully spun up processor with APIC ID %llu\n", cpu->apic_id);
+
+		cpu->flags |= farch_cpu_flag_online;
+	}
+
+	// we can now unmap the regions we mapped earlier
+	fpanic_status(fpage_space_unmap(fpage_space_kernel(), smp_init_code, 1));
+	fpanic_status(fpage_space_unmap(fpage_space_kernel(), smp_init_data, 1));
+	fpanic_status(fpage_space_unmap(fpage_space_kernel(), smp_init_root_table, 1));
+	fpanic_status(fpage_space_unmap(fpage_space_kernel(), smp_init_p3_table, 1));
+	fpanic_status(fpage_space_unmap(fpage_space_kernel(), smp_init_p2_table, 1));
+	fpanic_status(fpage_space_unmap(fpage_space_kernel(), smp_init_p1_table, 1));
+
+	// TODO: continue processor initialization
+	// at this point, the APs are waiting in the long-mode higher-half for us to continue setting up them.
 
 	fint_enable();
 };

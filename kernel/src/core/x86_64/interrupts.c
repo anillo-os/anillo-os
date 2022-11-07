@@ -52,26 +52,6 @@ FERRO_PACKED_STRUCT(fint_tss) {
 	uint16_t iomap_offset;
 };
 
-FERRO_OPTIONS(uint64_t, fint_gdt_flags) {
-	fint_gdt_flag_accessed     = 1ULL << 40,
-	fint_gdt_flag_writable     = 1ULL << 41,
-	fint_gdt_flag_executable   = 1ULL << 43,
-	fint_gdt_flag_user_segment = 1ULL << 44,
-	fint_gdt_flag_dpl_ring_3   = 3ULL << 45,
-	fint_gdt_flag_present      = 1ULL << 47,
-	fint_gdt_flag_long         = 1ULL << 53,
-
-	fint_gdt_flags_common      = fint_gdt_flag_accessed | fint_gdt_flag_writable | fint_gdt_flag_present | fint_gdt_flag_user_segment,
-
-	// just to shut clang up
-	fint_gdt_flag_dpl_ring_3_hi = 1ULL << 46,
-	fint_gdt_flag_dpl_ring_3_lo = 1ULL << 45,
-};
-
-FERRO_PACKED_STRUCT(fint_gdt) {
-	uint64_t entries[8];
-};
-
 FERRO_ENUM(uint8_t, fint_ist_index) {
 	// used for all interrupts without their own IST stack
 	fint_ist_index_generic_interrupt,
@@ -157,7 +137,7 @@ FERRO_ALWAYS_INLINE void fint_make_idt_entry(fint_idt_entry_t* out_entry, void* 
  * fint_isr_t interrupts[224];
  * ```
  */
-FERRO_PACKED_STRUCT(fint_idt) {
+FERRO_PACKED_STRUCT(farch_int_idt) {
 	fint_idt_entry_t division_error;
 	fint_idt_entry_t debug;
 	fint_idt_entry_t nmi;
@@ -194,16 +174,6 @@ FERRO_PACKED_STRUCT(fint_idt) {
 	fint_idt_entry_t interrupts[224];
 };
 
-FERRO_PACKED_STRUCT(fint_idt_pointer) {
-	uint16_t limit;
-	fint_idt_t* base;
-};
-
-FERRO_PACKED_STRUCT(fint_gdt_pointer) {
-	uint16_t limit;
-	fint_gdt_t* base;
-};
-
 FERRO_STRUCT(fint_handler_common_data) {
 	char reserved;
 };
@@ -220,7 +190,7 @@ FERRO_STRUCT(fint_special_handler_entry) {
 	flock_spin_intsafe_t lock;
 };
 
-static fint_idt_t idt = {0};
+static farch_int_idt_t idt = {0};
 static fint_handler_entry_t handlers[224] = {0};
 
 #define SPECIAL_HANDLERS_MAX fint_special_interrupt_common_LAST
@@ -234,28 +204,28 @@ static fint_special_handler_entry_t special_handlers[SPECIAL_HANDLERS_MAX] = {
 
 static fint_tss_t tss = {0};
 
-static fint_gdt_t gdt = {
+static farch_int_gdt_t gdt = {
 	.entries = {
 		// null segment
 		0,
 
 		// code segment
-		fint_gdt_flags_common | fint_gdt_flag_long | fint_gdt_flag_executable,
+		farch_int_gdt_flags_common | farch_int_gdt_flag_long | farch_int_gdt_flag_executable,
 
 		// data segment
-		fint_gdt_flags_common,
+		farch_int_gdt_flags_common,
 
 		// TSS segment
 		// occupies two entries
 		// needs to be initialized with the pointer value in fint_init()
-		fint_gdt_flag_accessed | fint_gdt_flag_executable | fint_gdt_flag_present | ((sizeof(fint_tss_t) - 1ULL) & 0xffffULL),
+		farch_int_gdt_flag_accessed | farch_int_gdt_flag_executable | farch_int_gdt_flag_present | ((sizeof(fint_tss_t) - 1ULL) & 0xffffULL),
 		0,
 
 		// user data segment
-		fint_gdt_flags_common | fint_gdt_flag_dpl_ring_3,
+		farch_int_gdt_flags_common | farch_int_gdt_flag_dpl_ring_3,
 
 		// user code segment
-		fint_gdt_flags_common | fint_gdt_flag_long | fint_gdt_flag_executable | fint_gdt_flag_dpl_ring_3,
+		farch_int_gdt_flags_common | farch_int_gdt_flag_long | farch_int_gdt_flag_executable | farch_int_gdt_flag_dpl_ring_3,
 	},
 };
 
@@ -1058,8 +1028,8 @@ void fint_init(void) {
 	void* double_fault_stack_bottom = NULL;
 	void* debug_stack_bottom = NULL;
 	void* page_fault_stack_bottom = NULL;
-	fint_idt_pointer_t idt_pointer;
-	fint_gdt_pointer_t gdt_pointer;
+	farch_int_idt_pointer_t idt_pointer;
+	farch_int_gdt_pointer_t gdt_pointer;
 	fint_idt_entry_t missing_entry;
 	uint16_t tss_selector = farch_int_gdt_index_tss * 8;
 

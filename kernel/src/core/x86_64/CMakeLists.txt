@@ -9,10 +9,12 @@ add_library(ferro_core_x86_64 STATIC
 	scheduler.c
 	threads.c
 	serial.c
+	smp-init.c
 
 	interrupt-wrappers.S
 	scheduler-helpers.S
 	thread-runner.S
+	smp-init.S
 
 	../generic/locks.c
 )

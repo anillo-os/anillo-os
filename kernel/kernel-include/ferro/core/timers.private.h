@@ -26,6 +26,8 @@
 #define _FERRO_CORE_TIMERS_PRIVATE_H_
 
 #include <ferro/core/timers.h>
+#include <ferro/core/panic.h>
+#include <ferro/core/locks.spin.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -109,6 +111,25 @@ ferr_t ftimers_register_backend(const ftimers_backend_t* backend);
  *       Callers must be aware of this and should not perform any time-sensitive work after a call to this function.
  */
 void ftimers_backend_fire(void);
+
+FERRO_ALWAYS_INLINE bool ftimers_delay_spin(uint64_t ns, uint8_t* exit_flag) {
+	ftimers_timestamp_t start_ts;
+	fpanic_status(ftimers_timestamp_read(&start_ts));
+	ftimers_timestamp_t end_ts;
+	uint64_t delta;
+	while (1) {
+		farch_lock_spin_yield();
+		if (exit_flag && __atomic_load_n(exit_flag, __ATOMIC_RELAXED) != 0) {
+			return true;
+		}
+		fpanic_status(ftimers_timestamp_read(&end_ts));
+		fpanic_status(ftimers_timestamp_delta_to_ns(start_ts, end_ts, &delta));
+		if (delta >= ns) {
+			return false;
+		}
+	}
+	return false;
+};
 
 /**
  * @}

@@ -42,7 +42,9 @@ HEADERS_COMMON = [
 ]
 
 HEADERS_PER_ARCH = {
-	'x86_64': [],
+	'x86_64': [
+		'ferro/core/x86_64/smp-init.h',
+	],
 	'aarch64': [],
 }
 
@@ -66,6 +68,7 @@ STRUCTS_PER_ARCH = {
 		'farch_int_frame_core',
 		'farch_int_frame_with_code',
 		'farch_per_cpu_data',
+		'farch_smp_init_data',
 	],
 	'aarch64': [
 		'farch_per_cpu_data',
