@@ -63,6 +63,7 @@
 #include <ferro/core/channels.h>
 
 static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
+static fpage_table_t page_table_level_1_extra    FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2_identity FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_3          FERRO_PAGE_ALIGNED = {0};
@@ -154,15 +155,16 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 	uint16_t next_l1_idx = 0;
 	size_t memory_regions_array_size = memory_region_count * sizeof(ferro_memory_region_t);
 	uint16_t l2_idx = (*next_l2)++;
+	fpage_table_t* l1_table = &page_table_level_1;
 
-	page_table_level_2.entries[l2_idx] = fpage_table_entry(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_1) + (uintptr_t)image_base, true);
+	page_table_level_2.entries[l2_idx] = fpage_table_entry(FERRO_KERNEL_STATIC_TO_OFFSET(l1_table) + (uintptr_t)image_base, true);
 
 	// first, map the memory region array itself
 	// it's guaranteed to be allocated on a page boundary
 	ferro_memory_region_t* physical_memory_regions_address = *memory_regions_ptr;
 	ferro_memory_region_t* new_memory_regions_address = (ferro_memory_region_t*)fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
 	for (size_t i = 0; i < memory_regions_array_size; i += FPAGE_PAGE_SIZE) {
-		page_table_level_1.entries[next_l1_idx++] = fpage_page_entry((uintptr_t)physical_memory_regions_address + i, true);
+		l1_table->entries[next_l1_idx++] = fpage_page_entry((uintptr_t)physical_memory_regions_address + i, true);
 	}
 	*memory_regions_ptr = new_memory_regions_address;
 
@@ -180,6 +182,9 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 				region->virtual_start = (uintptr_t)new_memory_regions_address;
 				continue;
 			}
+			// don't allocate 2MiB pages for now; it causes issues when we need to map more than 1 L1 table.
+			// plus, none of the regions we need to map now are typically that large.
+#if 0
 			// we can only allocate 2MiB pages if the address is on a 2MiB page boundary
 			if (fpage_is_large_page_aligned(region->physical_start) && region->page_count > (512 - next_l1_idx)) {
 				// allocate it in 2MiB pages
@@ -190,12 +195,31 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 					page_table_level_2.entries[(*next_l2)++] = fpage_large_page_entry((uintptr_t)region->physical_start + (j * FPAGE_LARGE_PAGE_SIZE), true);
 				}
 			} else {
+#else
+			{
+#endif
 				// allocate it in 4KiB
 				for (size_t j = 0; j < region->page_count; ++j) {
+					if (next_l1_idx >= sizeof(l1_table->entries) / sizeof(*l1_table->entries)) {
+						// we've exceeded the maximum number of L1 entries
+						//
+						// if we haven't used the L1 extra table yet, let's use it.
+						// otherwise, panic.
+
+						if (l1_table == &page_table_level_1_extra) {
+							// (no panic message because we can't log here yet)
+							fpanic(NULL);
+						}
+
+						l1_table = &page_table_level_1_extra;
+						l2_idx = (*next_l2)++;
+						page_table_level_2.entries[l2_idx] = fpage_table_entry(FERRO_KERNEL_STATIC_TO_OFFSET(l1_table) + (uintptr_t)image_base, true);
+						next_l1_idx = 0;
+					}
 					if (j == 0) {
 						region->virtual_start = fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
 					}
-					page_table_level_1.entries[next_l1_idx++] = fpage_page_entry((uintptr_t)region->physical_start + (j * FPAGE_PAGE_SIZE), true);
+					l1_table->entries[next_l1_idx++] = fpage_page_entry((uintptr_t)region->physical_start + (j * FPAGE_PAGE_SIZE), true);
 				}
 			}
 		}
