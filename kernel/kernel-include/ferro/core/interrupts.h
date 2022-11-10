@@ -107,6 +107,13 @@ typedef void (*fint_special_handler_f)(void* data);
  */
 void fint_init(void);
 
+/**
+ * Initializes the interrupts subsystem for a secondary CPU.
+ *
+ * After this function is called, interrupts are enabled.
+ */
+void fint_init_secondary_cpu(void);
+
 // these are arch-dependent functions we expect all architectures to implement
 
 /**

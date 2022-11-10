@@ -28,6 +28,7 @@
 #include <ferro/core/waitq.private.h>
 #include <ferro/core/entry.h>
 #include <ferro/core/panic.h>
+#include <ferro/core/cpu.private.h>
 
 //
 // spin locks
@@ -59,7 +60,24 @@ void flock_spin_intsafe_init(flock_spin_intsafe_t* lock) {
 
 void flock_spin_intsafe_lock(flock_spin_intsafe_t* lock) {
 	fint_disable();
-	flock_spin_intsafe_lock_unsafe(lock);
+
+	while (__atomic_exchange_n(&lock->base.flag, 1, __ATOMIC_ACQUIRE) != 0) {
+
+		// HACK: because we have interrupts disabled, we need to process this work here.
+		//       this is a terrible hack (i'd prefer to simply not do any lock-dependent work that
+		//       also needs IPIs), but it's good enough to get by for now.
+		//
+		//       this is currently necessary due to the paging subsystem.
+		//
+		//       also, don't freak out about checking `head` without holding its lock;
+		//       since we're spinning, we'll just check it again later. that check is mainly there
+		//       for early boot where we can't use `FARCH_PER_CPU` yet (but we also don't have any IPI work).
+		if (lock != &fcpu_broadcast_queue.lock && fcpu_broadcast_queue.head != NULL) {
+			fcpu_do_work();
+		}
+
+		farch_lock_spin_yield();
+	}
 };
 
 void flock_spin_intsafe_lock_unsafe(flock_spin_intsafe_t* lock) {

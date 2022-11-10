@@ -27,6 +27,7 @@
 
 #include <ferro/core/paging.private.h>
 #include <ferro/core/x86_64/per-cpu.private.h>
+#include <ferro/core/cpu.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -111,8 +112,15 @@ FERRO_ALWAYS_INLINE uint64_t fpage_table_entry(uintptr_t physical_address, bool 
 	return FARCH_PAGE_PRESENT_BIT | (writable ? FARCH_PAGE_WRITABLE_BIT : 0) | FARCH_PAGE_PHYS_ENTRY(physical_address);
 };
 
+void farch_page_invalidate_tlb_for_address_other_cpus(void* address);
+
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
 	__asm__ volatile("invlpg %0" :: "m" (address) : "memory");
+
+	if (fcpu_online_count() > 1) {
+		// running with SMP; defer to a helper function to flush the TLB on other CPUs
+		farch_page_invalidate_tlb_for_address_other_cpus(address);
+	}
 };
 
 FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value) {

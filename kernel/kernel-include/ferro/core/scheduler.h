@@ -52,6 +52,8 @@ FERRO_DECLARATIONS_BEGIN;
  */
 FERRO_NO_RETURN void fsched_init(fthread_t* thread);
 
+FERRO_NO_RETURN void fsched_init_secondary_cpu(void);
+
 /**
  * Asks the scheduler to beging managing the given thread.
  *

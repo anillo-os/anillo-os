@@ -48,6 +48,8 @@ FERRO_DECLARATIONS_BEGIN;
  */
 void farch_apic_init(void);
 
+void farch_apic_init_secondary_cpu(void);
+
 /**
  * Converts the given number of nanoseconds into a number of APIC timer cycles (with a divider of 1).
  */
@@ -149,6 +151,8 @@ ferr_t farch_ioapic_unmask_legacy(uint8_t legacy_irq_number);
  * @retval ferr_invalid_argument One or more of: 1) @p legacy_irq_number was outside the permitted range (0-15, inclusive), or 2) @p target_vector_number was outside the permitted range (48-254, inclusive).
  */
 ferr_t farch_ioapic_map_legacy(uint8_t legacy_irq_number, uint8_t target_vector_number);
+
+FERRO_WUR ferr_t farch_apic_interrupt_cpu(fcpu_t* cpu, uint8_t vector_number);
 
 /**
  * @}

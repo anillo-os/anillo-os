@@ -29,6 +29,8 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/locks.spin.h>
 
+#include <stddef.h>
+
 FERRO_DECLARATIONS_BEGIN;
 
 /**
@@ -93,6 +95,22 @@ FERRO_STRUCT(ftimers_backend) {
 	ftimers_backend_cancel_f cancel;
 };
 
+FERRO_STRUCT(ftimers_timer) {
+	ftimers_backend_timestamp_t most_recent_timestamp;
+	uint64_t remaining_delay;
+	ftimers_id_t id;
+	ftimers_callback_f callback;
+	void* data;
+	bool disabled;
+};
+
+FERRO_STRUCT(ftimers_priority_queue) {
+	ftimers_timer_t* timers;
+	size_t length;
+	size_t size;
+	flock_spin_intsafe_t lock;
+};
+
 /**
  * Registers a new timer backend.
  *
@@ -105,7 +123,7 @@ FERRO_STRUCT(ftimers_backend) {
 ferr_t ftimers_register_backend(const ftimers_backend_t* backend);
 
 /**
- * Indicates that the first-in-line timer has fired.
+ * Indicates that the first-in-line timer in the current timer queue has fired.
  *
  * @note In some cases, this function may not return quickly to its caller.
  *       Callers must be aware of this and should not perform any time-sensitive work after a call to this function.
@@ -130,6 +148,11 @@ FERRO_ALWAYS_INLINE bool ftimers_delay_spin(uint64_t ns, uint8_t* exit_flag) {
 	}
 	return false;
 };
+
+#define ftimers_arch_per_cpu_queue() FARCH_PER_CPU(timer_queue)
+
+void ftimers_init_queues(void);
+void ftimers_init_per_cpu_queue(void);
 
 /**
  * @}

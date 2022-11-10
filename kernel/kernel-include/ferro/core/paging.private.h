@@ -147,9 +147,7 @@ FERRO_STRUCT(fpage_space) {
 	 */
 	fpage_region_header_t* regions_head;
 
-	bool active;
-
-	flock_spin_intsafe_t allocation_lock;
+	flock_spin_intsafe_t l4_table_lock;
 
 	/**
 	 * A waitq to wait for the address space to be destroyed.
@@ -158,9 +156,16 @@ FERRO_STRUCT(fpage_space) {
 	 */
 	fwaitq_t space_destruction_waiters;
 
+	/**
+	 * @note It is not necessary to acquire the L4 table lock in order to acquire this lock.
+	 *       HOWEVER, if you ARE going to acquire the L4 table lock, you MUST acquire it before
+	 *       acquiring this lock (to avoid deadlocks).
+	 */
 	flock_spin_intsafe_t mappings_lock;
 	fpage_space_mapping_t* mappings;
 };
+
+extern uint16_t fpage_root_recursive_index;
 
 /**
  * Calculates the recursive virtual address for accessing a page table.
@@ -217,6 +222,8 @@ FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value);
 
 /**
  * Invalidates the TLB entry/entries for the given virtual address.
+ *
+ * If running with SMP, flushes the TLB entry for the given virtual address from all online CPUs.
  */
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address);
 
@@ -270,6 +277,9 @@ FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void);
  *
  * This is used to avoid page faulting due to a stack access while holding an important paging lock.
  * Faulting while holding said lock would result in a deadlock.
+ *
+ * @todo It might just be easier to have a separate, prebound, per-CPU stack that we use for all
+ *       paging operations.
  */
 FERRO_ALWAYS_INLINE void fpage_prefault_stack(size_t page_count);
 

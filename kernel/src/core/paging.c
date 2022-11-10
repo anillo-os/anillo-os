@@ -40,6 +40,11 @@
 // how many pages to prefault when doing a prefault
 #define PREFAULT_PAGE_COUNT 2
 
+// how many pages to prefault when doing a prefault for physical memory allocation
+//
+// this should remain smaller than the prefault page count for general paging
+#define PREFAULT_PAGE_COUNT_PHYS 1
+
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	#define USE_TEMPORARY_MAPPING 0
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
@@ -75,7 +80,7 @@ static fpage_table_t* root_table = NULL;
 static uint16_t kernel_l4_index = 0;
 // the L3 index for the kernel's initial memory region
 static uint16_t kernel_l3_index = 0;
-static uint16_t root_recursive_index = TABLE_ENTRY_COUNT - 1;
+uint16_t fpage_root_recursive_index = TABLE_ENTRY_COUNT - 1;
 static fpage_region_header_t* regions_head = NULL;
 
 static atomic_size_t frames_in_use = 0;
@@ -101,8 +106,7 @@ static fpage_space_t kernel_address_space = {
 	.l4_table = &kernel_address_space_root_table,
 	.regions_head_lock = FLOCK_SPIN_INTSAFE_INIT,
 	.regions_head = NULL,
-	.active = true,
-	.allocation_lock = FLOCK_SPIN_INTSAFE_INIT,
+	.l4_table_lock = FLOCK_SPIN_INTSAFE_INIT,
 	.space_destruction_waiters = FWAITQ_INIT,
 	.mappings_lock = FLOCK_SPIN_INTSAFE_INIT,
 	.mappings = NULL,
@@ -141,13 +145,13 @@ void fpage_logging_mark_available(void) {
 
 uintptr_t fpage_virtual_address_for_table(size_t levels, uint16_t l4_index, uint16_t l3_index, uint16_t l2_index) {
 	if (levels == 0) {
-		return fpage_make_virtual_address(root_recursive_index, root_recursive_index, root_recursive_index, root_recursive_index, 0);
+		return fpage_make_virtual_address(fpage_root_recursive_index, fpage_root_recursive_index, fpage_root_recursive_index, fpage_root_recursive_index, 0);
 	} else if (levels == 1) {
-		return fpage_make_virtual_address(root_recursive_index, root_recursive_index, root_recursive_index, l4_index, 0);
+		return fpage_make_virtual_address(fpage_root_recursive_index, fpage_root_recursive_index, fpage_root_recursive_index, l4_index, 0);
 	} else if (levels == 2) {
-		return fpage_make_virtual_address(root_recursive_index, root_recursive_index, l4_index, l3_index, 0);
+		return fpage_make_virtual_address(fpage_root_recursive_index, fpage_root_recursive_index, l4_index, l3_index, 0);
 	} else if (levels == 3) {
-		return fpage_make_virtual_address(root_recursive_index, l4_index, l3_index, l2_index, 0);
+		return fpage_make_virtual_address(fpage_root_recursive_index, l4_index, l3_index, l2_index, 0);
 	} else {
 		return 0;
 	}
@@ -427,7 +431,7 @@ static fpage_region_header_t* acquire_next_region_with_exception(fpage_region_he
  */
 static void* allocate_frame(size_t page_count, uint8_t alignment_power, size_t* out_allocated_page_count) {
 	// prefault now, before we acquire any locks
-	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT_PHYS);
 
 	if (alignment_power < FPAGE_MIN_ALIGNMENT) {
 		alignment_power = FPAGE_MIN_ALIGNMENT;
@@ -635,7 +639,7 @@ FERRO_ALWAYS_INLINE bool block_belongs_to_region(fpage_free_block_t* block, fpag
  */
 static void free_frame(void* frame, size_t page_count) {
 	// prefault now, before we acquire any locks
-	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT_PHYS);
 
 	size_t order = min_order_for_page_count(page_count);
 
@@ -741,6 +745,10 @@ static bool ensure_table(fpage_table_t* parent, size_t index) {
 	return true;
 };
 
+FERRO_ALWAYS_INLINE bool fpage_space_active(fpage_space_t* space) {
+	return (space == &kernel_address_space) || (space == *fpage_space_current_pointer());
+};
+
 static bool space_ensure_table(fpage_space_t* space, fpage_table_t* phys_parent, size_t index, fpage_table_t** out_phys_child) {
 	fpage_table_t* parent = map_temporarily_auto(phys_parent);
 	if (!fpage_entry_is_active(parent->entries[index])) {
@@ -764,7 +772,7 @@ static bool space_ensure_table(fpage_space_t* space, fpage_table_t* phys_parent,
 			*out_phys_child = table;
 		}
 
-		if (space->active && phys_parent == space->l4_table) {
+		if (fpage_space_active(space) && phys_parent == space->l4_table) {
 			// the address space is active and this is a new entry in the root table, so we need to mirror it in the root system table
 			root_table->entries[index] = parent->entries[index];
 		}
@@ -777,6 +785,7 @@ static bool space_ensure_table(fpage_space_t* space, fpage_table_t* phys_parent,
 	return true;
 };
 
+// *should* be holding the L4 table lock
 uintptr_t fpage_space_virtual_to_physical(fpage_space_t* space, uintptr_t virtual_address) {
 	if (!fpage_address_is_canonical(virtual_address)) {
 		return UINTPTR_MAX;
@@ -864,10 +873,12 @@ static void free_table(fpage_table_t* table) {
 	free_frame((void*)fpage_virtual_to_physical((uintptr_t)table), fpage_round_up_page(sizeof(fpage_table_t)) / FPAGE_PAGE_SIZE);
 };
 
+// must be holding the L4 table lock
 static void space_free_table(fpage_space_t* space, fpage_table_t* table) {
 	free_frame((void*)fpage_space_virtual_to_physical(space, (uintptr_t)table), fpage_round_up_page(sizeof(fpage_table_t)) / FPAGE_PAGE_SIZE);
 };
 
+// must be holding the L4 table lock if modifying a table within an address space
 static void break_entry(size_t levels, size_t l4_index, size_t l3_index, size_t l2_index, size_t l1_index) {
 	uintptr_t start_addr = fpage_make_virtual_address((levels > 0) ? l4_index : 0, (levels > 1) ? l3_index : 0, (levels > 2) ? l2_index : 0, (levels > 3) ? l1_index : 0, 0);
 	uintptr_t end_addr = fpage_make_virtual_address((levels > 0) ? l4_index : TABLE_ENTRY_COUNT - 1, (levels > 1) ? l3_index : TABLE_ENTRY_COUNT - 1, (levels > 2) ? l2_index : TABLE_ENTRY_COUNT - 1, (levels > 3) ? l1_index : TABLE_ENTRY_COUNT - 1, 0xfff) + 1;
@@ -894,6 +905,7 @@ FERRO_OPTIONS(fpage_flags_t, fpage_private_flags) {
 };
 
 // NOTE: this function ***WILL*** overwrite existing entries!
+// must be holding L4 table lock
 static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* virt_frame, size_t page_count, fpage_private_flags_t flags) {
 	uintptr_t physical_frame = (uintptr_t)phys_frame;
 	uintptr_t virtual_frame = (uintptr_t)virt_frame;
@@ -932,7 +944,7 @@ static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* 
 			}
 
 			// break the existing entry
-			if (space->active) {
+			if (fpage_space_active(space)) {
 				break_entry(2, l4_index, l3_index, 0, 0);
 			}
 
@@ -960,7 +972,7 @@ static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* 
 			continue;
 		}
 
-		if (fpage_entry_is_large_page_entry(entry) && space->active) {
+		if (fpage_entry_is_large_page_entry(entry) && fpage_space_active(space)) {
 			break_entry(2, l4_index, l3_index, 0, 0);
 
 			// NOTE: this does not currently handle the case of partially remapping a large page
@@ -985,7 +997,7 @@ static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* 
 			}
 
 			// break the existing entry
-			if (space->active) {
+			if (fpage_space_active(space)) {
 				break_entry(3, l4_index, l3_index, l2_index, 0);
 			}
 
@@ -1013,7 +1025,7 @@ static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* 
 			continue;
 		}
 
-		if (fpage_entry_is_large_page_entry(entry) && space->active) {
+		if (fpage_entry_is_large_page_entry(entry) && fpage_space_active(space)) {
 			break_entry(3, l4_index, l3_index, l2_index, 0);
 
 			// same note as for the l3 large page case
@@ -1028,7 +1040,7 @@ static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* 
 		table = map_temporarily_auto(phys_table);
 		entry = table->entries[l1_index];
 
-		if (entry && space->active) {
+		if (entry && fpage_space_active(space)) {
 			break_entry(4, l4_index, l3_index, l2_index, l1_index);
 		}
 
@@ -1055,9 +1067,33 @@ static void space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* 
 
 	// now flush the region (in case we're replacing an existing mapping)
 	// TODO: we can optimize this by doing the flushing directly within the loop above
-	fpage_space_flush_mapping_internal(space, virt_frame, orig_page_count, space->active, false, false);
+	fpage_space_flush_mapping_internal(space, virt_frame, orig_page_count, fpage_space_active(space), false, false);
 };
 
+// must be holding the L4 table lock
+static void space_refresh_mapping(fpage_space_t* space, uintptr_t virtual_address, size_t page_count) {
+	uint16_t l4_index = FPAGE_VIRT_L4(virtual_address);
+	fpage_table_t* space_phys_table = space->l4_table;
+	fpage_table_t* space_table = map_temporarily_auto(space_phys_table);
+	uint64_t space_entry = space_table->entries[l4_index];
+	fpage_table_t* current_table = (void*)fpage_virtual_address_for_table(0, 0, 0, 0);
+	uint64_t current_entry = current_table->entries[l4_index];
+
+	if (space_entry != current_entry) {
+		current_table->entries[l4_index] = space_entry;
+
+		if (fpage_entry_is_active(current_entry)) {
+			// we need to flush the entire table
+			// FIXME: the precise table flush (`fpage_flush_table()`) doesn't work properly, so we do a full table flush
+			fpage_invalidate_tlb_for_active_space();
+		}
+	}
+
+	// flush this mapping
+	fpage_space_flush_mapping_internal(space, (void*)virtual_address, page_count, true, false, false);
+};
+
+// must be holding the region lock
 FERRO_ALWAYS_INLINE size_t space_virtual_bitmap_bit_index_for_block(fpage_space_t* space, const fpage_region_header_t* space_parent_region, const fpage_free_block_t* space_block) {
 	uintptr_t relative_address = 0;
 	const fpage_region_header_t* parent_region_temp = space_map_temporarily_auto(space, (void*)space_parent_region);
@@ -1075,6 +1111,8 @@ FERRO_ALWAYS_INLINE size_t virtual_byte_bit_index_for_bit(size_t bit_index) {
 
 /**
  * @note The address returned is temporarily mapped.
+ *
+ * @pre Must be holding the region lock.
  */
 static const uint8_t* space_virtual_bitmap_entry_for_block(fpage_space_t* space, const fpage_region_header_t* space_parent_region, const fpage_free_block_t* space_block, size_t* out_bit_index) {
 	size_t bitmap_index = space_virtual_bitmap_bit_index_for_block(space, space_parent_region, space_block);
@@ -1088,6 +1126,7 @@ static const uint8_t* space_virtual_bitmap_entry_for_block(fpage_space_t* space,
 	return byte;
 };
 
+// must be holding the region lock
 static bool space_virtual_block_is_in_use(fpage_space_t* space, const fpage_region_header_t* space_parent_region, const fpage_free_block_t* space_block) {
 	size_t byte_bit_index = 0;
 	const uint8_t* byte = space_virtual_bitmap_entry_for_block(space, space_parent_region, space_block, &byte_bit_index);
@@ -1095,6 +1134,7 @@ static bool space_virtual_block_is_in_use(fpage_space_t* space, const fpage_regi
 	return (*byte) & (1 << byte_bit_index);
 };
 
+// must be holding the region lock
 static void space_set_virtual_block_is_in_use(fpage_space_t* space, fpage_region_header_t* space_parent_region, const fpage_free_block_t* space_block, bool in_use) {
 	size_t byte_bit_index = 0;
 	uint8_t* byte = (uint8_t*)space_virtual_bitmap_entry_for_block(space, space_parent_region, space_block, &byte_bit_index);
@@ -1167,6 +1207,7 @@ static void fpage_space_region_check_blocks(fpage_space_t* space, fpage_region_h
 };
 #endif
 
+// must be holding the L4 table lock AND the region lock
 static void space_insert_virtual_free_block(fpage_space_t* space, fpage_region_header_t* parent_region, fpage_free_block_t* space_block, size_t block_page_count) {
 	size_t order = max_order_of_page_count(block_page_count);
 	fpage_free_block_t* phys_block = allocate_frame(fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE, 0, NULL);
@@ -1196,6 +1237,7 @@ static void space_insert_virtual_free_block(fpage_space_t* space, fpage_region_h
 #endif
 };
 
+// must be holding the L4 table lock AND the region lock
 static void space_remove_virtual_free_block(fpage_space_t* space, fpage_region_header_t* parent_region, fpage_free_block_t* space_block) {
 	fpage_free_block_t* block_temp = space_map_temporarily_auto(space, space_block);
 
@@ -1206,13 +1248,14 @@ static void space_remove_virtual_free_block(fpage_space_t* space, fpage_region_h
 
 	free_frame((void*)fpage_space_virtual_to_physical(space, (uintptr_t)space_block), fpage_round_up_page(sizeof(fpage_free_block_t)) / FPAGE_PAGE_SIZE);
 
-	fpage_space_flush_mapping_internal(space, space_block, fpage_round_up_to_page_count(sizeof(fpage_free_block_t)), space->active, true, false);
+	fpage_space_flush_mapping_internal(space, space_block, fpage_round_up_to_page_count(sizeof(fpage_free_block_t)), fpage_space_active(space), true, false);
 
 #if FPAGE_SPACE_CHECK_REGIONS
 	fpage_space_region_check_blocks(space, parent_region);
 #endif
 };
 
+// must be holding the region lock
 static fpage_free_block_t* space_find_virtual_buddy(fpage_space_t* space, fpage_region_header_t* space_parent_region, fpage_free_block_t* space_block, size_t block_page_count) {
 	fpage_region_header_t* parent_region_temp = space_map_temporarily_auto(space, space_parent_region);
 	uintptr_t parent_start = (uintptr_t)parent_region_temp->start;
@@ -1262,7 +1305,8 @@ static fpage_region_header_t* space_virtual_acquire_next_region_with_exception(f
 /**
  * Allocates a virtual region of the given size in the given address space.
  *
- * The region head lock and all the region locks MUST NOT be held.
+ * @pre The region head lock and all the region locks MUST NOT be held.
+ *      Additionally, the L4 table lock MUST be held.
  */
 static void* space_allocate_virtual(fpage_space_t* space, size_t page_count, uint8_t alignment_power, size_t* out_allocated_page_count, bool user) {
 	if (alignment_power < FPAGE_MIN_ALIGNMENT) {
@@ -1438,11 +1482,13 @@ static void* space_allocate_virtual(fpage_space_t* space, size_t page_count, uin
 	return space_candidate_block;
 };
 
+// must be holding the region lock
 FERRO_ALWAYS_INLINE bool space_virtual_block_belongs_to_region(fpage_space_t* space, fpage_free_block_t* space_block, fpage_region_header_t* space_region) {
 	fpage_region_header_t* region_temp = space_map_temporarily_auto(space, space_region);
 	return (uintptr_t)space_block >= (uintptr_t)region_temp->start && (uintptr_t)space_block < (uintptr_t)region_temp->start + (region_temp->page_count * FPAGE_PAGE_SIZE);
 };
 
+// must NOT be holding the regions head lock (nor any region locks)
 static bool space_region_belongs_to_buddy_allocator(fpage_space_t* space, void* virtual_start, size_t page_count) {
 	void* virtual_end = (void*)(fpage_round_down_page((uintptr_t)virtual_start) + (page_count * FPAGE_PAGE_SIZE));
 
@@ -1460,6 +1506,9 @@ static bool space_region_belongs_to_buddy_allocator(fpage_space_t* space, void* 
 	return false;
 };
 
+/**
+ * @pre MUST be holding the L4 table lock and MUST NOT be holding the regions head lock nor any of the region locks.
+ */
 static bool space_free_virtual(fpage_space_t* space, void* virtual, size_t page_count, bool user) {
 	size_t order = min_order_for_page_count(page_count);
 
@@ -1549,10 +1598,10 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	kernel_l3_index = FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START);
 
 	// determine the correct recursive index
-	while (root_table->entries[root_recursive_index] != 0) {
-		--root_recursive_index;
+	while (root_table->entries[fpage_root_recursive_index] != 0) {
+		--fpage_root_recursive_index;
 
-		if (root_recursive_index == 0) {
+		if (fpage_root_recursive_index == 0) {
 			// well, crap. we can't go lower than 0. just overwrite whatever's at 0.
 			break;
 		}
@@ -1562,7 +1611,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	// can't use fpage_virtual_to_physical() for the physical address lookup because it depends on the recursive entry (which is what we're setting up right now).
 	//
 	// this should remain a privileged table, so that unprivileged code can't modify page tables willy-nilly
-	root_table->entries[root_recursive_index] = fpage_table_entry(FERRO_KERNEL_STATIC_TO_OFFSET(root_table) + (uintptr_t)image_base, true);
+	root_table->entries[fpage_root_recursive_index] = fpage_table_entry(FERRO_KERNEL_STATIC_TO_OFFSET(root_table) + (uintptr_t)image_base, true);
 	fpage_synchronize_after_table_modification();
 
 	// we can use the recursive virtual address for the table now
@@ -1705,6 +1754,11 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	// TODO: we can skip copying the temporary identity mapping entries, they're no longer necessary
 	simple_memcpy(&kernel_address_space_root_table, root_table, sizeof(kernel_address_space_root_table));
 
+	// ignore the recursive and offset table indicies
+	// (so that we don't change them when swapping page spaces)
+	kernel_address_space_root_table.entries[fpage_root_recursive_index] = 0;
+	kernel_address_space_root_table.entries[root_offset_index] = 0;
+
 	// once we reach the maximum, it'll wrap around to 0
 	while (virt_start != 0) {
 		size_t virt_page_count = 0;
@@ -1727,7 +1781,7 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 			fpage_table_t* l3 = (fpage_table_t*)fpage_virtual_address_for_table(1, l4_index, 0, 0);
 
 			// don't touch the recursive entry or the offset index
-			if (l4_index == root_recursive_index
+			if (l4_index == fpage_root_recursive_index
 #if !USE_TEMPORARY_MAPPING
 				|| l4_index == root_offset_index
 #endif
@@ -2002,8 +2056,13 @@ void fpage_init(size_t next_l2, fpage_table_t* table, ferro_memory_region_t* mem
 	fpanic_status(fint_register_special_handler(fint_special_interrupt_page_fault, page_fault_handler, NULL));
 };
 
-// NOTE: the table used with the first call to this function is not freed by it, no matter if `also_free` is used
-// also, `fpage_flush_table_internal` is a terrible name for this, because if @p needs_flush is `false`, nothing will actually be flushed from the TLB
+/**
+ * @note The table used with the first call to this function is not freed by it, no matter if `also_free` is used
+ *       Also, `fpage_flush_table_internal` is a terrible name for this, because if @p needs_flush is `false`,
+ *       nothing will actually be flushed from the TLB
+ *
+ * @pre If flushing a table within an address space, MUST be holding the L4 table lock.
+ */
 static void fpage_flush_table_internal(fpage_table_t* phys_table, size_t level_count, uint16_t l4, uint16_t l3, uint16_t l2, bool needs_flush, bool flush_recursive_too, bool also_break, bool also_free) {
 	fpage_table_t* virt_table;
 
@@ -2117,6 +2176,7 @@ static void fpage_flush_table(fpage_table_t* phys_table, size_t level_count, uin
 };
 #endif
 
+// must be holding the L4 table lock
 static void fpage_space_flush_mapping_internal(fpage_space_t* space, void* address, size_t page_count, bool needs_flush, bool also_break, bool also_free) {
 	while (page_count > 0) {
 		uint16_t l4 = FPAGE_VIRT_L4(address);
@@ -2444,11 +2504,10 @@ FERRO_WUR ferr_t fpage_space_init(fpage_space_t* space) {
 	}
 
 	space->regions_head = space_header;
-	space->active = false;
 	space->mappings = NULL;
 
 	flock_spin_intsafe_init(&space->regions_head_lock);
-	flock_spin_intsafe_init(&space->allocation_lock);
+	flock_spin_intsafe_init(&space->l4_table_lock);
 	flock_spin_intsafe_init(&space->mappings_lock);
 
 	fwaitq_init(&space->space_destruction_waiters);
@@ -2482,7 +2541,7 @@ void fpage_space_destroy(fpage_space_t* space) {
 		FERRO_WUR_IGNORE(fmempool_free(curr));
 	}
 
-	fpage_flush_table_internal(space->l4_table, 0, 0, 0, 0, space->active, space->active, true, true);
+	fpage_flush_table_internal(space->l4_table, 0, 0, 0, 0, fpage_space_active(space), fpage_space_active(space), true, true);
 
 	// the buddy allocator's region header is placed within the address space,
 	// so the above call should've already taken care of freeing it (including all of its blocks).
@@ -2493,6 +2552,8 @@ void fpage_space_destroy(fpage_space_t* space) {
 	space->l4_table = NULL;
 
 	// FIXME: we need to check all the CPU cores and see if any one of them is using this address space
+	// XXX: actually, scratch that. the only time we should be destroying an address space is once we're
+	//      certain that no one is using it, so this shouldn't be an issue.
 	fpage_space_t** current_address_space = fpage_space_current_pointer();
 	if (*current_address_space == space) {
 		*current_address_space = &kernel_address_space;
@@ -2519,6 +2580,10 @@ FERRO_WUR ferr_t fpage_space_swap(fpage_space_t* space) {
 	// we never unload the kernel address space
 	if (*current_address_space && *current_address_space != fpage_space_kernel()) {
 		fpage_table_t* temp_table = map_temporarily_auto((*current_address_space)->l4_table);
+
+		fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+		flock_spin_intsafe_lock(&(*current_address_space)->l4_table_lock);
+
 		for (size_t i = 0; i < TABLE_ENTRY_COUNT; ++i) {
 			uint64_t entry = temp_table->entries[i];
 
@@ -2529,7 +2594,7 @@ FERRO_WUR ferr_t fpage_space_swap(fpage_space_t* space) {
 			l4_table->entries[i] = 0;
 		}
 
-		(*current_address_space)->active = false;
+		flock_spin_intsafe_unlock(&(*current_address_space)->l4_table_lock);
 
 		// FIXME: the precise table flush (fpage_flush_table()) isn't working, so we're doing a full table flush as a workaround for now.
 		//        on x86_64, we could mitigate the performance impact by making kernel addresses "global" entries in the page tables.
@@ -2540,6 +2605,10 @@ FERRO_WUR ferr_t fpage_space_swap(fpage_space_t* space) {
 
 	if ((*current_address_space)) {
 		fpage_table_t* temp_table = map_temporarily_auto((*current_address_space)->l4_table);
+
+		fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+		flock_spin_intsafe_lock(&(*current_address_space)->l4_table_lock);
+
 		for (size_t i = 0; i < TABLE_ENTRY_COUNT; ++i) {
 			uint64_t entry = temp_table->entries[i];
 
@@ -2550,7 +2619,7 @@ FERRO_WUR ferr_t fpage_space_swap(fpage_space_t* space) {
 			l4_table->entries[i] = entry;
 		}
 
-		(*current_address_space)->active = true;
+		flock_spin_intsafe_unlock(&(*current_address_space)->l4_table_lock);
 	}
 
 out_locked:
@@ -2577,13 +2646,19 @@ ferr_t fpage_space_map_aligned(fpage_space_t* space, void* physical_address, siz
 		return ferr_invalid_argument;
 	}
 
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	flock_spin_intsafe_lock(&space->l4_table_lock);
+
 	virt = space_allocate_virtual(space, page_count, alignment_power, NULL, false);
 
 	if (!virt) {
+		flock_spin_intsafe_unlock(&space->l4_table_lock);
 		return ferr_temporary_outage;
 	}
 
 	space_map_frame_fixed(space, physical_address, virt, page_count, flags);
+
+	flock_spin_intsafe_unlock(&space->l4_table_lock);
 
 	*out_virtual_address = virt;
 
@@ -2599,9 +2674,14 @@ ferr_t fpage_space_unmap(fpage_space_t* space, void* virtual_address, size_t pag
 		return ferr_invalid_argument;
 	}
 
-	fpage_space_flush_mapping_internal(space, virtual_address, page_count, space->active, true, false);
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	flock_spin_intsafe_lock(&space->l4_table_lock);
+
+	fpage_space_flush_mapping_internal(space, virtual_address, page_count, fpage_space_active(space), true, false);
 
 	space_free_virtual(space, virtual_address, page_count, false);
+
+	flock_spin_intsafe_unlock(&space->l4_table_lock);
 
 	return ferr_ok;
 };
@@ -2626,6 +2706,9 @@ ferr_t fpage_space_allocate_aligned(fpage_space_t* space, size_t page_count, uin
 		}
 	}
 
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	flock_spin_intsafe_lock(&space->l4_table_lock);
+
 	// NOTE: allocating fixed addresses within the buddy allocator's region(s) is not allowed,
 	//       so there is no need to acquire the allocation lock here.
 	//       the buddy allocator already has its own locks.
@@ -2633,6 +2716,7 @@ ferr_t fpage_space_allocate_aligned(fpage_space_t* space, size_t page_count, uin
 	virt = space_allocate_virtual(space, page_count, alignment_power, NULL, false);
 
 	if (!virt) {
+		flock_spin_intsafe_unlock(&space->l4_table_lock);
 		return ferr_temporary_outage;
 	}
 
@@ -2644,9 +2728,10 @@ ferr_t fpage_space_allocate_aligned(fpage_space_t* space, size_t page_count, uin
 				for (; i > 0; --i) {
 					uintptr_t virt_frame = (uintptr_t)virt + ((i - 1) * FPAGE_PAGE_SIZE);
 					free_frame((void*)fpage_space_virtual_to_physical(space, virt_frame), 1);
-					fpage_space_flush_mapping_internal(space, (void*)virt_frame, 1, space->active, true, false);
+					fpage_space_flush_mapping_internal(space, (void*)virt_frame, 1, fpage_space_active(space), true, false);
 				}
 				space_free_virtual(space, virt, page_count, false);
+				flock_spin_intsafe_unlock(&space->l4_table_lock);
 				return ferr_temporary_outage;
 			}
 
@@ -2679,6 +2764,8 @@ ferr_t fpage_space_allocate_aligned(fpage_space_t* space, size_t page_count, uin
 		flock_spin_intsafe_unlock(&space->mappings_lock);
 	}
 
+	flock_spin_intsafe_unlock(&space->l4_table_lock);
+
 out:
 	if (status == ferr_ok) {
 		*out_virtual_address = virt;
@@ -2698,7 +2785,7 @@ ferr_t fpage_space_allocate(fpage_space_t* space, size_t page_count, void** out_
 	return fpage_space_allocate_aligned(space, page_count, 0, out_virtual_address, flags);
 };
 
-// MUST be holding the allocation lock
+// MUST be holding the L4 table lock
 static bool space_region_is_free(fpage_space_t* space, uintptr_t virtual_address, size_t page_count) {
 	while (page_count > 0) {
 		uint16_t l4 = FPAGE_VIRT_L4(virtual_address);
@@ -2813,7 +2900,8 @@ ferr_t fpage_space_allocate_fixed(fpage_space_t* space, size_t page_count, void*
 		}
 	}
 
-	flock_spin_intsafe_lock(&space->allocation_lock);
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	flock_spin_intsafe_lock(&space->l4_table_lock);
 
 	if (!space_region_is_free(space, (uintptr_t)virtual_address, page_count)) {
 		status = ferr_temporary_outage;
@@ -2828,7 +2916,7 @@ ferr_t fpage_space_allocate_fixed(fpage_space_t* space, size_t page_count, void*
 				for (; i > 0; --i) {
 					uintptr_t virt_frame = (uintptr_t)virtual_address + ((i - 1) * FPAGE_PAGE_SIZE);
 					free_frame((void*)fpage_space_virtual_to_physical(space, virt_frame), 1);
-					fpage_space_flush_mapping_internal(space, (void*)virt_frame, 1, space->active, true, false);
+					fpage_space_flush_mapping_internal(space, (void*)virt_frame, 1, fpage_space_active(space), true, false);
 				}
 				status = ferr_temporary_outage;
 				goto out_locked;
@@ -2864,7 +2952,7 @@ ferr_t fpage_space_allocate_fixed(fpage_space_t* space, size_t page_count, void*
 	}
 
 out_locked:
-	flock_spin_intsafe_unlock(&space->allocation_lock);
+	flock_spin_intsafe_unlock(&space->l4_table_lock);
 out_unlocked:
 	if (status != ferr_ok) {
 		if (space_mapping) {
@@ -2881,6 +2969,11 @@ ferr_t fpage_space_free(fpage_space_t* space, void* virtual_address, size_t page
 		return ferr_invalid_argument;
 	}
 
+	// TODO: check whether we can safely remove the mapping without holding the L4 table lock
+	//       (only locking it later on, when we flush and break the mapping)
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	flock_spin_intsafe_lock(&space->l4_table_lock);
+
 	flock_spin_intsafe_lock(&space->mappings_lock);
 	for (mapping = space->mappings; mapping != NULL; mapping = mapping->next) {
 		if (
@@ -2893,12 +2986,14 @@ ferr_t fpage_space_free(fpage_space_t* space, void* virtual_address, size_t page
 
 			if (mapping->virtual_address != (uintptr_t)virtual_address || mapping->page_count != page_count) {
 				flock_spin_intsafe_unlock(&space->mappings_lock);
+				flock_spin_intsafe_unlock(&space->l4_table_lock);
 				return ferr_invalid_argument;
 			}
 
 			if (mapping->mapping) {
 				// shareable mappings can only be removed via fpage_space_remove_mapping()
 				flock_spin_intsafe_unlock(&space->mappings_lock);
+				flock_spin_intsafe_unlock(&space->l4_table_lock);
 				return ferr_invalid_argument;
 			}
 
@@ -2913,20 +3008,16 @@ ferr_t fpage_space_free(fpage_space_t* space, void* virtual_address, size_t page
 	}
 	flock_spin_intsafe_unlock(&space->mappings_lock);
 
-	// it's cheaper to just acquire the allocation lock in all cases rather than check if the region belongs to the buddy allocator
-	// TODO: check if it's actually cheaper
-	flock_spin_intsafe_lock(&space->allocation_lock);
-
 	// this will take care of freeing the frames for this mapping;
 	// this will also handle the case of having bound-on-demand pages within the mapping (it'll just zero those out).
-	fpage_space_flush_mapping_internal(space, virtual_address, page_count, space->active, true, true);
+	fpage_space_flush_mapping_internal(space, virtual_address, page_count, fpage_space_active(space), true, true);
 
 	// ask the buddy allocator to free this in all cases.
 	// it'll check if the region is actually part of the buddy allocator's region(s)
 	// if so, it'll free it. otherwise, it'll just return.
 	space_free_virtual(space, virtual_address, page_count, false);
 
-	flock_spin_intsafe_unlock(&space->allocation_lock);
+	flock_spin_intsafe_unlock(&space->l4_table_lock);
 
 	if (mapping) {
 		FERRO_WUR_IGNORE(fmempool_free(mapping));
@@ -2942,7 +3033,10 @@ ferr_t fpage_space_map_fixed(fpage_space_t* space, void* physical_address, size_
 
 	// TODO: make sure we don't have a mapping there already
 
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	flock_spin_intsafe_lock(&space->l4_table_lock);
 	space_map_frame_fixed(space, physical_address, virtual_address, page_count, flags);
+	flock_spin_intsafe_unlock(&space->l4_table_lock);
 
 	return ferr_ok;
 };
@@ -2954,7 +3048,10 @@ ferr_t fpage_space_reserve_any(fpage_space_t* space, size_t page_count, void** o
 		return ferr_invalid_argument;
 	}
 
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	flock_spin_intsafe_lock(&space->l4_table_lock);
 	virt = space_allocate_virtual(space, page_count, 0, NULL, false);
+	flock_spin_intsafe_unlock(&space->l4_table_lock);
 
 	if (!virt) {
 		return ferr_temporary_outage;
@@ -2981,9 +3078,13 @@ ferr_t fpage_space_insert_mapping(fpage_space_t* space, fpage_mapping_t* mapping
 		goto out;
 	}
 
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	flock_spin_intsafe_lock(&space->l4_table_lock);
+
 	alloc_addr = space_allocate_virtual(space, page_count, alignment_power, NULL, false);
 	if (!alloc_addr) {
 		status = ferr_temporary_outage;
+		flock_spin_intsafe_unlock(&space->l4_table_lock);
 		goto out;
 	}
 
@@ -3004,9 +3105,11 @@ ferr_t fpage_space_insert_mapping(fpage_space_t* space, fpage_mapping_t* mapping
 	flock_spin_intsafe_unlock(&space->mappings_lock);
 
 	// TODO: eagerly map the portions that are already bound.
-	//       this method (mapping them as on-demand) does work (it'll fault on each portion and map in the already-bound portion from the mapping),
+	//       this method (mapping them as on-demand) does work (it'll fault on each portion and map-in the already-bound portion from the mapping),
 	//       but it's not terribly efficient.
 	space_map_frame_fixed(space, (void*)ON_DEMAND_MAGIC, alloc_addr, page_count, flags | fpage_private_flag_inactive | fpage_private_flag_repeat);
+
+	flock_spin_intsafe_unlock(&space->l4_table_lock);
 
 out:
 	if (status == ferr_ok) {
@@ -3067,6 +3170,9 @@ ferr_t fpage_space_remove_mapping(fpage_space_t* space, void* virtual_address) {
 	ferr_t status = ferr_ok;
 	fpage_space_mapping_t* space_mapping = NULL;
 
+	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
+	flock_spin_intsafe_lock(&space->l4_table_lock);
+
 	flock_spin_intsafe_lock(&space->mappings_lock);
 	for (space_mapping = space->mappings; space_mapping != NULL; space_mapping = space_mapping->next) {
 		if (space_mapping->mapping && space_mapping->virtual_address == (uintptr_t)virtual_address) {
@@ -3084,14 +3190,17 @@ ferr_t fpage_space_remove_mapping(fpage_space_t* space, void* virtual_address) {
 	flock_spin_intsafe_unlock(&space->mappings_lock);
 
 	if (status != ferr_ok) {
+		flock_spin_intsafe_unlock(&space->l4_table_lock);
 		goto out;
 	}
 
 	// now break the mapping in the page tables
-	fpage_space_flush_mapping_internal(space, (void*)space_mapping->virtual_address, space_mapping->page_count, space->active, true, false);
+	fpage_space_flush_mapping_internal(space, (void*)space_mapping->virtual_address, space_mapping->page_count, fpage_space_active(space), true, false);
 
 	// and free the allocated virtual region
 	space_free_virtual(space, (void*)space_mapping->virtual_address, space_mapping->page_count, false);
+
+	flock_spin_intsafe_unlock(&space->l4_table_lock);
 
 	// finally, release the mapping and discard the space mapping
 	fpage_mapping_release(space_mapping->mapping);
@@ -3709,6 +3818,7 @@ out_unlocked:
 // page faults
 //
 
+// must be holding the L4 table lock
 static bool address_is_bound_on_demand(fpage_space_t* space, void* address) {
 	uint16_t l4 = FPAGE_VIRT_L4(address);
 	uint16_t l3 = FPAGE_VIRT_L3(address);
@@ -3770,8 +3880,21 @@ static bool address_is_bound_on_demand(fpage_space_t* space, void* address) {
 	return false;
 };
 
+// must NOT be holding the L4 table lock, the mappings head lock, nor any of the mapping locks
 static bool try_handling_fault_with_space(uintptr_t faulting_address, fpage_space_t* space) {
 	uintptr_t faulting_page = fpage_round_down_page(faulting_address);
+
+	// no need to prefault; the stack for the page fault handler should be prebound
+	flock_spin_intsafe_lock(&space->l4_table_lock);
+
+	if (fpage_space_virtual_to_physical(space, faulting_address) != UINTPTR_MAX) {
+		// this address was actually already mapped (likely by another CPU),
+		// it's just that it wasn't present in the current CPU's root table.
+		// just go ahead and update our mapping
+		space_refresh_mapping(space, faulting_address, 1);
+		flock_spin_intsafe_unlock(&space->l4_table_lock);
+		return true;
+	}
 
 	if (address_is_bound_on_demand(space, (void*)faulting_address)) {
 		// try to bind it now
@@ -3803,6 +3926,7 @@ static bool try_handling_fault_with_space(uintptr_t faulting_address, fpage_spac
 		if (!found) {
 			// the address wasn't actually mapped
 			flock_spin_intsafe_unlock(&space->mappings_lock);
+			flock_spin_intsafe_unlock(&space->l4_table_lock);
 			return false;
 		}
 
@@ -3835,6 +3959,9 @@ retry_target_mapping:
 						fpanic_status(fpage_mapping_retain(mapping));
 						page_offset = (page_offset - portion->virtual_page_offset) + portion->backing_mapping_page_offset;
 						flock_spin_intsafe_unlock(&target_mapping->lock);
+						// FIXME: this can cause a deadlock if we're currently holding the last reference to mapping and the
+						//        memory for the mapping info structure was allocated from the current address space.
+						//        this is because we're holding the L4 table lock throughout this entire function.
 						fpage_mapping_release(target_mapping);
 						target_mapping = mapping;
 						goto retry_target_mapping;
@@ -3852,6 +3979,7 @@ retry_target_mapping:
 					// we failed to bind this portion;
 					// go ahead and fault
 					flock_spin_intsafe_unlock(&target_mapping->lock);
+					flock_spin_intsafe_unlock(&space->l4_table_lock);
 					fpage_mapping_release(target_mapping);
 					return false;
 				}
@@ -3906,6 +4034,7 @@ retry_target_mapping:
 			if (!found) {
 				// the address is no longer mapped
 				flock_spin_intsafe_unlock(&space->mappings_lock);
+				flock_spin_intsafe_unlock(&space->l4_table_lock);
 				return false;
 			}
 
@@ -3913,17 +4042,26 @@ retry_target_mapping:
 		} else {
 			// this is a non-shared bound-on-demand page;
 			// just allocate a frame
-			phys_addr = allocate_frame(1, 0, NULL);
 
-			if (!phys_addr) {
-				// not enough memory to bind it
-				flock_spin_intsafe_unlock(&space->mappings_lock);
-				return false;
-			}
+			// however, first, check if someone else already bound it while we had the L4 table lock dropped.
+			//
+			// this is not racy because we know that this address *must* be bound-on-demand, so anyone binding it
+			// must have acquired the mappings lock. therefore, the only time that someone could possibly have mapped
+			// it without us knowing is the time between when we dropped the L4 table lock and the mappings lock.
+			if (fpage_space_virtual_to_physical(space, faulting_address) == UINTPTR_MAX) {
+				phys_addr = allocate_frame(1, 0, NULL);
 
-			if (space_mapping_copy.flags & fpage_flag_zero) {
-				// zero out the new page
-				simple_memset(map_temporarily_auto(phys_addr), 0, FPAGE_PAGE_SIZE);
+				if (!phys_addr) {
+					// not enough memory to bind it
+					flock_spin_intsafe_unlock(&space->mappings_lock);
+					flock_spin_intsafe_unlock(&space->l4_table_lock);
+					return false;
+				}
+
+				if (space_mapping_copy.flags & fpage_flag_zero) {
+					// zero out the new page
+					simple_memset(map_temporarily_auto(phys_addr), 0, FPAGE_PAGE_SIZE);
+				}
 			}
 		}
 
@@ -3931,9 +4069,12 @@ retry_target_mapping:
 		space_map_frame_fixed(space, phys_addr, (void*)faulting_page, 1, space_mapping_copy.flags);
 
 		flock_spin_intsafe_unlock(&space->mappings_lock);
+		flock_spin_intsafe_unlock(&space->l4_table_lock);
 
 		return true;
 	}
+
+	flock_spin_intsafe_unlock(&space->l4_table_lock);
 
 	return false;
 };
@@ -4020,4 +4161,8 @@ void fpage_log_early(void) {
 	}
 
 	fint_enable();
+};
+
+void fpage_init_secondary_cpu(void) {
+	// nothing for now
 };

@@ -40,7 +40,7 @@ ferr_t farch_pci_function_register_msi_handler(fpci_capability_info_t* msi) {
 	// TODO: introduce a way to pin a thread to a CPU without disabling interrupts
 	fint_disable();
 
-	status = farch_int_register_next_available(farch_pci_msi_handler, msi, &interrupt);
+	status = farch_int_register_next_available(farch_pci_msi_handler, msi, &interrupt, 0);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -84,7 +84,7 @@ ferr_t farch_pci_function_register_msi_x_handler(fpci_function_info_t* function,
 	// TODO: introduce a way to pin a thread to a CPU without disabling interrupts
 	fint_disable();
 
-	status = farch_int_register_next_available(farch_pci_msi_x_handler, function, &interrupt);
+	status = farch_int_register_next_available(farch_pci_msi_x_handler, function, &interrupt, 0);
 	if (status != ferr_ok) {
 		goto out;
 	}

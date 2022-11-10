@@ -39,6 +39,7 @@ add_library(ferro_core STATIC
 	per-cpu.c
 	ghmap.c
 	channels.c
+	cpu.c
 )
 
 set_source_files_properties(entry.c PROPERTIES

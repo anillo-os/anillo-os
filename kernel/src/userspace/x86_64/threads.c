@@ -20,6 +20,7 @@
 #include <ferro/core/interrupts.h>
 #include <libsimple/libsimple.h>
 #include <ferro/core/x86_64/msr.h>
+#include <ferro/core/cpu.private.h>
 
 // ONLY FOR TESTING
 #include <ferro/core/console.h>
@@ -32,6 +33,12 @@ void farch_uthread_set_interrupt_disable_count(uint64_t idc) {
 FERRO_NO_RETURN void farch_uthread_jump_user_frame(void* rip, void* rsp);
 
 void futhread_jump_user_self_arch(fthread_t* uthread, futhread_data_t* udata, void* address) {
+	// don't want to be interrupted while we're switching important registers (esp. not while doing `swapgs`)
+	fint_disable();
+
+	// make sure this CPU is ready to handle the thread
+	futhread_arch_ensure_ready_cpu();
+
 	farch_uthread_jump_user_frame(address, (char*)udata->user_stack_base + udata->user_stack_size);
 };
 
@@ -41,6 +48,10 @@ void futhread_ending_interrupt_arch(fthread_t* uthread, futhread_data_t* udata) 
 	farch_msr_write(farch_msr_fs_base, private_data->arch.fs_base);
 	// see syscalls/thread_set_gs.c for the reason why we set gs_base_kernel instead of gs_base
 	farch_msr_write(farch_msr_gs_base_kernel, private_data->arch.gs_base);
+
+	// we may be on another CPU than the one this thread was running on previously;
+	// make sure we're ready to handle userspace
+	futhread_arch_ensure_ready_cpu();
 };
 
 void farch_uthread_syscall_handler_wrapper();
@@ -126,7 +137,16 @@ void farch_uthread_syscall_handler(void) {
 	}
 };
 
-void futhread_arch_init(void) {
+void futhread_arch_ensure_ready_cpu(void) {
+	// disable interrupts to prevent this thread from being migrated to another CPU
+	// TODO: introduce a proper way to pin threads to CPUs
+	fint_disable();
+
+	if (fcpu_current()->flags & farch_cpu_flag_userspace_ready) {
+		fint_enable();
+		return;
+	}
+
 	uint64_t star = 0;
 
 	// sysret cs and ss
@@ -156,6 +176,15 @@ void futhread_arch_init(void) {
 
 	// enable SCE (System Call Extensions) in the EFER (Extended Feature Enable Register)
 	farch_msr_write(farch_msr_efer, farch_msr_read(farch_msr_efer) | (1ULL << 0));
+
+	// mark this CPU as userspace-ready
+	fcpu_current()->flags |= farch_cpu_flag_userspace_ready;
+
+	fint_enable();
+};
+
+void futhread_arch_init(void) {
+	// nothing for now
 };
 
 void futhread_arch_init_private_data(futhread_data_private_t* data) {

@@ -232,6 +232,9 @@ void farch_sched_init(void) {
 
 void fsched_preempt_thread(fthread_t* thread) {
 	if (thread == fthread_current()) {
+		// drop the thread lock
+		flock_spin_intsafe_unlock(&thread->lock);
+
 		// first disarm the timer
 		fsched_disarm_timer();
 

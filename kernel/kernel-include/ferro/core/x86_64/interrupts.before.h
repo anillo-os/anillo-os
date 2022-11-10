@@ -140,6 +140,4 @@ typedef union farch_int_frame_flat_registers_union {
 
 FERRO_DECLARATIONS_END;
 
-#include <ferro/core/interrupts.h>
-
 #endif // _FERRO_CORE_X86_64_INTERRUPTS_BEFORE_H_

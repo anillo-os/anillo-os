@@ -38,7 +38,7 @@
 #include <ferro/core/interrupts.h>
 #include <ferro/core/acpi.h>
 #include <ferro/core/timers.h>
-#include <ferro/core/scheduler.h>
+#include <ferro/core/scheduler.private.h>
 #include <ferro/core/workers.h>
 #include <ferro/core/serial.h>
 #include <ferro/core/config.h>
@@ -51,6 +51,7 @@
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	#include <ferro/core/x86_64/apic.h>
 	#include <ferro/core/x86_64/tsc.h>
+	#include <ferro/core/x86_64/xsave.h>
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
 	#include <ferro/core/aarch64/gic.h>
 	#include <ferro/core/aarch64/generic-timer.h>
@@ -61,6 +62,7 @@
 #include <ferro/userspace/entry.h>
 #include <ferro/drivers/init.h>
 #include <ferro/core/channels.h>
+#include <ferro/core/timers.private.h>
 
 static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_1_extra    FERRO_PAGE_ALIGNED = {0};
@@ -260,6 +262,8 @@ extern void fpage_logging_mark_available(void);
 static void ferro_entry_threaded(void* data) {
 	fconsole_log("Entering threaded kernel startup\n");
 
+	fsched_allow_secondary_cpus_to_continue();
+
 	//fpage_log_early();
 
 	fpage_prefault_enable();
@@ -325,47 +329,9 @@ void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_
 
 	// run this before anything that may use floating-point/SIMD instructions, like memmove and memcpy
 #if FERRO_ARCH == FERRO_ARCH_x86_64
-	{
-		uint64_t cr0 = 0;
-		uint64_t cr4 = 0;
-
-		// check whether XSAVE is supported
-		unsigned int eax = 0;
-		unsigned int ebx = 0;
-		unsigned int ecx = 0;
-		unsigned int edx = 0;
-
-		// can't use __get_cpuid because it's not always inlined
-		__cpuid(1, eax, ebx, ecx, edx);
-
-		if ((ecx & (1 << 26)) == 0) {
-			// no XSAVE support; enter an endless loop
-			fentry_hang_forever();
-		}
-
-		__asm__ volatile(
-			"movq %%cr0, %0\n"
-			"movq %%cr4, %1\n"
-			:
-			"=r" (cr0),
-			"=r" (cr4)
-		);
-
-		// clear the EM and TS bits
-		cr0 &= ~((1 << 2) | (1 << 3));
-		// set the NE and MP bits
-		cr0 |= (1 << 1) | (1 << 5);
-
-		// enable the OSFXSR, OSXMMEXCEPT, and OSXSAVE bits
-		cr4 |= (1 << 9) | (1 << 10) | (1 << 18);
-
-		__asm__ volatile(
-			"movq %0, %%cr0\n"
-			"movq %1, %%cr4\n"
-			::
-			"r" (cr0),
-			"r" (cr4)
-		);
+	if (farch_xsave_enable() != ferr_ok) {
+		// no XSAVE support; enter an endless loop
+		fentry_hang_forever();
 	}
 #endif
 
@@ -415,21 +381,7 @@ jump_here_for_virtual:;
 	// now that we're virtual and can use FARCH_PER_CPU, initialize the size of the XSAVE area;
 	// we must always do this before anything that uses XSAVE executes (e.g. an interrupt or context switch)
 #if FERRO_ARCH == FERRO_ARCH_x86_64
-	{
-		unsigned int eax;
-		unsigned int ebx;
-		unsigned int ecx;
-		unsigned int edx;
-
-		__cpuid_count(0x0d, 0, eax, ebx, ecx, edx);
-
-		FARCH_PER_CPU(xsave_area_size) = ecx;
-
-		// also initialize the XCR0 register with all supported features
-		_xsetbv(0, (uint64_t)edx << 32 | (uint64_t)eax);
-
-		FARCH_PER_CPU(xsave_features) = (uint64_t)edx << 32 | (uint64_t)eax;
-	}
+	farch_xsave_init_size_and_mask(&FARCH_PER_CPU(xsave_area_size), &FARCH_PER_CPU(xsave_features));
 #endif
 
 	fper_cpu_init();
@@ -456,6 +408,9 @@ jump_here_for_virtual:;
 	farch_gic_init();
 	farch_generic_timer_init();
 #endif
+
+	ftimers_init_queues();
+	ftimers_init_per_cpu_queue();
 
 	fserial_init();
 

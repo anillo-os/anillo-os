@@ -26,6 +26,7 @@
 #define _FERRO_CORE_X86_64_PER_CPU_PRIVATE_H_
 
 #include <ferro/core/per-cpu.private.h>
+#include <ferro/core/x86_64/interrupts.defs.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -34,6 +35,7 @@ FERRO_STRUCT_FWD(fthread);
 FERRO_STRUCT_FWD(futhread_data);
 FERRO_STRUCT_FWD(fpage_space);
 FERRO_STRUCT_FWD(fcpu);
+FERRO_STRUCT_FWD(ftimers_priority_queue);
 
 FERRO_STRUCT(farch_per_cpu_data) {
 	farch_per_cpu_data_t* base;
@@ -139,7 +141,7 @@ FERRO_STRUCT(farch_per_cpu_data) {
 	 * Owner: interrupts subsystem.
 	 * Also read by: scheduler subsystem.
 	 */
-	uint32_t xsave_features;
+	uint64_t xsave_features;
 
 	/**
 	 * The current CPU info structure.
@@ -147,6 +149,34 @@ FERRO_STRUCT(farch_per_cpu_data) {
 	 * Owner: APIC subsystem.
 	 */
 	fcpu_t* current_cpu;
+
+	/**
+	 * The most recently executed (highest-valued) IPI work ID.
+	 *
+	 * Owned: APIC subsystem.
+	 */
+	uint64_t last_ipi_work_id;
+
+	/**
+	 * The TSS for this CPU.
+	 *
+	 * Owner: interrupts subsystem.
+	 */
+	farch_int_tss_t tss;
+
+	/**
+	 * The GDT for this CPU.
+	 *
+	 * Owner: interrupts subsystem.
+	 */
+	farch_int_gdt_t gdt;
+
+	/**
+	 * The timer queue for this CPU.
+	 *
+	 * Owner: timers subsystem.
+	 */
+	ftimers_priority_queue_t* timer_queue;
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void);

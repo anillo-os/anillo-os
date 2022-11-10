@@ -45,6 +45,7 @@ void fpanicv(const char* reason_format, va_list args) {
 	fint_trace_current_stack();
 
 	// for now
+	// FIXME for SMP support
 	fentry_hang_forever();
 };
 

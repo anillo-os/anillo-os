@@ -28,6 +28,7 @@
 #include <ferro/core/mempool.h>
 #include <libsimple/libsimple.h>
 #include <ferro/core/paging.h>
+#include <ferro/core/x86_64/apic.h>
 
 // 4 pages should be enough, right?
 #define SWITCHING_STACK_SIZE (FPAGE_PAGE_SIZE * 4)
@@ -35,10 +36,18 @@
 static void ignore_interrupt(void* data, fint_frame_t* frame) {};
 
 void farch_sched_init(void) {
-	if (farch_int_register_handler(0xfe, ignore_interrupt, NULL) != ferr_ok) {
+	if (farch_int_register_handler(0xfe, ignore_interrupt, NULL, 0) != ferr_ok) {
 		fpanic("Failed to register scheduler auxillary interrupt");
 	}
 
+	if (fpage_allocate_kernel(fpage_round_up_to_page_count(SWITCHING_STACK_SIZE), &FARCH_PER_CPU(switching_stack), fpage_flag_prebound) != ferr_ok) {
+		fpanic("Failed to allocate a switching stack");
+	}
+
+	FARCH_PER_CPU(switching_stack) = (void*)((uintptr_t)FARCH_PER_CPU(switching_stack) + SWITCHING_STACK_SIZE);
+};
+
+void farch_sched_init_secondary_cpu(void) {
 	if (fpage_allocate_kernel(fpage_round_up_to_page_count(SWITCHING_STACK_SIZE), &FARCH_PER_CPU(switching_stack), fpage_flag_prebound) != ferr_ok) {
 		fpanic("Failed to allocate a switching stack");
 	}
@@ -258,6 +267,9 @@ FERRO_NO_RETURN void fsched_bootstrap(fthread_t* new_thread) {
 
 void fsched_preempt_thread(fthread_t* thread) {
 	if (thread == fthread_current()) {
+		// drop the thread lock
+		flock_spin_intsafe_unlock(&thread->lock);
+
 		// first disarm the timer
 		fsched_disarm_timer();
 
@@ -265,6 +277,7 @@ void fsched_preempt_thread(fthread_t* thread) {
 		// (the threading subsystem's interrupt hooks will take care of the rest)
 		__asm__ volatile("int $0xfe");
 	} else {
-		fpanic("Yielding thread is not current thread (this is impossible in the current non-SMP implementation)");
+		// we're holding the thread's lock, so we know that it can't be moving between CPUs right now
+		FERRO_WUR_IGNORE(farch_apic_interrupt_cpu(thread->current_cpu, 0xfe));
 	}
 };

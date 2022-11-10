@@ -147,6 +147,11 @@ FERRO_OPTIONS(uint8_t, fpage_permissions) {
  */
 void fpage_init(size_t next_l2, fpage_table_t* root_table, ferro_memory_region_t* memory_regions, size_t memory_region_count, void* image_base);
 
+/**
+ * Initializes paging on a secondary CPU.
+ */
+void fpage_init_secondary_cpu(void);
+
 void fpage_log_early(void);
 
 /**

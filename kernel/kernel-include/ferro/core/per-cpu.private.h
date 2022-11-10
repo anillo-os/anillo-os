@@ -28,6 +28,7 @@
 #include <stddef.h>
 
 #include <ferro/core/per-cpu.h>
+#include <ferro/platform.h>
 
 FERRO_DECLARATIONS_BEGIN;
 

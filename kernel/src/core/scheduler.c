@@ -32,6 +32,8 @@
 #include <ferro/core/threads.private.h>
 #include <ferro/core/waitq.private.h>
 #include <ferro/core/interrupts.h>
+#include <ferro/core/timers.private.h>
+#include <ferro/core/cpu.private.h>
 
 #include <stdatomic.h>
 
@@ -169,6 +171,7 @@ static void remove_from_queue(fthread_t* thread, bool queue_is_locked) {
 
 	thread->next = NULL;
 	thread->prev = NULL;
+	thread->current_cpu = NULL;
 	sched_private->queue = NULL;
 
 	if (!queue_is_locked) {
@@ -206,6 +209,8 @@ static void add_to_queue(fthread_t* thread, fsched_info_t* new_queue, bool new_q
 		new_queue->tail->next = thread;
 		new_queue->tail = thread;
 	}
+
+	thread->current_cpu = new_queue->cpu;
 
 	sched_private->queue = new_queue;
 
@@ -360,6 +365,7 @@ FERRO_NO_RETURN void fsched_init(fthread_t* thread) {
 	this_info = fsched_per_cpu_info();
 
 	this_info->active = true;
+	this_info->cpu = fcpu_current();
 
 	if (fmempool_allocate(sizeof(fsched_thread_private_t), NULL, (void*)&sched_private) != ferr_ok) {
 		fpanic("Failed to allocate private thread manager context for scheduler for bootstrap thread");
@@ -369,6 +375,7 @@ FERRO_NO_RETURN void fsched_init(fthread_t* thread) {
 
 	thread->prev = thread;
 	thread->next = thread;
+	thread->current_cpu = fcpu_current();
 	thread->id = get_next_id();
 	sched_private->global_prev = NULL;
 	sched_private->global_next = NULL;
@@ -397,6 +404,36 @@ FERRO_NO_RETURN void fsched_init(fthread_t* thread) {
 
 	// this will also arm the timer
 	fsched_bootstrap(thread);
+};
+
+static uint8_t secondary_cpus_can_continue = 0;
+
+void fsched_allow_secondary_cpus_to_continue(void) {
+	__atomic_store_n(&secondary_cpus_can_continue, 1, __ATOMIC_RELEASE);
+};
+
+FERRO_NO_RETURN void fsched_init_secondary_cpu(void) {
+	// wait for the BSP to tell us we can continue
+	while (__atomic_load_n(&secondary_cpus_can_continue, __ATOMIC_RELAXED) == 0) {
+		fcpu_do_work();
+		farch_lock_spin_yield();
+	}
+
+	// make writes from the BSP visible (synchronizes with the atomic release in fsched_allow_secondary_cpus_to_continue)
+	__atomic_thread_fence(__ATOMIC_ACQUIRE);
+
+	// assign the right timer queue for this CPU
+	ftimers_init_per_cpu_queue();
+
+	// perform arch-specific initialization on this CPU
+	farch_sched_init_secondary_cpu();
+
+	// mark this CPU queue as active (and set the queue's CPU)
+	fsched_per_cpu_info()->active = true;
+	fsched_per_cpu_info()->cpu = fcpu_current();
+
+	// jump into our idle thread (this will also arm the timer)
+	fsched_bootstrap(idle_threads[fcpu_current_id()]);
 };
 
 // must hold NO queue locks
@@ -472,9 +509,6 @@ static ferr_t manager_kill(void* context, fthread_t* thread) {
 	// we don't want to be interrupted by the timer if it's for our current thread
 	fint_disable();
 
-	// unlock it for the call
-	flock_spin_intsafe_unlock(&thread->lock);
-
 	if (thread == fthread_current()) {
 		// if it's the current thread, we're not returning, so we need to release the extra reference that fthread_kill() acquired
 		fthread_release(thread);
@@ -486,7 +520,7 @@ static ferr_t manager_kill(void* context, fthread_t* thread) {
 	// it might seem like the thread might be fully released here, but actually no.
 	// fthread_kill() retains the thread before calling us and then releases it afterwards.
 
-	// and relock it for the threads subsystem
+	// and relock it for the threads subsystem (since fsched_preempt_thread drops the lock)
 	flock_spin_intsafe_lock(&thread->lock);
 
 	fint_enable();
@@ -566,12 +600,9 @@ static ferr_t manager_suspend(void* context, fthread_t* thread) {
 	// we don't want to be interrupted by the timer if it's for our current thread
 	fint_disable();
 
-	// unlock it for the call
-	flock_spin_intsafe_unlock(&thread->lock);
-
 	fsched_preempt_thread(thread);
 
-	// and relock it for the threads subsystem
+	// and relock it for the threads subsystem  (since fsched_preempt_thread drops the lock)
 	flock_spin_intsafe_lock(&thread->lock);
 
 	fint_enable();
@@ -720,12 +751,9 @@ static ferr_t manager_block(void* context, fthread_t* thread) {
 	// we don't want to be interrupted by the timer if it's for our current thread
 	fint_disable();
 
-	// unlock it for the call
-	flock_spin_intsafe_unlock(&thread->lock);
-
 	fsched_preempt_thread(thread);
 
-	// and relock it for the threads subsystem
+	// and relock it for the threads subsystem (since fsched_preempt_thread drops the lock)
 	flock_spin_intsafe_lock(&thread->lock);
 
 	fint_enable();
@@ -1006,6 +1034,7 @@ ferr_t fsched_manage(fthread_t* thread) {
 
 	thread->prev = NULL;
 	thread->next = NULL;
+	thread->current_cpu = NULL;
 	private_thread->hooks[0].suspend = manager_suspend;
 	private_thread->hooks[0].resume = manager_resume;
 	private_thread->hooks[0].kill = manager_kill;

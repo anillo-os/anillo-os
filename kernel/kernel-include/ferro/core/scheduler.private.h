@@ -60,6 +60,11 @@ FERRO_STRUCT(fsched_info) {
 	 * Otherwise, if `false`, this queue in inactive and new threads should NOT be scheduled on it.
 	 */
 	bool active;
+
+	/**
+	 * The CPU that this queue is for.
+	 */
+	fcpu_t* cpu;
 };
 
 FERRO_STRUCT(fsched_thread_private) {
@@ -102,6 +107,11 @@ void fsched_disarm_timer(void);
  */
 fsched_info_t* fsched_per_cpu_info(void);
 
+/**
+ * Allows any secondary CPUs waiting to continue to go ahead and begin scheduling.
+ */
+void fsched_allow_secondary_cpus_to_continue(void);
+
 // these are arch-dependent functions we expect all architectures to implement
 
 /**
@@ -139,12 +149,15 @@ FERRO_NO_RETURN void fsched_bootstrap(fthread_t* thread);
  */
 void farch_sched_init(void);
 
+void farch_sched_init_secondary_cpu(void);
+
 /**
  * Tells the scheduler that the given thread needs to be preempted as soon as possible.
  *
  * @note This function does not need to wait for the thread to be preempted.
  *
- * @note This function will be called with the thread's lock NOT held.
+ * @pre Thread's lock MUST be held.
+ * @post Thread's lock is dropped.
  *
  * @note If the given thread is the current thread, this function MUST NOT return.
  */

@@ -23,12 +23,20 @@
  */
 
 #include <ferro/core/per-cpu.private.h>
+#include <ferro/core/cpu.private.h>
 
 // for now, we only ever operate on a single CPU
 // however, once we enable SMP, we can extend this
 
+static fcpu_t cpu;
+
 static farch_per_cpu_data_t data = {
 	.base = &data,
+	.current_cpu = &cpu,
+};
+
+static fcpu_t cpu = {
+	.per_cpu_data = &data,
 };
 
 farch_per_cpu_data_t* farch_per_cpu_base_address(void) {
@@ -43,6 +51,10 @@ uint64_t fcpu_current_id(void) {
 
 uint64_t fcpu_count(void) {
 	return 1;
+};
+
+fcpu_t* fcpu_current(void) {
+	return FARCH_PER_CPU(current_cpu);
 };
 
 void farch_per_cpu_init(void) {

@@ -128,6 +128,7 @@ FERRO_NO_RETURN void futhread_jump_user_self_arch(fthread_t* uthread, futhread_d
 void futhread_ending_interrupt_arch(fthread_t* uthread, futhread_data_t* udata);
 
 void futhread_arch_init(void);
+void futhread_arch_ensure_ready_cpu(void);
 void futhread_arch_init_private_data(futhread_data_private_t* data);
 
 FERRO_DECLARATIONS_END;

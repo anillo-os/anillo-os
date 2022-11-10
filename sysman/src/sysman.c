@@ -131,7 +131,7 @@ __attribute__((aligned(4096)))
 static char some_signal_stack[16ull * 1024];
 #endif
 
-#if 1
+#if 0
 #define THREADS 2
 
 atomic_uintmax_t counters[THREADS];
@@ -146,9 +146,9 @@ static void counting_thread(void* context, sys_thread_t* this_thread) {
 #endif
 
 void main(void) {
-#if 0
+#if 1
 	start_process("/sys/netman/netman");
-	start_process("/sys/usbman/usbman");
+	//start_process("/sys/usbman/usbman");
 
 	eve_loop_run(eve_loop_get_main());
 #endif
@@ -194,7 +194,7 @@ void main(void) {
 		LIBSYS_WUR_IGNORE(sys_thread_suspend_timeout(sys_thread_current(), 1ull * 1000 * 1000 * 1000, sys_timeout_type_relative_ns_monotonic));
 	}
 #endif
-#if 1
+#if 0
 	sys_thread_t* threads[THREADS];
 
 	// we create the threads and then resume them separately to avoid starting them at different times

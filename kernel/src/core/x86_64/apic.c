@@ -137,6 +137,13 @@ FERRO_OPTIONS(uint32_t, fapic_lvt_flags) {
 	fapic_lvt_flag_delivery_pending = 1 << 12,
 };
 
+FERRO_ENUM(uint8_t, fapic_icr_destination_shorthand) {
+	fapic_icr_destination_shorthand_none = 0,
+	fapic_icr_destination_shorthand_self = 1,
+	fapic_icr_destination_shorthand_all = 2,
+	fapic_icr_destination_shorthand_all_except_self = 3,
+};
+
 FERRO_OPTIONS(uint32_t, fapic_icr_flags) {
 	fapic_icr_flag_trigger_mode_edge = 0 << 15,
 	fapic_icr_flag_trigger_mode_level = 1 << 15,
@@ -154,7 +161,7 @@ static void ignore_interrupt(void* data, fint_frame_t* frame) {};
 
 static void remap_and_disable_pic(void) {
 	for (size_t i = 0x20; i < 0x30; ++i) {
-		if (farch_int_register_handler(i, ignore_interrupt, NULL) != ferr_ok) {
+		if (farch_int_register_handler(i, ignore_interrupt, NULL, 0) != ferr_ok) {
 			fpanic("failed to register PIC interrupt handler for %zu", i);
 		}
 	}
@@ -520,6 +527,20 @@ void farch_apic_signal_eoi(void) {
 	lapic->end_of_interrupt = 0;
 };
 
+uint64_t farch_apic_processors_online = 1;
+
+uint64_t fcpu_online_count(void) {
+	return farch_apic_processors_online;
+};
+
+static void farch_apic_ipi_work_queue_handler(void* context, fint_frame_t* frame) {
+	fcpu_do_work();
+
+	farch_apic_signal_eoi();
+};
+
+static uint8_t fapic_ipi_work_queue_interrupt_number = 0;
+
 void farch_apic_init(void) {
 	fint_disable();
 
@@ -658,7 +679,7 @@ void farch_apic_init(void) {
 	remap_and_disable_pic();
 
 	// ignore the spurious interrupt vector
-	if (farch_int_register_handler(0xff, ignore_interrupt, NULL) != ferr_ok) {
+	if (farch_int_register_handler(0xff, ignore_interrupt, NULL, 0) != ferr_ok) {
 		fpanic("failed to register APIC spurious interrupt vector handler (for interrupt 255)");
 	}
 
@@ -694,7 +715,7 @@ void farch_apic_init(void) {
 	}
 
 	// setup an interrupt handler for the timer
-	if (farch_int_register_handler(0x30, timer_interrupt_handler, NULL) != ferr_ok) {
+	if (farch_int_register_handler(0x30, timer_interrupt_handler, NULL, 0) != ferr_ok) {
 		fpanic("failed to register APIC timer interrupt handler (for interrupt 48)");
 	}
 
@@ -710,6 +731,9 @@ void farch_apic_init(void) {
 	} else {
 		fconsole_log("warning: CPU/APIC doesn't support TSC-deadline mode; no TSC-deadline timer will be available\n");
 	}
+
+	// register an interrupt handler for the IPI work queue
+	fpanic_status(farch_int_register_next_available(farch_apic_ipi_work_queue_handler, NULL, &fapic_ipi_work_queue_interrupt_number, farch_int_handler_flag_safe_mode));
 
 	// now initialize other processors
 	void* smp_init_code = NULL;
@@ -738,6 +762,9 @@ void farch_apic_init(void) {
 
 	// stub the root page table by copying the root page table we use for this CPU
 	simple_memcpy(smp_init_root_table, (void*)fpage_virtual_address_for_table(0, 0, 0, 0), sizeof(*smp_init_root_table));
+
+	// update the recursive table pointer
+	smp_init_root_table->entries[fpage_root_recursive_index] = fpage_table_entry(FARCH_SMP_INIT_ROOT_TABLE_BASE, true);
 
 	// now identity-map the addresses we use for SMP initialization
 	//
@@ -769,14 +796,35 @@ void farch_apic_init(void) {
 			continue;
 		}
 
-		// reset the "initialization done" flag
+		// reset the "initialization done" flags
 		__atomic_store_n(&smp_init_data->init_done, 0, __ATOMIC_RELAXED);
+		__atomic_store_n(&smp_init_data->init_stage2_done, 0, __ATOMIC_RELEASE);
 
 		// set the processor's APIC ID
 		smp_init_data->apic_id = cpu->apic_id;
 
 		// allocate a new init stack for this CPU
 		fpanic_status(fpage_space_allocate(fpage_space_kernel(), fpage_round_up_to_page_count(FARCH_SMP_INIT_STACK_SIZE), &smp_init_data->stack, fpage_flag_prebound));
+
+		// allocate a per-CPU data structure for this CPU
+		fpanic_status(fmempool_allocate_advanced(sizeof(*cpu->per_cpu_data), 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void*)&cpu->per_cpu_data));
+
+		// allocate a root page table for this CPU
+		// (the one that we'll actually use later on)
+		fpanic_status(fpage_space_allocate(fpage_space_kernel(), fpage_round_up_to_page_count(sizeof(*cpu->root_table)), (void*)&cpu->root_table, fpage_flag_prebound | fpage_flag_zero));
+
+		// zero it out
+		simple_memset(cpu->per_cpu_data, 0, sizeof(*cpu->per_cpu_data));
+
+		// set the pointer to the CPU info structure
+		smp_init_data->cpu_info_struct = cpu;
+
+		// NOTE: for now, we assume that all CPUs on the system use the same TSC and LAPIC timer frequency
+		smp_init_data->tsc_frequency = FARCH_PER_CPU(tsc_frequency);
+		smp_init_data->lapic_frequency = FARCH_PER_CPU(lapic_frequency);
+
+		// ensure that all our writes are visible
+		__atomic_thread_fence(__ATOMIC_RELEASE);
 
 		// clear APIC errors
 		lapic->error_status = 0;
@@ -823,10 +871,30 @@ void farch_apic_init(void) {
 			// we were unable to bring up this processor :(
 			fconsole_logf("Unable to spin up processor with APIC ID %llu\n", cpu->apic_id);
 
-			// go ahead and free the stack we allocate for it
+			// go ahead and free the stack we allocated for it
 			fpanic_status(fpage_space_free(fpage_space_kernel(), smp_init_data->stack, fpage_round_up_to_page_count(FARCH_SMP_INIT_STACK_SIZE)));
+
+			// and free the per-CPU data
+			fpanic_status(fmempool_free(cpu->per_cpu_data));
+			cpu->per_cpu_data = NULL;
+
+			// and the root page table
+			fpanic_status(fpage_space_free(fpage_space_kernel(), cpu->root_table, fpage_round_up_to_page_count(sizeof(*cpu->root_table))));
+
 			continue;
 		}
+
+		// wait for it to be done initializing stage 2
+		while (true) {
+			if (__atomic_load_n(&smp_init_data->init_stage2_done, __ATOMIC_RELAXED) != 0) {
+				break;
+			}
+			fcpu_do_work();
+			farch_lock_spin_yield();
+		}
+
+		// use `__ATOMIC_ACQUIRE` to ensure that all writes performed by the AP during initialization are visible to us now
+		__atomic_thread_fence(__ATOMIC_ACQUIRE);
 
 		fconsole_logf("Successfully spun up processor with APIC ID %llu\n", cpu->apic_id);
 
@@ -843,6 +911,22 @@ void farch_apic_init(void) {
 
 	// TODO: continue processor initialization
 	// at this point, the APs are waiting in the long-mode higher-half for us to continue setting up them.
+
+	fint_enable();
+};
+
+void farch_apic_init_secondary_cpu(void) {
+	fint_disable();
+
+	// enable the APIC
+	// 0xff == spurious interrupt vector number; 0x100 == enable APIC
+	lapic->spurious_interrupt_vector = 0x1ff;
+
+	// 0x30 == timer interrupt number
+	lapic->lvt_timer = 0x30;
+
+	// divide by 1
+	lapic->timer_divide_configuration = 0x0b;
 
 	fint_enable();
 };
@@ -942,4 +1026,33 @@ ferr_t farch_ioapic_map_legacy(uint8_t legacy_irq_number, uint8_t target_vector_
 	}
 
 	return farch_ioapic_map(legacy_irq_to_gsi[legacy_irq_number].gsi, legacy_irq_to_gsi[legacy_irq_number].active_low, legacy_irq_to_gsi[legacy_irq_number].level_triggered, target_vector_number);
+};
+
+ferr_t fcpu_arch_interrupt_all(bool include_current) {
+	lapic->error_status = 0;
+	lapic->interrupt_command_0_31 =
+		((uint32_t)(include_current ? fapic_icr_destination_shorthand_all : fapic_icr_destination_shorthand_all_except_self) << 18) |
+		fapic_icr_flag_trigger_mode_edge         |
+		fapic_icr_flag_level_assert              |
+		fapic_icr_flag_delivery_status_idle      |
+		fapic_icr_flag_destination_mode_physical |
+		(fapic_lvt_delivery_mode_fixed << 8)     |
+		fapic_ipi_work_queue_interrupt_number
+		;
+	return ferr_ok;
+};
+
+ferr_t farch_apic_interrupt_cpu(fcpu_t* cpu, uint8_t vector_number) {
+	lapic->error_status = 0;
+	lapic->interrupt_command_32_63 = (cpu->apic_id & 0xff) << 24;
+	lapic->interrupt_command_0_31 =
+		((uint32_t)(fapic_icr_destination_shorthand_none) << 18) |
+		fapic_icr_flag_trigger_mode_edge         |
+		fapic_icr_flag_level_assert              |
+		fapic_icr_flag_delivery_status_idle      |
+		fapic_icr_flag_destination_mode_physical |
+		(fapic_lvt_delivery_mode_fixed << 8)     |
+		vector_number
+		;
+	return ferr_ok;
 };

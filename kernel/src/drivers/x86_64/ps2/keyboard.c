@@ -585,7 +585,7 @@ void ferro_ps2_keyboard_init(void) {
 
 	fkeyboard_update_init(&ps2_state->keyboard_state);
 
-	if (farch_int_register_next_available(ferro_ps2_keyboard_interrupt_handler, ps2_state, &interrupt_number) != ferr_ok) {
+	if (farch_int_register_next_available(ferro_ps2_keyboard_interrupt_handler, ps2_state, &interrupt_number, 0) != ferr_ok) {
 		fconsole_log("ps2-keyboard: failed to register interrupt handler\n");
 		return;
 	}

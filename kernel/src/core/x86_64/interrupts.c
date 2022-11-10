@@ -33,6 +33,7 @@
 #include <ferro/core/threads.private.h>
 #include <ferro/core/per-cpu.private.h>
 #include <ferro/core/x86_64/xsave.h>
+#include <ferro/core/cpu.private.h>
 
 #include <stddef.h>
 
@@ -42,143 +43,21 @@
 	#define FINT_DEBUG_LOG_INTERRUPTS 1
 #endif
 
-FERRO_PACKED_STRUCT(fint_tss) {
-	uint32_t reserved1;
-	uint64_t pst[3];
-	uint64_t reserved2;
-	uint64_t ist[7];
-	uint64_t reserved3;
-	uint16_t reserved4;
-	uint16_t iomap_offset;
-};
-
-FERRO_ENUM(uint8_t, fint_ist_index) {
-	// used for all interrupts without their own IST stack
-	fint_ist_index_generic_interrupt,
-
-	// used for the double fault handler
-	fint_ist_index_double_fault,
-
-	// used for the debug handler
-	fint_ist_index_debug,
-
-	fint_ist_index_page_fault,
-};
-
 typedef void (*fint_isr_f)(fint_frame_t* frame);
 typedef void (*fint_isr_with_code_f)(fint_frame_t* frame);
 typedef FERRO_NO_RETURN void (*fint_isr_noreturn_f)(fint_frame_t* frame);
 typedef FERRO_NO_RETURN void (*fint_isr_with_code_noreturn_f)(fint_frame_t* frame);
 
-FERRO_OPTIONS(uint16_t, fint_idt_entry_options) {
-	fint_idt_entry_option_enable_interrupts = 1 << 8,
-	fint_idt_entry_option_present           = 1 << 15,
-};
-
-FERRO_PACKED_STRUCT(fint_idt_entry) {
-	uint16_t pointer_low_16;
-	uint16_t code_segment_index;
-	uint16_t options;
-	uint16_t pointer_mid_16;
-	uint32_t pointer_high_32;
-	uint32_t reserved;
-};
-
-FERRO_ALWAYS_INLINE void fint_make_idt_entry(fint_idt_entry_t* out_entry, void* isr, uint8_t code_segment_index, uint8_t ist_index, bool enable_interrupts, uint8_t privilege_level) {
-	uintptr_t isr_addr = (uintptr_t)isr;
-
-	out_entry->pointer_low_16 = isr_addr & 0xffffULL;
-	out_entry->pointer_mid_16 = (isr_addr & (0xffffULL << 16)) >> 16;
-	out_entry->pointer_high_32 = (isr_addr & (0xffffffffULL << 32)) >> 32;
-
-	out_entry->code_segment_index = code_segment_index * 8;
-
-	out_entry->options = 0xe00 | (enable_interrupts ? fint_idt_entry_option_enable_interrupts : 0) | fint_idt_entry_option_present | ((privilege_level & 3) << 13) | (ist_index & 7);
-
-	out_entry->reserved = 0;
-};
-
-/**
- * Here are the function types of each of the following interrupt entries:
- * ```c
- * fint_isr_t division_error;
- * fint_isr_t debug;
- * fint_isr_t nmi;
- * fint_isr_t breakpoint;
- * fint_isr_t overflow;
- * fint_isr_t bounds_check_failure;
- * fint_isr_t invalid_opcode;
- * fint_isr_t device_not_available;
- * fint_isr_with_code_noreturn_t double_fault;
- * fint_isr_t reserved_9;
- * fint_isr_with_code_t invalid_tss;
- * fint_isr_with_code_t segment_not_present;
- * fint_isr_with_code_t stack_segment_fault;
- * fint_isr_with_code_t general_protection_fault;
- * fint_isr_with_code_t page_fault;
- * fint_isr_t reserved_15;
- * fint_isr_t x87_exception;
- * fint_isr_with_code_t alignment_check_failure;
- * fint_isr_noreturn_t machine_check;
- * fint_isr_t simd_exception;
- * fint_isr_t virtualization_exception;
- * fint_isr_t reserved_21;
- * fint_isr_t reserved_22;
- * fint_isr_t reserved_23;
- * fint_isr_t reserved_24;
- * fint_isr_t reserved_25;
- * fint_isr_t reserved_26;
- * fint_isr_t reserved_27;
- * fint_isr_t reserved_28;
- * fint_isr_t reserved_29;
- * fint_isr_with_code_t security_exception;
- * fint_isr_t reserved_31;
- * 
- * fint_isr_t interrupts[224];
- * ```
- */
-FERRO_PACKED_STRUCT(farch_int_idt) {
-	fint_idt_entry_t division_error;
-	fint_idt_entry_t debug;
-	fint_idt_entry_t nmi;
-	fint_idt_entry_t breakpoint;
-	fint_idt_entry_t overflow;
-	fint_idt_entry_t bounds_check_failure;
-	fint_idt_entry_t invalid_opcode;
-	fint_idt_entry_t device_not_available;
-	fint_idt_entry_t double_fault;
-	fint_idt_entry_t reserved_9;
-	fint_idt_entry_t invalid_tss;
-	fint_idt_entry_t segment_not_present;
-	fint_idt_entry_t stack_segment_fault;
-	fint_idt_entry_t general_protection_fault;
-	fint_idt_entry_t page_fault;
-	fint_idt_entry_t reserved_15;
-	fint_idt_entry_t x87_exception;
-	fint_idt_entry_t alignment_check_failure;
-	fint_idt_entry_t machine_check;
-	fint_idt_entry_t simd_exception;
-	fint_idt_entry_t virtualization_exception;
-	fint_idt_entry_t reserved_21;
-	fint_idt_entry_t reserved_22;
-	fint_idt_entry_t reserved_23;
-	fint_idt_entry_t reserved_24;
-	fint_idt_entry_t reserved_25;
-	fint_idt_entry_t reserved_26;
-	fint_idt_entry_t reserved_27;
-	fint_idt_entry_t reserved_28;
-	fint_idt_entry_t reserved_29;
-	fint_idt_entry_t security_exception;
-	fint_idt_entry_t reserved_31;
-
-	fint_idt_entry_t interrupts[224];
-};
-
 FERRO_STRUCT(fint_handler_common_data) {
 	char reserved;
 };
 
+FERRO_OPTIONS(uint64_t, fint_handler_flags) {
+	fint_handler_flag_safe_mode = 1 << 0,
+};
+
 FERRO_STRUCT(fint_handler_entry) {
+	fint_handler_flags_t flags;
 	farch_int_handler_f handler;
 	void* data;
 	flock_spin_intsafe_t lock;
@@ -202,33 +81,6 @@ static fint_special_handler_entry_t special_handlers[SPECIAL_HANDLERS_MAX] = {
 	}
 };
 
-static fint_tss_t tss = {0};
-
-static farch_int_gdt_t gdt = {
-	.entries = {
-		// null segment
-		0,
-
-		// code segment
-		farch_int_gdt_flags_common | farch_int_gdt_flag_long | farch_int_gdt_flag_executable,
-
-		// data segment
-		farch_int_gdt_flags_common,
-
-		// TSS segment
-		// occupies two entries
-		// needs to be initialized with the pointer value in fint_init()
-		farch_int_gdt_flag_accessed | farch_int_gdt_flag_executable | farch_int_gdt_flag_present | ((sizeof(fint_tss_t) - 1ULL) & 0xffffULL),
-		0,
-
-		// user data segment
-		farch_int_gdt_flags_common | farch_int_gdt_flag_dpl_ring_3,
-
-		// user code segment
-		farch_int_gdt_flags_common | farch_int_gdt_flag_long | farch_int_gdt_flag_executable | farch_int_gdt_flag_dpl_ring_3,
-	},
-};
-
 static void fint_handler_common_begin(fint_handler_common_data_t* data, fint_frame_t* frame, bool safe_mode) {
 	// for all our handlers, we set a bit in their configuration to tell the CPU to disable interrupts when handling them
 	// so we need to let our interrupt management code know this
@@ -237,6 +89,9 @@ static void fint_handler_common_begin(fint_handler_common_data_t* data, fint_fra
 
 	// we also need to set the current interrupt frame
 	frame->previous_frame = FARCH_PER_CPU(current_exception_frame);
+	if (frame->previous_frame == frame) {
+		fpanic("Bad frame");
+	}
 	FARCH_PER_CPU(current_exception_frame) = frame;
 
 	// we also need to save the current address space
@@ -628,7 +483,8 @@ INTERRUPT_HANDLER(simd_exception) {
 		fint_handler_common_data_t data; \
 		farch_int_handler_f handler = NULL; \
 		void* handler_data = NULL; \
-		fint_handler_common_begin(&data, frame, false); \
+		bool safe_mode = /* this is racy! */ (handlers[number].flags & fint_handler_flag_safe_mode) != 0; \
+		fint_handler_common_begin(&data, frame, safe_mode); \
 		flock_spin_intsafe_lock(&handlers[number].lock); \
 		handler = handlers[number].handler; \
 		handler_data = handlers[number].data; \
@@ -638,7 +494,7 @@ INTERRUPT_HANDLER(simd_exception) {
 		} else { \
 			fpanic("Unhandled interrupt " #number); \
 		} \
-		fint_handler_common_end(&data, frame, false); \
+		fint_handler_common_end(&data, frame, safe_mode); \
 	};
 
 MISC_INTERRUPT_HANDLER(  0);
@@ -899,7 +755,7 @@ jump_here_for_cs_reload:;
 //       after any entry locks are taken.
 static flock_spin_intsafe_t registration_lock = FLOCK_SPIN_INTSAFE_INIT;
 
-static ferr_t farch_int_register_handler_locked(uint8_t interrupt, farch_int_handler_f handler, void* data) {
+static ferr_t farch_int_register_handler_locked(uint8_t interrupt, farch_int_handler_f handler, void* data, farch_int_handler_flags_t flags) {
 	ferr_t status = ferr_ok;
 	fint_handler_entry_t* entry;
 
@@ -919,6 +775,11 @@ static ferr_t farch_int_register_handler_locked(uint8_t interrupt, farch_int_han
 
 	entry->handler = handler;
 	entry->data = data;
+	entry->flags = 0;
+
+	if (flags & farch_int_handler_flag_safe_mode) {
+		entry->flags |= fint_handler_flag_safe_mode;
+	}
 
 out:
 	flock_spin_intsafe_unlock(&entry->lock);
@@ -926,10 +787,10 @@ out_unlocked:
 	return status;
 };
 
-ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler, void* data) {
+ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler, void* data, farch_int_handler_flags_t flags) {
 	ferr_t status;
 	flock_spin_intsafe_lock(&registration_lock);
-	status = farch_int_register_handler_locked(interrupt, handler, data);
+	status = farch_int_register_handler_locked(interrupt, handler, data, flags);
 	flock_spin_intsafe_unlock(&registration_lock);
 	return status;
 };
@@ -954,6 +815,7 @@ static ferr_t farch_int_unregister_handler_locked(uint8_t interrupt) {
 
 	entry->handler = NULL;
 	entry->data = NULL;
+	entry->flags = 0;
 
 out:
 	flock_spin_intsafe_unlock(&entry->lock);
@@ -994,7 +856,7 @@ static uint8_t farch_int_next_available(void) {
 	return result;
 };
 
-ferr_t farch_int_register_next_available(farch_int_handler_f handler, void* data, uint8_t* out_interrupt) {
+ferr_t farch_int_register_next_available(farch_int_handler_f handler, void* data, uint8_t* out_interrupt, farch_int_handler_flags_t flags) {
 	ferr_t status = ferr_ok;
 	uint8_t interrupt = 0;
 
@@ -1011,7 +873,7 @@ ferr_t farch_int_register_next_available(farch_int_handler_f handler, void* data
 		goto out;
 	}
 
-	status = farch_int_register_handler_locked(interrupt, handler, data);
+	status = farch_int_register_handler_locked(interrupt, handler, data, flags);
 
 out:
 	flock_spin_intsafe_unlock(&registration_lock);
@@ -1023,23 +885,28 @@ out_unlocked:
 };
 
 void fint_init(void) {
-	uintptr_t tss_addr = (uintptr_t)&tss;
+	uintptr_t tss_addr = (uintptr_t)&FARCH_PER_CPU(tss);
 	void* generic_interrupt_stack_bottom = NULL;
 	void* double_fault_stack_bottom = NULL;
 	void* debug_stack_bottom = NULL;
 	void* page_fault_stack_bottom = NULL;
 	farch_int_idt_pointer_t idt_pointer;
 	farch_int_gdt_pointer_t gdt_pointer;
-	fint_idt_entry_t missing_entry;
+	farch_int_idt_entry_t missing_entry;
 	uint16_t tss_selector = farch_int_gdt_index_tss * 8;
 
-	// initialize the TSS address in the GDT
-	gdt.entries[farch_int_gdt_index_tss] |= ((tss_addr & 0xffffffULL) << 16) | (((tss_addr & (0xffULL << 24)) >> 24) << 56);
-	gdt.entries[farch_int_gdt_index_tss_other] = (tss_addr & (0xffffffffULL << 32)) >> 32;
+	// initialize the GDT entries
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_null] = 0;
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_code] = farch_int_gdt_flags_common | farch_int_gdt_flag_long | farch_int_gdt_flag_executable;
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_data] = farch_int_gdt_flags_common;
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_tss] = farch_int_gdt_flag_accessed | farch_int_gdt_flag_executable | farch_int_gdt_flag_present | ((sizeof(farch_int_tss_t) - 1ULL) & 0xffffULL) | ((tss_addr & 0xffffffULL) << 16) | (((tss_addr & (0xffULL << 24)) >> 24) << 56);
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_tss_other] = (tss_addr & (0xffffffffULL << 32)) >> 32;
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_data_user] = farch_int_gdt_flags_common | farch_int_gdt_flag_dpl_ring_3;
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_code_user] = farch_int_gdt_flags_common | farch_int_gdt_flag_long | farch_int_gdt_flag_executable | farch_int_gdt_flag_dpl_ring_3;
 
 	// load the gdt
-	gdt_pointer.limit = sizeof(gdt) - 1;
-	gdt_pointer.base = &gdt;
+	gdt_pointer.limit = sizeof(FARCH_PER_CPU(gdt)) - 1;
+	gdt_pointer.base = &FARCH_PER_CPU(gdt);
 	__asm__ volatile(
 		"lgdt (%0)"
 		::
@@ -1081,29 +948,29 @@ void fint_init(void) {
 	}
 
 	// set the stack top addresses
-	tss.ist[fint_ist_index_generic_interrupt] = (uintptr_t)generic_interrupt_stack_bottom + (FPAGE_PAGE_SIZE * 4);
-	tss.ist[fint_ist_index_double_fault] = (uintptr_t)double_fault_stack_bottom + (FPAGE_PAGE_SIZE * 4);
-	tss.ist[fint_ist_index_debug] = (uintptr_t)debug_stack_bottom + (FPAGE_PAGE_SIZE * 4);
-	tss.ist[fint_ist_index_page_fault] = (uintptr_t)page_fault_stack_bottom + (FPAGE_PAGE_SIZE * 4);;
+	FARCH_PER_CPU(tss).ist[farch_int_ist_index_generic_interrupt] = (uintptr_t)generic_interrupt_stack_bottom + (FPAGE_PAGE_SIZE * 4);
+	FARCH_PER_CPU(tss).ist[farch_int_ist_index_double_fault] = (uintptr_t)double_fault_stack_bottom + (FPAGE_PAGE_SIZE * 4);
+	FARCH_PER_CPU(tss).ist[farch_int_ist_index_debug] = (uintptr_t)debug_stack_bottom + (FPAGE_PAGE_SIZE * 4);
+	FARCH_PER_CPU(tss).ist[farch_int_ist_index_page_fault] = (uintptr_t)page_fault_stack_bottom + (FPAGE_PAGE_SIZE * 4);
 
 	// initialize the idt with missing entries (they still require certain bits to be 1)
 	fint_make_idt_entry(&missing_entry, NULL, 0, 0, false, 0);
-	missing_entry.options &= ~fint_idt_entry_option_present;
+	missing_entry.options &= ~farch_int_idt_entry_option_present;
 	simple_memclone(&idt, &missing_entry, sizeof(missing_entry), sizeof(idt) / sizeof(missing_entry));
 
 	// initialize the desired idt entries with actual values
-	fint_make_idt_entry(&idt.debug, farch_int_wrapper_debug, farch_int_gdt_index_code, fint_ist_index_debug + 1, false, 0);
-	fint_make_idt_entry(&idt.breakpoint, farch_int_wrapper_breakpoint, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
-	fint_make_idt_entry(&idt.double_fault, farch_int_wrapper_double_fault, farch_int_gdt_index_code, fint_ist_index_double_fault + 1, false, 0);
-	fint_make_idt_entry(&idt.general_protection_fault, farch_int_wrapper_general_protection, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
-	fint_make_idt_entry(&idt.page_fault, farch_int_wrapper_page_fault, farch_int_gdt_index_code, fint_ist_index_page_fault + 1, false, 0);
-	fint_make_idt_entry(&idt.invalid_opcode, farch_int_wrapper_invalid_opcode, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
-	fint_make_idt_entry(&idt.simd_exception, farch_int_wrapper_simd_exception, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.debug, farch_int_wrapper_debug, farch_int_gdt_index_code, farch_int_ist_index_debug + 1, false, 0);
+	fint_make_idt_entry(&idt.breakpoint, farch_int_wrapper_breakpoint, farch_int_gdt_index_code, farch_int_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.double_fault, farch_int_wrapper_double_fault, farch_int_gdt_index_code, farch_int_ist_index_double_fault + 1, false, 0);
+	fint_make_idt_entry(&idt.general_protection_fault, farch_int_wrapper_general_protection, farch_int_gdt_index_code, farch_int_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.page_fault, farch_int_wrapper_page_fault, farch_int_gdt_index_code, farch_int_ist_index_page_fault + 1, false, 0);
+	fint_make_idt_entry(&idt.invalid_opcode, farch_int_wrapper_invalid_opcode, farch_int_gdt_index_code, farch_int_ist_index_generic_interrupt + 1, false, 0);
+	fint_make_idt_entry(&idt.simd_exception, farch_int_wrapper_simd_exception, farch_int_gdt_index_code, farch_int_ist_index_generic_interrupt + 1, false, 0);
 
 	// initialize the array of miscellaneous interrupts
 	#define DEFINE_INTERRUPT(number) \
 		flock_spin_intsafe_init(&handlers[number].lock); \
-		fint_make_idt_entry(&idt.interrupts[number], farch_int_wrapper_interrupt_ ## number, farch_int_gdt_index_code, fint_ist_index_generic_interrupt + 1, false, 0);
+		fint_make_idt_entry(&idt.interrupts[number], farch_int_wrapper_interrupt_ ## number, farch_int_gdt_index_code, farch_int_ist_index_generic_interrupt + 1, false, 0);
 
 	DEFINE_INTERRUPT(  0);
 	DEFINE_INTERRUPT(  1);
@@ -1329,6 +1196,93 @@ void fint_init(void) {
 	DEFINE_INTERRUPT(221);
 	DEFINE_INTERRUPT(222);
 	DEFINE_INTERRUPT(223);
+
+	// load the idt
+	idt_pointer.limit = sizeof(idt) - 1;
+	idt_pointer.base = &idt;
+	__asm__ volatile(
+		"lidt (%0)"
+		::
+		"r" (&idt_pointer)
+		:
+		"memory"
+	);
+
+	// enable interrupts
+	fint_enable();
+};
+
+// initializes the GDT, TSS, and IDT for this CPU
+//
+// the IDT is the same for all CPUs, but the GDT and TSS are per-CPU
+void fint_init_secondary_cpu(void) {
+	uintptr_t tss_addr = (uintptr_t)&FARCH_PER_CPU(tss);
+	void* generic_interrupt_stack_bottom = NULL;
+	void* double_fault_stack_bottom = NULL;
+	void* debug_stack_bottom = NULL;
+	void* page_fault_stack_bottom = NULL;
+	farch_int_idt_pointer_t idt_pointer;
+	farch_int_gdt_pointer_t gdt_pointer;
+	farch_int_idt_entry_t missing_entry;
+	uint16_t tss_selector = farch_int_gdt_index_tss * 8;
+
+	// initialize the GDT entries
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_null] = 0;
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_code] = farch_int_gdt_flags_common | farch_int_gdt_flag_long | farch_int_gdt_flag_executable;
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_data] = farch_int_gdt_flags_common;
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_tss] = farch_int_gdt_flag_accessed | farch_int_gdt_flag_executable | farch_int_gdt_flag_present | ((sizeof(farch_int_tss_t) - 1ULL) & 0xffffULL) | ((tss_addr & 0xffffffULL) << 16) | (((tss_addr & (0xffULL << 24)) >> 24) << 56);
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_tss_other] = (tss_addr & (0xffffffffULL << 32)) >> 32;
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_data_user] = farch_int_gdt_flags_common | farch_int_gdt_flag_dpl_ring_3;
+	FARCH_PER_CPU(gdt).entries[farch_int_gdt_index_code_user] = farch_int_gdt_flags_common | farch_int_gdt_flag_long | farch_int_gdt_flag_executable | farch_int_gdt_flag_dpl_ring_3;
+
+	// load the gdt
+	gdt_pointer.limit = sizeof(FARCH_PER_CPU(gdt)) - 1;
+	gdt_pointer.base = &FARCH_PER_CPU(gdt);
+	__asm__ volatile(
+		"lgdt (%0)"
+		::
+		"r" (&gdt_pointer)
+		:
+		"memory"
+	);
+
+	// reload the segment registers
+	fint_reload_segment_registers(farch_int_gdt_index_code, farch_int_gdt_index_data);
+
+	// load the TSS
+	__asm__ volatile(
+		"ltr (%0)"
+		::
+		"r" (&tss_selector)
+		:
+		"memory"
+	);
+
+	// allocate a stack for generic interrupt handlers
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &generic_interrupt_stack_bottom, fpage_flag_prebound) != ferr_ok) {
+		fpanic("failed to allocate stack for generic interrupt handlers");
+	}
+
+	// allocate a stack for the double-fault handler
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &double_fault_stack_bottom, fpage_flag_prebound) != ferr_ok) {
+		fpanic("failed to allocate stack for double fault handler");
+	}
+
+	// allocate a stack for the debug fault handler
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &debug_stack_bottom, fpage_flag_prebound) != ferr_ok) {
+		fpanic("failed to allocate stack for debug interrupts");
+	}
+
+	// allocate a stack for the page fault handler
+	if (fpage_allocate_kernel(IST_STACK_PAGE_COUNT, &page_fault_stack_bottom, fpage_flag_prebound) != ferr_ok) {
+		fpanic("failed to allocate stack for page fault interrupts");
+	}
+
+	// set the stack top addresses
+	FARCH_PER_CPU(tss).ist[farch_int_ist_index_generic_interrupt] = (uintptr_t)generic_interrupt_stack_bottom + (FPAGE_PAGE_SIZE * 4);
+	FARCH_PER_CPU(tss).ist[farch_int_ist_index_double_fault] = (uintptr_t)double_fault_stack_bottom + (FPAGE_PAGE_SIZE * 4);
+	FARCH_PER_CPU(tss).ist[farch_int_ist_index_debug] = (uintptr_t)debug_stack_bottom + (FPAGE_PAGE_SIZE * 4);
+	FARCH_PER_CPU(tss).ist[farch_int_ist_index_page_fault] = (uintptr_t)page_fault_stack_bottom + (FPAGE_PAGE_SIZE * 4);;
 
 	// load the idt
 	idt_pointer.limit = sizeof(idt) - 1;

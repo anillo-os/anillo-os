@@ -34,6 +34,8 @@
 
 #include <ferro/core/panic.h>
 
+#include <ferro/core/x86_64/interrupts.defs.h>
+
 FERRO_DECLARATIONS_BEGIN;
 
 /**
@@ -98,16 +100,6 @@ FERRO_ALWAYS_INLINE void fint_restore(fint_state_t state) {
 	}
 };
 
-FERRO_ENUM(uint8_t, farch_int_gdt_index) {
-	farch_int_gdt_index_null,
-	farch_int_gdt_index_code,
-	farch_int_gdt_index_data,
-	farch_int_gdt_index_tss,
-	farch_int_gdt_index_tss_other,
-	farch_int_gdt_index_data_user,
-	farch_int_gdt_index_code_user,
-};
-
 /**
  * A handler that is to be called when an interrupt is received.
  *
@@ -116,6 +108,10 @@ FERRO_ENUM(uint8_t, farch_int_gdt_index) {
  * The handler is called with interrupts disabled.
  */
 typedef void (*farch_int_handler_f)(void* data, fint_frame_t* frame);
+
+FERRO_OPTIONS(uint64_t, farch_int_handler_flags) {
+	farch_int_handler_flag_safe_mode = 1 << 0,
+};
 
 /**
  * Registers the given handler for the given interrupt number.
@@ -130,7 +126,7 @@ typedef void (*farch_int_handler_f)(void* data, fint_frame_t* frame);
  * @retval ferr_invalid_argument One or more of: 1) the given interrupt number is outside the permitted range (32-255, inclusive), 2) the handler is `NULL`.
  * @retval ferr_temporary_outage A handler for the given interrupt is already registered and must be explicitly unregistered with farch_int_unregister_handler().
  */
-FERRO_WUR ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler, void* data);
+FERRO_WUR ferr_t farch_int_register_handler(uint8_t interrupt, farch_int_handler_f handler, void* data, farch_int_handler_flags_t flags);
 
 /**
  * Unregisters the handler for the given interrupt number.
@@ -155,7 +151,7 @@ FERRO_WUR ferr_t farch_int_unregister_handler(uint8_t interrupt);
  * @retval ferr_invalid_argument One or more of: 1) @p handler was `NULL`, 2) @p out_interrupt was `NULL`.
  * @retval ferr_temporary_outage There were no available interrupts.
  */
-FERRO_WUR ferr_t farch_int_register_next_available(farch_int_handler_f handler, void* data, uint8_t* out_interrupt);
+FERRO_WUR ferr_t farch_int_register_next_available(farch_int_handler_f handler, void* data, uint8_t* out_interrupt, farch_int_handler_flags_t flags);
 
 FERRO_ALWAYS_INLINE bool fint_is_interrupt_context(void) {
 	return FARCH_PER_CPU(current_exception_frame) != NULL;
@@ -165,46 +161,18 @@ FERRO_ALWAYS_INLINE fint_frame_t* fint_current_frame(void) {
 	return FARCH_PER_CPU(current_exception_frame);
 };
 
-FERRO_OPTIONS(uint64_t, farch_int_gdt_flags) {
-	farch_int_gdt_flag_accessed     = 1ULL << 40,
-	farch_int_gdt_flag_writable     = 1ULL << 41,
-	farch_int_gdt_flag_executable   = 1ULL << 43,
-	farch_int_gdt_flag_user_segment = 1ULL << 44,
-	farch_int_gdt_flag_dpl_ring_3   = 3ULL << 45,
-	farch_int_gdt_flag_present      = 1ULL << 47,
-	farch_int_gdt_flag_long         = 1ULL << 53,
+FERRO_ALWAYS_INLINE void fint_make_idt_entry(farch_int_idt_entry_t* out_entry, void* isr, uint8_t code_segment_index, uint8_t ist_index, bool enable_interrupts, uint8_t privilege_level) {
+	uintptr_t isr_addr = (uintptr_t)isr;
 
-	farch_int_gdt_flags_common      = farch_int_gdt_flag_accessed | farch_int_gdt_flag_writable | farch_int_gdt_flag_present | farch_int_gdt_flag_user_segment,
+	out_entry->pointer_low_16 = isr_addr & 0xffffULL;
+	out_entry->pointer_mid_16 = (isr_addr & (0xffffULL << 16)) >> 16;
+	out_entry->pointer_high_32 = (isr_addr & (0xffffffffULL << 32)) >> 32;
 
-	// just to shut clang up
-	farch_int_gdt_flag_dpl_ring_3_hi = 1ULL << 46,
-	farch_int_gdt_flag_dpl_ring_3_lo = 1ULL << 45,
-};
+	out_entry->code_segment_index = code_segment_index * 8;
 
-FERRO_PACKED_STRUCT(farch_int_gdt) {
-	uint64_t entries[8];
-};
+	out_entry->options = 0xe00 | (enable_interrupts ? farch_int_idt_entry_option_enable_interrupts : 0) | farch_int_idt_entry_option_present | ((privilege_level & 3) << 13) | (ist_index & 7);
 
-FERRO_STRUCT_FWD(farch_int_idt);
-
-FERRO_PACKED_STRUCT(farch_int_idt_pointer) {
-	uint16_t limit;
-	farch_int_idt_t* base;
-};
-
-FERRO_PACKED_STRUCT(farch_int_idt_legacy_pointer) {
-	uint16_t limit;
-	uint32_t base;
-};
-
-FERRO_PACKED_STRUCT(farch_int_gdt_pointer) {
-	uint16_t limit;
-	farch_int_gdt_t* base;
-};
-
-FERRO_PACKED_STRUCT(farch_int_gdt_legacy_pointer) {
-	uint16_t limit;
-	uint32_t base;
+	out_entry->reserved = 0;
 };
 
 /**

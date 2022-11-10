@@ -144,9 +144,11 @@ typedef uint64_t fthread_id_t;
 
 #define FTHREAD_ID_INVALID UINT64_MAX
 
+FERRO_STRUCT_FWD(fcpu);
+
 FERRO_STRUCT(fthread) {
 	/**
-	 * #prev and #next are owned by the thread manager responsible for this thread.
+	 * #prev, #next, and #current_cpu are owned by the thread manager responsible for this thread.
 	 * They cannot be safely read or written by anyone else.
 	 */
 	fthread_t* prev;
@@ -154,6 +156,10 @@ FERRO_STRUCT(fthread) {
 	 * @see #prev.
 	 */
 	fthread_t* next;
+	/**
+	 * @see #prev.
+	 */
+	fcpu_t* current_cpu;
 
 	fthread_flags_t flags;
 	fthread_state_t state;

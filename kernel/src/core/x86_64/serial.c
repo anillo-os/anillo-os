@@ -144,7 +144,7 @@ static void serial_interrupt(void* data, fint_frame_t* frame) {
 void fserial_init(void) {
 	uint8_t interrupt_number;
 
-	if (farch_int_register_next_available(serial_interrupt, NULL, &interrupt_number) != ferr_ok) {
+	if (farch_int_register_next_available(serial_interrupt, NULL, &interrupt_number, 0) != ferr_ok) {
 		fpanic("Failed to register serial port interrupt handler");
 	}
 

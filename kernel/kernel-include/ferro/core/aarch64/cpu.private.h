@@ -19,12 +19,21 @@
 #ifndef _FERRO_CORE_AARCH64_CPU_PRIVATE_H_
 #define _FERRO_CORE_AARCH64_CPU_PRIVATE_H_
 
-#include <ferro/core/cpu.h>
+#include <ferro/core/cpu.private.h>
+#include <ferro/core/aarch64/per-cpu.private.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
 FERRO_STRUCT(fcpu) {
-	// TODO
+	farch_per_cpu_data_t* per_cpu_data;
+};
+
+FERRO_ALWAYS_INLINE void fcpu_do_work(void) {
+	for (fcpu_interrupt_work_item_t* work_item = fcpu_interrupt_work_queue_next(&fcpu_broadcast_queue, FARCH_PER_CPU(last_ipi_work_id)); work_item != NULL; work_item = fcpu_interrupt_work_queue_next(&fcpu_broadcast_queue, FARCH_PER_CPU(last_ipi_work_id))) {
+		FARCH_PER_CPU(last_ipi_work_id) = work_item->work_id;
+		work_item->work(work_item->context);
+		fcpu_interrupt_work_item_checkout(work_item);
+	}
 };
 
 FERRO_DECLARATIONS_END;

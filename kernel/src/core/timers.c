@@ -29,27 +29,15 @@
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/console.h>
+#include <ferro/core/per-cpu.private.h>
+#include <ferro/core/cpu.h>
+#include <ferro/core/interrupts.h>
 
 #include <stddef.h>
 
 // this value is supposed to give the CPU a chance to something else other than just constantly firing timers
 // (this value is in nanoseconds)
 #define MIN_SCHED_DELAY_NS 1000ULL
-
-FERRO_STRUCT(ftimers_timer) {
-	ftimers_backend_timestamp_t most_recent_timestamp;
-	uint64_t remaining_delay;
-	ftimers_id_t id;
-	ftimers_callback_f callback;
-	void* data;
-	bool disabled;
-};
-
-FERRO_STRUCT(ftimers_priority_queue) {
-	ftimers_timer_t* timers;
-	size_t length;
-	size_t size;
-};
 
 #define MAX_BACKENDS 10
 
@@ -59,11 +47,7 @@ static uint8_t backend = UINT8_MAX;
 // TODO: this should probably be an RW lock
 static flock_spin_intsafe_t backend_lock = FLOCK_SPIN_INTSAFE_INIT;
 
-static ftimers_priority_queue_t queue = {0};
-#if 0
-static bool currently_firing = false;
-#endif
-static flock_spin_intsafe_t queue_lock = FLOCK_SPIN_INTSAFE_INIT;
+static ftimers_priority_queue_t** queues = NULL;
 static ftimers_id_t next_id = 0;
 
 FERRO_ALWAYS_INLINE size_t parent_index_for_index(size_t index) {
@@ -79,9 +63,9 @@ FERRO_ALWAYS_INLINE size_t right_child_index(size_t index) {
 };
 
 // needs the queue and backend locks
-static bool recalculate_delays_locked(ftimers_backend_timestamp_t timestamp) {
-	for (size_t i = 0; i < queue.length; ++i) {
-		ftimers_timer_t* timer = &queue.timers[i];
+static bool recalculate_delays_locked(ftimers_priority_queue_t* queue, ftimers_backend_timestamp_t timestamp) {
+	for (size_t i = 0; i < queue->length; ++i) {
+		ftimers_timer_t* timer = &queue->timers[i];
 		uint64_t ns = backends[backend]->delta_to_ns(timer->most_recent_timestamp, timestamp);
 		if (ns > timer->remaining_delay) {
 			timer->remaining_delay = 0;
@@ -90,15 +74,15 @@ static bool recalculate_delays_locked(ftimers_backend_timestamp_t timestamp) {
 		}
 		timer->most_recent_timestamp = timestamp;
 	}
-	return queue.length > 0 && (queue.timers[0].remaining_delay == 0 || queue.timers[0].disabled);
+	return queue->length > 0 && (queue->timers[0].remaining_delay == 0 || queue->timers[0].disabled);
 };
 
 // needs the queue lock
-static void ftimers_priority_queue_remove_locked(void) {
+static void ftimers_priority_queue_remove_locked(ftimers_priority_queue_t* queue) {
 	size_t index = 0;
 
 	// replace the first timer with the last
-	queue.timers[0] = queue.timers[--queue.length];
+	queue->timers[0] = queue->timers[--queue->length];
 
 	// and move it down as necessary
 	while (true) {
@@ -106,28 +90,28 @@ static void ftimers_priority_queue_remove_locked(void) {
 		size_t right_idx = right_child_index(index);
 		uint64_t left_delay;
 		uint64_t right_delay;
-		uint64_t this_delay = queue.timers[index].remaining_delay;
+		uint64_t this_delay = queue->timers[index].remaining_delay;
 
-		if (left_idx >= queue.length) {
+		if (left_idx >= queue->length) {
 			// since the left child MUST come first, we know that if we don't have a left child, then we don't have a right one either
 			break;
 		}
 
-		left_delay = queue.timers[left_idx].remaining_delay;
-		right_delay = (right_idx < queue.length) ? queue.timers[right_idx].remaining_delay : UINT64_MAX;
+		left_delay = queue->timers[left_idx].remaining_delay;
+		right_delay = (right_idx < queue->length) ? queue->timers[right_idx].remaining_delay : UINT64_MAX;
 
 		if (left_delay < this_delay || right_delay < this_delay) {
 			ftimers_timer_t tmp;
 
 			if (right_delay < left_delay) {
-				tmp = queue.timers[right_idx];
-				queue.timers[right_idx] = queue.timers[index];
-				queue.timers[index] = tmp;
+				tmp = queue->timers[right_idx];
+				queue->timers[right_idx] = queue->timers[index];
+				queue->timers[index] = tmp;
 				index = right_idx;
 			} else {
-				tmp = queue.timers[left_idx];
-				queue.timers[left_idx] = queue.timers[index];
-				queue.timers[index] = tmp;
+				tmp = queue->timers[left_idx];
+				queue->timers[left_idx] = queue->timers[index];
+				queue->timers[index] = tmp;
 				index = left_idx;
 			}
 		} else {
@@ -137,34 +121,34 @@ static void ftimers_priority_queue_remove_locked(void) {
 	}
 
 	// if the queue is now a fourth of the allocated size, we should shrink it to half its size
-	if (queue.size > 4 && queue.length < queue.size / 4) {
-		if (fmempool_reallocate_advanced(queue.timers, sizeof(ftimers_timer_t) * (queue.size / 2), 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void**)&queue.timers) != ferr_ok) {
+	if (queue->size > 4 && queue->length < queue->size / 4) {
+		if (fmempool_reallocate_advanced(queue->timers, sizeof(ftimers_timer_t) * (queue->size / 2), 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void**)&queue->timers) != ferr_ok) {
 			// this should be impossible; shrinking is always possible
 			fpanic("failed to shrink timer priority queue");
 		}
-		queue.size /= 2;
+		queue->size /= 2;
 	}
 };
 
-static void ftimers_priority_queue_remove(void) {
-	flock_spin_intsafe_lock(&queue_lock);
-	ftimers_priority_queue_remove_locked();
-	flock_spin_intsafe_unlock(&queue_lock);
+static void ftimers_priority_queue_remove(ftimers_priority_queue_t* queue) {
+	flock_spin_intsafe_lock(&queue->lock);
+	ftimers_priority_queue_remove_locked(queue);
+	flock_spin_intsafe_unlock(&queue->lock);
 };
 
 // needs the queue and backend locks.
 // note that this function might drop both the queue and backend locks and reacquire them afterwards
 // (so that the callback can call ftimers functions).
 // this also arms the backend for the next timer (so that if the callback doesn't return to us, we'll still fire the next timer when appropriate).
-static void fire_one_locked(void) {
-	ftimers_callback_f callback = queue.timers[0].callback;
-	void* data = queue.timers[0].data;
-	bool disabled = queue.timers[0].disabled;
+static void fire_one_locked(ftimers_priority_queue_t* queue) {
+	ftimers_callback_f callback = queue->timers[0].callback;
+	void* data = queue->timers[0].data;
+	bool disabled = queue->timers[0].disabled;
 
-	ftimers_priority_queue_remove_locked();
+	ftimers_priority_queue_remove_locked(queue);
 
-	if (queue.length > 0) {
-		uint64_t sched_delay = queue.timers[0].remaining_delay;
+	if (queue->length > 0) {
+		uint64_t sched_delay = queue->timers[0].remaining_delay;
 		backends[backend]->schedule(sched_delay + MIN_SCHED_DELAY_NS);
 	}
 
@@ -175,7 +159,7 @@ static void fire_one_locked(void) {
 
 	//__builtin_debugtrap();
 
-	flock_spin_intsafe_unlock(&queue_lock);
+	flock_spin_intsafe_unlock(&queue->lock);
 	flock_spin_intsafe_unlock(&backend_lock);
 
 	//__builtin_debugtrap();
@@ -183,11 +167,11 @@ static void fire_one_locked(void) {
 	callback(data);
 
 	flock_spin_intsafe_lock(&backend_lock);
-	flock_spin_intsafe_lock(&queue_lock);
+	flock_spin_intsafe_lock(&queue->lock);
 };
 
 // needs the backend and queue locks
-static void fire_all_locked(void) {
+static void fire_all_locked(ftimers_priority_queue_t* queue) {
 #if 0
 	// someone is already firing all the timers
 	// don't start firing in a nested call
@@ -198,8 +182,8 @@ static void fire_all_locked(void) {
 	currently_firing = true;
 #endif
 
-	while (recalculate_delays_locked(backends[backend]->current_timestamp())) {
-		fire_one_locked();
+	while (recalculate_delays_locked(queue, backends[backend]->current_timestamp())) {
+		fire_one_locked(queue);
 	}
 
 #if 0
@@ -207,32 +191,32 @@ static void fire_all_locked(void) {
 #endif
 };
 
-static ftimers_id_t ftimers_priority_queue_add_locked(uint64_t delay, ftimers_callback_f callback, void* data) {
+static ftimers_id_t ftimers_priority_queue_add_locked(ftimers_priority_queue_t* queue, uint64_t delay, ftimers_callback_f callback, void* data) {
 	ftimers_timer_t* new_timer;
 	ftimers_id_t id = UINTPTR_MAX;
 	size_t index;
 	ftimers_backend_timestamp_t timestamp;
 
-	if (queue.length >= queue.size / 2) {
+	if (queue->length >= queue->size / 2) {
 		size_t new_size = 4;
 
-		if (queue.size > 0) {
-			new_size = queue.size * 2;
+		if (queue->size > 0) {
+			new_size = queue->size * 2;
 		}
 
-		if (fmempool_reallocate_advanced(queue.timers, sizeof(ftimers_timer_t) * new_size, 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void**)&queue.timers) != ferr_ok) {
+		if (fmempool_reallocate_advanced(queue->timers, sizeof(ftimers_timer_t) * new_size, 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void**)&queue->timers) != ferr_ok) {
 			goto out;
 		}
 
-		queue.size = new_size;
+		queue->size = new_size;
 	}
 
 	timestamp = backends[backend]->current_timestamp();
 
-	recalculate_delays_locked(timestamp);
+	recalculate_delays_locked(queue, timestamp);
 
-	index = queue.length++;
-	new_timer = &queue.timers[index];
+	index = queue->length++;
+	new_timer = &queue->timers[index];
 
 	new_timer->id = id = next_id++;
 	if (next_id == FTIMERS_ID_INVALID) {
@@ -251,13 +235,13 @@ static ftimers_id_t ftimers_priority_queue_add_locked(uint64_t delay, ftimers_ca
 		size_t parent_index = parent_index_for_index(index);
 		ftimers_timer_t tmp;
 
-		if (queue.timers[parent_index].remaining_delay < queue.timers[index].remaining_delay) {
+		if (queue->timers[parent_index].remaining_delay < queue->timers[index].remaining_delay) {
 			break;
 		}
 
-		tmp = queue.timers[parent_index];
-		queue.timers[parent_index] = queue.timers[index];
-		queue.timers[index] = tmp;
+		tmp = queue->timers[parent_index];
+		queue->timers[parent_index] = queue->timers[index];
+		queue->timers[index] = tmp;
 
 		index = parent_index;
 	}
@@ -266,21 +250,28 @@ out:
 	return id;
 };
 
-static ftimers_id_t ftimers_priority_queue_add(uint64_t delay, ftimers_callback_f callback, void* data) {
+static ftimers_id_t ftimers_priority_queue_add(ftimers_priority_queue_t* queue, uint64_t delay, ftimers_callback_f callback, void* data) {
 	ftimers_id_t id;
-	flock_spin_intsafe_lock(&queue_lock);
-	id = ftimers_priority_queue_add_locked(delay, callback, data);
-	flock_spin_intsafe_unlock(&queue_lock);
+	flock_spin_intsafe_lock(&queue->lock);
+	id = ftimers_priority_queue_add_locked(queue, delay, callback, data);
+	flock_spin_intsafe_unlock(&queue->lock);
 	return id;
 };
 
 void ftimers_backend_fire(void) {
+	ftimers_priority_queue_t* queue = ftimers_arch_per_cpu_queue();
+
+	if (!queue) {
+		// early spurious fire
+		return;
+	}
+
 	flock_spin_intsafe_lock(&backend_lock);
-	flock_spin_intsafe_lock(&queue_lock);
+	flock_spin_intsafe_lock(&queue->lock);
 
-	fire_all_locked();
+	fire_all_locked(queue);
 
-	flock_spin_intsafe_unlock(&queue_lock);
+	flock_spin_intsafe_unlock(&queue->lock);
 	flock_spin_intsafe_unlock(&backend_lock);
 };
 
@@ -319,8 +310,13 @@ ferr_t ftimers_register_backend(const ftimers_backend_t* new_backend) {
 
 		fconsole_logf("switching to timer backend \"%s\" (with precision=%uns)\n", new_backend->name, new_backend->precision);
 
+		// FIXME: we need to update this with SMP support
+		//        just return an error for now.
+		status = ferr_unsupported;
+
+#if 0
 		// since we're switching backends, we have to switch over the values for any existing timers, so lock the queue
-		flock_spin_intsafe_lock(&queue_lock);
+		flock_spin_intsafe_lock(&queue->lock);
 
 		// first, disarm the old backend
 		old_backend->cancel();
@@ -328,24 +324,25 @@ ferr_t ftimers_register_backend(const ftimers_backend_t* new_backend) {
 		// next, get the most up to date values possible
 		// calculate our new timestamp here, too, so that they match up as much as possible
 		timestamp = new_backend->current_timestamp();
-		recalculate_delays_locked(old_backend->current_timestamp());
+		recalculate_delays_locked(queue, old_backend->current_timestamp());
 
 		// now set the new backend
 		backend = index;
 
 		// and switch over the timestamps
-		for (size_t i = 0; i < queue.length; ++i) {
-			ftimers_timer_t* timer = &queue.timers[i];
+		for (size_t i = 0; i < queue->length; ++i) {
+			ftimers_timer_t* timer = &queue->timers[i];
 			timer->most_recent_timestamp = timestamp;
 		}
 
 		// finally, schedule the next-in-line timer (if there is one)
-		if (queue.length > 0) {
-			uint64_t sched_delay = queue.timers[0].remaining_delay;
+		if (queue->length > 0) {
+			uint64_t sched_delay = queue->timers[0].remaining_delay;
 			backends[backend]->schedule(sched_delay + MIN_SCHED_DELAY_NS);
 		}
 
-		flock_spin_intsafe_unlock(&queue_lock);
+		flock_spin_intsafe_unlock(&queue->lock);
+#endif
 	}
 
 out:
@@ -357,6 +354,11 @@ out_unlocked:
 ferr_t ftimers_oneshot_blocking(uint64_t delay, ftimers_callback_f callback, void* data, ftimers_id_t* out_id) {
 	ferr_t status = ferr_ok;
 	ftimers_id_t id;
+
+	fint_disable();
+
+	// TODO: balance timer queues; for now, each CPU just schedules timers on their own queues
+	ftimers_priority_queue_t* queue = ftimers_arch_per_cpu_queue();
 
 	if (!callback) {
 		status = ferr_invalid_argument;
@@ -370,9 +372,9 @@ ferr_t ftimers_oneshot_blocking(uint64_t delay, ftimers_callback_f callback, voi
 		goto out;
 	}
 
-	flock_spin_intsafe_lock(&queue_lock);
+	flock_spin_intsafe_lock(&queue->lock);
 
-	id = ftimers_priority_queue_add_locked(delay, callback, data);
+	id = ftimers_priority_queue_add_locked(queue, delay, callback, data);
 	if (id == UINTPTR_MAX) {
 		status = ferr_temporary_outage;
 		goto out2;
@@ -381,16 +383,17 @@ ferr_t ftimers_oneshot_blocking(uint64_t delay, ftimers_callback_f callback, voi
 	}
 
 	// finally, schedule the next-in-line timer (if there is one)
-	if (queue.length > 0) {
-		uint64_t sched_delay = queue.timers[0].remaining_delay;
+	if (queue->length > 0) {
+		uint64_t sched_delay = queue->timers[0].remaining_delay;
 		backends[backend]->schedule(sched_delay + MIN_SCHED_DELAY_NS);
 	}
 
 out2:
-	flock_spin_intsafe_unlock(&queue_lock);
+	flock_spin_intsafe_unlock(&queue->lock);
 out:
 	flock_spin_intsafe_unlock(&backend_lock);
 out_unlocked:
+	fint_enable();
 	return status;
 };
 
@@ -404,30 +407,49 @@ ferr_t ftimers_cancel(ftimers_id_t id) {
 		goto out;
 	}
 
-	flock_spin_intsafe_lock(&queue_lock);
+	// look through each queue to see if it's in one of them
+	for (size_t i = 0; i < fcpu_count(); ++i) {
+		ftimers_priority_queue_t* queue = queues[i];
 
-	for (size_t i = 0; i < queue.length; ++i) {
-		if (queue.timers[i].id == id) {
-			queue.timers[i].disabled = true;
-			status = ferr_ok;
+		flock_spin_intsafe_lock(&queue->lock);
 
-			// the shortest delay was determined by this timer, but it's no longer active.
-			// inform the backend about this. fire_all_locked() will take care of removing this disabled timer
-			// and if there are any other timers in the queue, it'll arm the backend with the next appropriate delay.
-			if (i == 0) {
-				backends[backend]->cancel();
+		for (size_t j = 0; j < queue->length; ++j) {
+			if (queue->timers[j].id == id) {
+				queue->timers[j].disabled = true;
+				status = ferr_ok;
+
+				// the shortest delay was determined by this timer, but it's no longer active.
+				// inform the backend about this. fire_all_locked() will take care of removing this disabled timer
+				// and if there are any other timers in the queue, it'll arm the backend with the next appropriate delay.
+				//
+				// however, we only do this for the current queue. if it's on a different CPU's queue, we just let it fire
+				// and it'll see that it's disabled and ignore it.
+				if (j == 0 && queue == ftimers_arch_per_cpu_queue()) {
+					backends[backend]->cancel();
+				}
+				break;
 			}
+		}
+
+		// finally, schedule the next-in-line timer (if there is one)
+		//
+		// once again, we only do this for the current queue. if it's on a different CPU's queue, it'll fire and the next
+		// appropriate timer will be scheduled automatically.
+		//
+		// you can essentially consider the cancellation and rescheduling that we do in this function to be merely an optimization
+		// to avoid being firing timer interrupts unnecessarily. in order to do all that for a different CPU, we'd have to
+		// use an IPI, which would be just as (if not more) costly than simply letting the timer interrupt fire.
+		if (queue->length > 0 && queue == ftimers_arch_per_cpu_queue()) {
+			uint64_t sched_delay = queue->timers[0].remaining_delay;
+			backends[backend]->schedule(sched_delay + MIN_SCHED_DELAY_NS);
+		}
+
+		flock_spin_intsafe_unlock(&queue->lock);
+
+		if (status == ferr_ok) {
 			break;
 		}
 	}
-
-	// finally, schedule the next-in-line timer (if there is one)
-	if (queue.length > 0) {
-		uint64_t sched_delay = queue.timers[0].remaining_delay;
-		backends[backend]->schedule(sched_delay + MIN_SCHED_DELAY_NS);
-	}
-
-	flock_spin_intsafe_unlock(&queue_lock);
 
 out:
 	flock_spin_intsafe_unlock(&backend_lock);
@@ -469,4 +491,21 @@ out:
 	flock_spin_intsafe_unlock(&backend_lock);
 out_unlocked:
 	return status;
+};
+
+void ftimers_init_queues(void) {
+	fpanic_status(fmempool_allocate_advanced(sizeof(*queues) * fcpu_count(), 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void*)&queues));
+
+	for (size_t i = 0; i < fcpu_count(); ++i) {
+		fpanic_status(fmempool_allocate_advanced(sizeof(**queues), 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void*)&queues[i]));
+
+		flock_spin_intsafe_init(&queues[i]->lock);
+		queues[i]->length = 0;
+		queues[i]->size = 0;
+		queues[i]->timers = NULL;
+	}
+};
+
+void ftimers_init_per_cpu_queue(void) {
+	ftimers_arch_per_cpu_queue() = queues[fcpu_current_id()];
 };

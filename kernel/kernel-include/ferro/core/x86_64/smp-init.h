@@ -67,7 +67,11 @@ FERRO_STRUCT(farch_smp_init_data) {
 	farch_int_gdt_t gdt;
 	void* stack;
 	uint64_t apic_id;
+	fcpu_t* cpu_info_struct;
+	uint64_t tsc_frequency;
+	uint64_t lapic_frequency;
 	uint8_t init_done;
+	uint8_t init_stage2_done;
 };
 
 FERRO_VERIFY(sizeof(farch_smp_init_data_t) <= FPAGE_PAGE_SIZE, "SMP init data must fit within a single page");

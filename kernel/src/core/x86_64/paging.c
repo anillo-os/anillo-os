@@ -23,6 +23,7 @@
  */
 
 #include <ferro/core/x86_64/paging.private.h>
+#include <ferro/core/panic.h>
 
 uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
 	if (!fpage_address_is_canonical(virtual_address)) {
@@ -66,4 +67,12 @@ uintptr_t fpage_virtual_to_physical(uintptr_t virtual_address) {
 	}
 
 	return FARCH_PAGE_PHYS_ENTRY(entry) | FPAGE_VIRT_OFFSET(virtual_address);
+};
+
+static void invalidate_tlb_work(void* address) {
+	__asm__ volatile("invlpg %0" :: "m" (address) : "memory");
+};
+
+void farch_page_invalidate_tlb_for_address_other_cpus(void* address) {
+	fpanic_status(fcpu_interrupt_all(invalidate_tlb_work, address, false, true));
 };

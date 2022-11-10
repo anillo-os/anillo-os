@@ -236,7 +236,8 @@ ferr_t fwork_new(fworker_f worker_function, void* data, fwork_flags_t flags, fwo
 		return ferr_invalid_argument;
 	}
 
-	if (fmempool_allocate(sizeof(fwork_t), NULL, (void**)&work) != ferr_ok) {
+	// needs to be prebound because page fault handlers need to schedule workers in some cases
+	if (fmempool_allocate_advanced(sizeof(fwork_t), 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void**)&work) != ferr_ok) {
 		return ferr_temporary_outage;
 	}
 
@@ -277,7 +278,7 @@ void fwork_release(fwork_t* work) {
 static fwork_queue_t* fwork_queue_new(void) {
 	fwork_queue_t* queue = NULL;
 
-	if (fmempool_allocate(sizeof(fwork_queue_t), NULL, (void**)&queue) != ferr_ok) {
+	if (fmempool_allocate_advanced(sizeof(fwork_queue_t), 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void**)&queue) != ferr_ok) {
 		return NULL;
 	}
 
@@ -319,7 +320,7 @@ void fworkers_init(void) {
 	worker_queue_count = 1;
 #endif
 
-	if (fmempool_allocate(sizeof(fthread_t*) * worker_queue_count, NULL, (void*)&worker_queues) != ferr_ok) {
+	if (fmempool_allocate_advanced(sizeof(fthread_t*) * worker_queue_count, 0, UINT8_MAX, fmempool_flag_prebound, NULL, (void*)&worker_queues) != ferr_ok) {
 		fpanic("Failed to allocate work queue pointer array");
 	}
 

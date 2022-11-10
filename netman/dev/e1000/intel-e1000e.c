@@ -23,7 +23,7 @@
 #include <netman/device.private.h>
 
 #ifndef NETMAN_E1000_LOG_INTERRUPTS
-	#define NETMAN_E1000_LOG_INTERRUPTS 0
+	#define NETMAN_E1000_LOG_INTERRUPTS 1
 #endif
 
 // TODO: update code to use memory pool for physical memory allocations
@@ -44,6 +44,12 @@ static void netman_e1000_interrupt_handler(void* data, pci_device_t* device) {
 
 	if ((cause & (E1000_ICR_TXDW | E1000_ICR_TXQE | E1000_ICR_TXD_LOW)) != 0) {
 		tx = true;
+	}
+
+	if (!rx && !tx) {
+		// re-enable interrupts, but discard this interrupt
+		E1000_WRITE_REG(&nic->library_handle, E1000_IMS, netman_e1000_interrupt_cause_all_known);
+		return;
 	}
 
 	netman_device_schedule_poll(nic->net_device, rx, tx);
@@ -279,6 +285,10 @@ static ferr_t netman_e1000_tx_queue(netman_device_t* dev, void* data, size_t dat
 
 static void netman_e1000_poll_return(netman_device_t* dev) {
 	netman_e1000_t* nic = dev->private_data;
+
+#if NETMAN_E1000_LOG_INTERRUPTS
+	sys_console_log("Intel E1000e: exiting poll\n");
+#endif
 
 	// re-enable interrupts
 	E1000_WRITE_REG(&nic->library_handle, E1000_IMS, netman_e1000_interrupt_cause_all_known);
