@@ -570,6 +570,12 @@ FERRO_STRUCT(pciman_client_context) {
 	fpci_function_info_t* registered_function;
 	bool dead;
 	bool interrupt_pending;
+	uint64_t read_value;
+	volatile void* read_on_interrupt_address;
+	uint8_t read_on_interrupt_size;
+	volatile void* write_on_interrupt_address;
+	uint8_t write_on_interrupt_size;
+	uint64_t write_on_interrupt_data;
 };
 
 FERRO_STRUCT(pciman_wait_context) {
@@ -654,10 +660,94 @@ static void pciman_client_interrupt_handler(void* data) {
 		// set a flag and let the pciman event loop handle this instead
 		// (note that this will result in coalesced interrupts)
 		client_context->interrupt_pending = true;
+
+		if (client_context->read_on_interrupt_address) {
+			switch (client_context->read_on_interrupt_size) {
+				case 1:
+					client_context->read_value = *(volatile uint8_t*)client_context->read_on_interrupt_address;
+					break;
+				case 2:
+					client_context->read_value = *(volatile uint16_t*)client_context->read_on_interrupt_address;
+					break;
+				case 4:
+					client_context->read_value = *(volatile uint32_t*)client_context->read_on_interrupt_address;
+					break;
+				case 8:
+					client_context->read_value = *(volatile uint64_t*)client_context->read_on_interrupt_address;
+					break;
+			}
+		}
+
+		if (client_context->write_on_interrupt_address) {
+			switch (client_context->write_on_interrupt_size) {
+				case 1:
+					*(volatile uint8_t*)client_context->write_on_interrupt_address = (uint8_t)(client_context->write_on_interrupt_data & 0xff);
+					break;
+				case 2:
+					*(volatile uint16_t*)client_context->write_on_interrupt_address = (uint16_t)(client_context->write_on_interrupt_data & 0xffff);
+					break;
+				case 4:
+					*(volatile uint32_t*)client_context->write_on_interrupt_address = (uint32_t)(client_context->write_on_interrupt_data & 0xffffffff);
+					break;
+				case 8:
+					*(volatile uint64_t*)client_context->write_on_interrupt_address = client_context->write_on_interrupt_data;
+					break;
+			}
+		}
+
 		flock_semaphore_up(&client_context->wait_context->sema);
 #if 0
 	}
 #endif
+};
+
+FERRO_PACKED_STRUCT(pciman_device_registration_request) {
+	uint8_t message_type;
+	uint16_t vendor_id;
+	uint16_t device_id;
+};
+
+FERRO_PACKED_STRUCT(pciman_read_on_interrupt_request) {
+	uint8_t message_id;
+	uint8_t bar_index;
+	uint8_t size;
+	uint64_t offset;
+};
+
+FERRO_PACKED_STRUCT(pciman_write_on_interrupt_request) {
+	uint8_t message_id;
+	uint8_t bar_index;
+	uint8_t size;
+	uint64_t offset;
+	uint64_t data;
+};
+
+FERRO_PACKED_STRUCT(pciman_get_mapped_bar_request) {
+	uint8_t message_id;
+	uint8_t bar_index;
+};
+
+FERRO_PACKED_STRUCT(pciman_get_mapped_bar_response) {
+	ferr_t status;
+	uint64_t bar_size;
+};
+
+FERRO_PACKED_STRUCT(pciman_config_space_read_request) {
+	uint8_t message_type;
+	uint64_t offset;
+	uint8_t size;
+};
+
+FERRO_PACKED_STRUCT(pciman_config_space_read_response) {
+	ferr_t status;
+	char data[];
+};
+
+FERRO_PACKED_STRUCT(pciman_config_space_write_request) {
+	uint8_t message_type;
+	uint64_t offset;
+	uint8_t size;
+	char data[];
 };
 
 static void pciman_thread_entry(void* data) {
@@ -707,6 +797,12 @@ static void pciman_thread_entry(void* data) {
 			client_context->registered_function = NULL;
 			client_context->dead = false;
 			client_context->interrupt_pending = false;
+			client_context->read_value = 0;
+			client_context->read_on_interrupt_address = NULL;
+			client_context->read_on_interrupt_size = 0;
+			client_context->write_on_interrupt_address = NULL;
+			client_context->write_on_interrupt_size = 0;
+			client_context->write_on_interrupt_data = 0;
 
 			if (client_context->next) {
 				client_context->next->prev = &client_context->next;
@@ -753,6 +849,7 @@ static void pciman_thread_entry(void* data) {
 			// check if we need to send an interrupt message
 			if (client_context->interrupt_pending) {
 				fchannel_message_t message;
+				ferr_t status = ferr_ok;
 
 				pciman_debug_f("sending interrupt message");
 
@@ -760,16 +857,23 @@ static void pciman_thread_entry(void* data) {
 				// message id is assigned by the channel
 				message.attachments = NULL;
 				message.attachments_length = 0;
-				message.body_length = 0;
+				message.body_length = sizeof(uint64_t);
 				message.body = NULL;
 
-				if (fchannel_send(client_context->client, fchannel_send_flag_no_wait, &message) != ferr_ok) {
-					fchannel_message_destroy(&message);
-
-					// leave the interrupt pending flag
+				status = fmempool_allocate(message.body_length, NULL, &message.body);
+				if (status != ferr_ok) {
+					// leave the interrupt flag pending
 				} else {
-					// we successfully sent the message, so clear the interrupt pending flag
-					client_context->interrupt_pending = false;
+					*(uint64_t*)message.body = client_context->read_value;
+
+					if (fchannel_send(client_context->client, fchannel_send_flag_no_wait, &message) != ferr_ok) {
+						fchannel_message_destroy(&message);
+
+						// leave the interrupt pending flag
+					} else {
+						// we successfully sent the message, so clear the interrupt pending flag
+						client_context->interrupt_pending = false;
+					}
 				}
 			}
 
@@ -797,10 +901,12 @@ static void pciman_thread_entry(void* data) {
 			outgoing_message.body_length = 0;
 			outgoing_message.body = NULL;
 
+			uint8_t message_id = (message.body_length < 1) ? 0 : *((uint8_t*)message.body);
+
 			if (message.body_length < 1) {
 				// discard it and respond with "invalid argument"
 				pciman_debug_f("discarding invalid message");
-			} else if (((uint8_t*)message.body)[0] == 1) {
+			} else if (message_id == 1) {
 				// tree query
 
 				pciman_debug_f("tree query");
@@ -819,8 +925,9 @@ static void pciman_thread_entry(void* data) {
 					}
 				}
 				flock_spin_intsafe_unlock(&fpci_tree_lock);
-			} else if (((uint8_t*)message.body)[0] == 2) {
+			} else if (message_id == 2) {
 				// device registration
+				pciman_device_registration_request_t* request_body = message.body;
 
 				pciman_debug_f("device registration");
 
@@ -828,12 +935,12 @@ static void pciman_thread_entry(void* data) {
 
 				status = (client_context->registered_function) ? ferr_already_in_progress : ferr_ok;
 				if (status == ferr_ok) {
-					status = fpci_lookup(*(uint16_t*)(message.body + 1), *(uint16_t*)(message.body + 3), &device);
+					status = fpci_lookup(request_body->vendor_id, request_body->device_id, &device);
 					if (status == ferr_ok) {
 						client_context->registered_function = (void*)device;
 					}
 				}
-			} else if (((uint8_t*)message.body)[0] == 3) {
+			} else if (message_id == 3) {
 				// interrupt registration
 
 				pciman_debug_f("interrupt registration");
@@ -842,8 +949,9 @@ static void pciman_thread_entry(void* data) {
 				if (status == ferr_ok) {
 					status = fpci_device_register_interrupt_handler((void*)client_context->registered_function, pciman_client_interrupt_handler, client_context);
 				}
-			} else if (((uint8_t*)message.body)[0] == 4) {
+			} else if (message_id == 4) {
 				// get mapped bar
+				pciman_get_mapped_bar_request_t* request_body = message.body;
 
 				pciman_debug_f("get mapped bar");
 
@@ -852,6 +960,7 @@ static void pciman_thread_entry(void* data) {
 					outgoing_message.body_length = sizeof(ferr_t) + sizeof(uint64_t);
 					status = fmempool_allocate(outgoing_message.body_length, NULL, (void*)&outgoing_message.body);
 					if (status == ferr_ok) {
+						pciman_get_mapped_bar_response_t* response_body = outgoing_message.body;
 						outgoing_message.attachments_length = sizeof(fchannel_message_attachment_mapping_t);
 						status = fmempool_allocate(outgoing_message.attachments_length, NULL, (void*)&outgoing_message.attachments);
 						if (status == ferr_ok) {
@@ -861,14 +970,14 @@ static void pciman_thread_entry(void* data) {
 							mapping_attachment->header.length = sizeof(*mapping_attachment);
 							mapping_attachment->header.type = fchannel_message_attachment_type_mapping;
 							mapping_attachment->mapping = NULL;
-							status = fpci_device_get_mapped_bar_mapping(&client_context->registered_function->public, *(uint8_t*)(message.body + 1), &mapping_attachment->mapping, &bar_size);
+							status = fpci_device_get_mapped_bar_mapping(&client_context->registered_function->public, request_body->bar_index, &mapping_attachment->mapping, &bar_size);
 							if (status == ferr_ok) {
-								*(uint64_t*)(outgoing_message.body + sizeof(ferr_t)) = bar_size;
+								response_body->bar_size = bar_size;
 							}
 						}
 					}
 				}
-			} else if (((uint8_t*)message.body)[0] == 5) {
+			} else if (message_id == 5) {
 				// enable bus mastering
 
 				pciman_debug_f("enable bus mastering");
@@ -877,32 +986,97 @@ static void pciman_thread_entry(void* data) {
 				if (status == ferr_ok) {
 					status = fpci_device_enable_bus_mastering(&client_context->registered_function->public);
 				}
-			} else if (((uint8_t*)message.body)[0] == 6) {
+			} else if (message_id == 6) {
 				// read config space
+				pciman_config_space_read_request_t* request_body = message.body;
 
 				pciman_debug_f("read config space");
 
 				status = (client_context->registered_function) ? ferr_ok : ferr_no_such_resource;
 				if (status == ferr_ok) {
-					uint64_t offset = *(uint64_t*)(message.body + 1);
-					uint8_t size = *(uint8_t*)(message.body + 9);
-					outgoing_message.body_length = size + sizeof(ferr_t);
+					outgoing_message.body_length = request_body->size + sizeof(ferr_t);
 					status = fmempool_allocate(outgoing_message.body_length, NULL, &outgoing_message.body);
 					if (status == ferr_ok) {
-						status = fpci_device_config_space_read(&client_context->registered_function->public, offset, size, outgoing_message.body + sizeof(ferr_t));
+						pciman_config_space_read_response_t* response_body = outgoing_message.body;
+						status = fpci_device_config_space_read(&client_context->registered_function->public, request_body->offset, request_body->size, response_body->data);
 					}
 				}
-			} else if (((uint8_t*)message.body)[0] == 7) {
+			} else if (message_id == 7) {
 				// write config space
+				pciman_config_space_write_request_t* request_body = message.body;
 
 				pciman_debug_f("write config space");
 
 				status = (client_context->registered_function) ? ferr_ok : ferr_no_such_resource;
 				if (status == ferr_ok) {
-					uint64_t offset = *(uint64_t*)(message.body + 1);
-					uint8_t size = *(uint8_t*)(message.body + 9);
-					void* data = message.body + 10;
-					status = fpci_device_config_space_write(&client_context->registered_function->public, offset, size, data);
+					status = fpci_device_config_space_write(&client_context->registered_function->public, request_body->offset, request_body->size, request_body->data);
+				}
+			} else if (message_id == 8) {
+				// read on interrupt
+				pciman_read_on_interrupt_request_t* request_body = message.body;
+
+				pciman_debug_f("read on interrupt");
+
+				switch (request_body->size) {
+					case 1:
+					case 2:
+					case 4:
+					case 8:
+						status = ferr_ok;
+						break;
+					default:
+						status = ferr_invalid_argument;
+				}
+
+				if (status == ferr_ok) {
+					status = (client_context->registered_function) ? ferr_ok : ferr_no_such_resource;
+					if (status == ferr_ok) {
+						volatile uint32_t* tmp = NULL;
+						size_t size = 0;
+						status = fpci_device_get_mapped_bar(&client_context->registered_function->public, request_body->bar_index, &tmp, &size);
+						if (status == ferr_ok) {
+							if (request_body->offset >= size || (request_body->offset + request_body->size) > size) {
+								status = ferr_invalid_argument;
+							} else {
+								client_context->read_on_interrupt_size = request_body->size;
+								client_context->read_on_interrupt_address = (volatile uint8_t*)tmp + request_body->offset;
+							}
+						}
+					}
+				}
+			} else if (message_id == 9) {
+				// write on interrupt
+				pciman_write_on_interrupt_request_t* request_body = message.body;
+
+				pciman_debug_f("write on interrupt");
+
+				switch (request_body->size) {
+					case 1:
+					case 2:
+					case 4:
+					case 8:
+						status = ferr_ok;
+						break;
+					default:
+						status = ferr_invalid_argument;
+				}
+
+				if (status == ferr_ok) {
+					status = (client_context->registered_function) ? ferr_ok : ferr_no_such_resource;
+					if (status == ferr_ok) {
+						volatile uint32_t* tmp = NULL;
+						size_t size = 0;
+						status = fpci_device_get_mapped_bar(&client_context->registered_function->public, request_body->bar_index, &tmp, &size);
+						if (status == ferr_ok) {
+							if (request_body->offset >= size || (request_body->offset + request_body->size) > size) {
+								status = ferr_invalid_argument;
+							} else {
+								client_context->write_on_interrupt_size = request_body->size;
+								client_context->write_on_interrupt_data = request_body->data;
+								client_context->write_on_interrupt_address = (volatile uint8_t*)tmp + request_body->offset;
+							}
+						}
+					}
 				}
 			}
 

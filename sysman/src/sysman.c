@@ -148,7 +148,7 @@ static void counting_thread(void* context, sys_thread_t* this_thread) {
 void main(void) {
 #if 1
 	start_process("/sys/netman/netman");
-	//start_process("/sys/usbman/usbman");
+	start_process("/sys/usbman/usbman");
 
 	eve_loop_run(eve_loop_get_main());
 #endif

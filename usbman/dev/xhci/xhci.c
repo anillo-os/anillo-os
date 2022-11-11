@@ -591,7 +591,7 @@ out:
 	return status;
 };
 
-static void usbman_xhci_interrupt_handler(void* context, pci_device_t* pci_device) {
+static void usbman_xhci_interrupt_handler(void* context, pci_device_t* pci_device, uint64_t data) {
 	usbman_xhci_controller_t* controller = context;
 
 	//sys_console_log("XHCI: interrupt handler triggered\n");

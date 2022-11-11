@@ -23,19 +23,16 @@
 #include <netman/device.private.h>
 
 #ifndef NETMAN_E1000_LOG_INTERRUPTS
-	#define NETMAN_E1000_LOG_INTERRUPTS 1
+	#define NETMAN_E1000_LOG_INTERRUPTS 0
 #endif
 
-// TODO: update code to use memory pool for physical memory allocations
-
-static void netman_e1000_interrupt_handler(void* data, pci_device_t* device) {
+static void netman_e1000_interrupt_handler(void* data, pci_device_t* device, uint64_t cause) {
 	netman_e1000_t* nic = data;
-	uint32_t cause = E1000_READ_REG(&nic->library_handle, E1000_ICR);
 	bool rx = false;
 	bool tx = false;
 
 #if NETMAN_E1000_LOG_INTERRUPTS
-	sys_console_log_f("Intel E1000e: interrupt received (cause = %016x)\n", cause);
+	sys_console_log_f("Intel E1000e: interrupt received (cause = %016llx)\n", cause);
 #endif
 
 	if ((cause & (E1000_ICR_RXT0 | E1000_ICR_RXO | E1000_ICR_RXDMT0)) != 0) {
@@ -609,6 +606,7 @@ void netman_e1000_init(void) {
 	// disable all interrupts
 	E1000_WRITE_REG(&nic->library_handle, E1000_IMC, 0xffffffff);
 
+	sys_abort_status_log(pci_device_read_on_interrupt(nic->device, 0, E1000_REGISTER(&nic->library_handle, E1000_ICR), 4));
 	sys_abort_status_log(pci_device_register_interrupt_handler(nic->device, netman_e1000_interrupt_handler, nic));
 	sys_console_log("Intel E1000e: registered interrupt handler\n");
 

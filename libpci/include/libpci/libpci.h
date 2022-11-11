@@ -35,13 +35,15 @@ LIBPCI_STRUCT(pci_device_info) {
 LIBPCI_OBJECT_CLASS(device);
 
 typedef bool (*pci_visitor_f)(void* context, const pci_device_info_t* device);
-typedef void (*pci_device_interrupt_handler_f)(void* context, pci_device_t* device);
+typedef void (*pci_device_interrupt_handler_f)(void* context, pci_device_t* device, uint64_t value);
 
 LIBPCI_WUR ferr_t pci_visit(pci_visitor_f iterator, void* context);
 
 LIBPCI_WUR ferr_t pci_connect(const pci_device_info_t* target, pci_device_t** out_device);
 
 LIBPCI_WUR ferr_t pci_device_register_interrupt_handler(pci_device_t* device, pci_device_interrupt_handler_f interrupt_handler, void* context);
+LIBPCI_WUR ferr_t pci_device_read_on_interrupt(pci_device_t* device, uint8_t bar_index, uint64_t offset, uint8_t size);
+LIBPCI_WUR ferr_t pci_device_write_on_interrupt(pci_device_t* device, uint8_t bar_index, uint64_t offset, uint8_t size, uint64_t data);
 LIBPCI_WUR ferr_t pci_device_get_mapped_bar(pci_device_t* device, uint8_t bar_index, sys_shared_memory_t** out_bar, size_t* out_bar_size);
 LIBPCI_WUR ferr_t pci_device_enable_bus_mastering(pci_device_t* device);
 LIBPCI_WUR ferr_t pci_device_config_space_read(pci_device_t* device, size_t offset, uint8_t size, void* out_data);

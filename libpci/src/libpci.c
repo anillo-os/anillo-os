@@ -151,13 +151,14 @@ const pci_object_class_t* pci_object_class_device(void) {
 
 static void device_message_handler(void* context, eve_channel_t* channel, sys_channel_message_t* message) {
 	pci_device_object_t* device = context;
+	uint64_t data = *(uint64_t*)sys_channel_message_data(message);
 
 	// the only messages we expected to receive that aren't replies are interrupt notifications.
 	// discard the message itself and call the interrupt handler
 	sys_release(message);
 
 	if (device->interrupt_handler) {
-		device->interrupt_handler(device->interrupt_handler_context, (void*)device);
+		device->interrupt_handler(device->interrupt_handler_context, (void*)device, data);
 	}
 };
 
@@ -301,6 +302,126 @@ ferr_t pci_device_register_interrupt_handler(pci_device_t* obj, pci_device_inter
 	sys_channel_message_set_conversation_id(request, convo_id);
 
 	*(uint8_t*)sys_channel_message_data(request) = 3;
+
+	status = eve_channel_send_with_reply_sync(device->channel, request, &reply);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// the message was consumed
+	request = NULL;
+
+	if (sys_channel_message_length(reply) != sizeof(ferr_t)) {
+		// bad reply
+		status = ferr_should_restart;
+		goto out;
+	}
+
+	status = *(ferr_t*)sys_channel_message_data(reply);
+
+out:
+	if (reply) {
+		sys_release(reply);
+	}
+	if (request) {
+		sys_release(request);
+	}
+	return status;
+};
+
+LIBPCI_PACKED_STRUCT(pciman_read_on_interrupt_request) {
+	uint8_t message_id;
+	uint8_t bar_index;
+	uint8_t size;
+	uint64_t offset;
+};
+
+ferr_t pci_device_read_on_interrupt(pci_device_t* obj, uint8_t bar_index, uint64_t offset, uint8_t size) {
+	pci_device_object_t* device = (void*)obj;
+	ferr_t status = ferr_ok;
+	sys_channel_message_t* request = NULL;
+	pciman_read_on_interrupt_request_t* request_body = NULL;
+	sys_channel_message_t* reply = NULL;
+	sys_channel_conversation_id_t convo_id;
+
+	status = sys_channel_message_create(sizeof(*request_body), &request);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = eve_channel_conversation_create(device->channel, &convo_id);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	sys_channel_message_set_conversation_id(request, convo_id);
+
+	request_body = sys_channel_message_data(request);
+	request_body->message_id = 8;
+	request_body->bar_index = bar_index;
+	request_body->offset = offset;
+	request_body->size = size;
+
+	status = eve_channel_send_with_reply_sync(device->channel, request, &reply);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// the message was consumed
+	request = NULL;
+
+	if (sys_channel_message_length(reply) != sizeof(ferr_t)) {
+		// bad reply
+		status = ferr_should_restart;
+		goto out;
+	}
+
+	status = *(ferr_t*)sys_channel_message_data(reply);
+
+out:
+	if (reply) {
+		sys_release(reply);
+	}
+	if (request) {
+		sys_release(request);
+	}
+	return status;
+};
+
+LIBPCI_PACKED_STRUCT(pciman_write_on_interrupt_request) {
+	uint8_t message_id;
+	uint8_t bar_index;
+	uint8_t size;
+	uint64_t offset;
+	uint64_t data;
+};
+
+ferr_t pci_device_write_on_interrupt(pci_device_t* obj, uint8_t bar_index, uint64_t offset, uint8_t size, uint64_t data) {
+	pci_device_object_t* device = (void*)obj;
+	ferr_t status = ferr_ok;
+	sys_channel_message_t* request = NULL;
+	pciman_write_on_interrupt_request_t* request_body = NULL;
+	sys_channel_message_t* reply = NULL;
+	sys_channel_conversation_id_t convo_id;
+
+	status = sys_channel_message_create(sizeof(*request_body), &request);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = eve_channel_conversation_create(device->channel, &convo_id);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	sys_channel_message_set_conversation_id(request, convo_id);
+
+	request_body = sys_channel_message_data(request);
+	request_body->message_id = 9;
+	request_body->bar_index = bar_index;
+	request_body->offset = offset;
+	request_body->size = size;
+	request_body->data = data;
 
 	status = eve_channel_send_with_reply_sync(device->channel, request, &reply);
 	if (status != ferr_ok) {
