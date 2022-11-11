@@ -22,6 +22,27 @@
 #include <ferro/core/ghmap.h>
 #include <ferro/core/paging.h>
 
+//
+// IMPORTANT
+//
+// when waking up waitqs and incrementing semaphores, always wake up the waitq with the channel mutex held
+// and increment the semaphore with the channel mutex unheld (with few exceptions for special cases).
+//
+// the reason to hold the channel mutex for waking up waitqs is that, if you wake them up without the mutex held,
+// they can be awoken in a different order than the order of events that occurred. this is a problem for certain
+// waiters (e.g. the userspace monitor API) which rely on the order of wake ups to determine certain properties
+// and events on the channel.
+//
+// the reason to NOT hold the channel mutex for incrementing semaphores is simply that holding the mutex is a
+// pessimization; anyone waiting for a semaphore is going to need to acquire the mutex immediately afterwards,
+// so if you increment the semaphore while holding the mutex, they'll wake up and try to acquire the mutex
+// and immediately have to wait again.
+//
+// the only special case where you don't need to be holding the mutex to wake up the waitq is for close events.
+// this is because the close event happens only once and there's no guaranteed order of events between the close
+// event and any other events (it can occur at any time).
+//
+
 // the global realm can neither be retained nor released.
 // both of those operations are no-ops on this realm.
 static fchannel_realm_t* global_realm = NULL;
@@ -427,11 +448,13 @@ ferr_t fchannel_connect(fchannel_server_t* server, fchannel_connect_flags_t flag
 		fpanic("Invalid server queue state");
 	}
 
+	// there's now a client available; wake up the client arrival waitq
+	fwaitq_wake_many(&private_server->base.client_arrival_waitq, SIZE_MAX);
+
 	flock_mutex_unlock(&private_server->mutex);
 
-	// there's now a client available; increment the removal semaphore and wake up the client arrival waitq
+	// now increment the removal semaphore
 	flock_semaphore_up(&private_server->pending_client_removal_semaphore);
-	fwaitq_wake_many(&private_server->base.client_arrival_waitq, SIZE_MAX);
 
 	// TODO: we need to register a waiter for when the client closes their end.
 	//       if they close their end while the channel still hasn't been accepted,
@@ -534,22 +557,26 @@ out:
 void fchannel_unlock_send(fchannel_t* channel, fchannel_send_lock_state_t* in_lock_state) {
 	fchannel_private_t* private_channel = (void*)channel;
 
-	flock_mutex_unlock(&private_channel->peer->mutex);
-
-	if (!in_lock_state->enqueued) {
-		// if we didn't actually enqueue anything, increment the insertion semaphore back up.
-		flock_semaphore_up(&private_channel->peer->message_insertion_semaphore);
-	} else {
-		// otherwise, we did enqueue a message, so there's a bit more logic to perform.
-
-		// there's now a message available; increment the removal semaphore and wake up the message arrival waitq
-		flock_semaphore_up(&private_channel->peer->message_removal_semaphore);
+	if (in_lock_state->enqueued) {
+		// there's now a message available; wake up the message arrival waitq
 		fwaitq_wake_many(&private_channel->peer->base.message_arrival_waitq, SIZE_MAX);
 
 		// if we filled up the queue, wake up anyone who wants to know
 		if (in_lock_state->queue_filled) {
 			fwaitq_wake_many(&private_channel->peer->base.queue_full_waitq, SIZE_MAX);
 		}
+	}
+
+	flock_mutex_unlock(&private_channel->peer->mutex);
+
+	if (!in_lock_state->enqueued) {
+		// if we didn't actually enqueue anything, increment the insertion semaphore back up.
+		flock_semaphore_up(&private_channel->peer->message_insertion_semaphore);
+	} else {
+		// otherwise, we did enqueue a message, so there's a bit more logic to perform (some of it was done with the lock held).
+
+		// now increment the removal semaphore and 
+		flock_semaphore_up(&private_channel->peer->message_removal_semaphore);
 	}
 };
 
@@ -644,16 +671,18 @@ ferr_t fchannel_send(fchannel_t* channel, fchannel_send_flags_t flags, fchannel_
 		queue_filled = true;
 	}
 
-	flock_mutex_unlock(&private_channel->peer->mutex);
-
-	// there's now a message available; increment the removal semaphore and wake up the message arrival waitq
-	flock_semaphore_up(&private_channel->peer->message_removal_semaphore);
+	// there's now a message available; wake up the message arrival waitq
 	fwaitq_wake_many(&private_channel->peer->base.message_arrival_waitq, SIZE_MAX);
 
 	// if we filled up the queue, wake up anyone who wants to know
 	if (queue_filled) {
 		fwaitq_wake_many(&private_channel->peer->base.queue_full_waitq, SIZE_MAX);
 	}
+
+	flock_mutex_unlock(&private_channel->peer->mutex);
+
+	// now increment the removal semaphore
+	flock_semaphore_up(&private_channel->peer->message_removal_semaphore);
 
 out:
 	if (status != ferr_ok) {
@@ -722,22 +751,26 @@ out:
 void fchannel_unlock_receive(fchannel_t* channel, fchannel_receive_lock_state_t* in_lock_state) {
 	fchannel_private_t* private_channel = (void*)channel;
 
-	flock_mutex_unlock(&private_channel->mutex);
-
-	if (!in_lock_state->dequeued) {
-		// if we didn't actually dequeue any messages, increment the removal semaphore back up.
-		flock_semaphore_up(&private_channel->message_removal_semaphore);
-	} else {
-		// otherwise, we did dequeue a message, so there's a bit more logic to perform.
-
-		// there's now another slot available; increment the insertion semaphore and wake up the queue removal waitq
-		flock_semaphore_up(&private_channel->message_insertion_semaphore);
+	if (in_lock_state->dequeued) {
+		// there's now another slot available; wake up the queue removal waitq
 		fwaitq_wake_many(&private_channel->base.queue_removal_waitq, SIZE_MAX);
 
 		// if we emptied our message queue, notify anyone that wants to know by waking up that waitq
 		if (in_lock_state->queue_emptied) {
 			fwaitq_wake_many(&private_channel->base.queue_empty_waitq, SIZE_MAX);
 		}
+	}
+
+	flock_mutex_unlock(&private_channel->mutex);
+
+	if (!in_lock_state->dequeued) {
+		// if we didn't actually dequeue any messages, increment the removal semaphore back up.
+		flock_semaphore_up(&private_channel->message_removal_semaphore);
+	} else {
+		// otherwise, we did dequeue a message, so there's a bit more logic to perform (some of it was done with the lock held).
+
+		// now increment the insertion semaphore
+		flock_semaphore_up(&private_channel->message_insertion_semaphore);
 	}
 };
 
@@ -813,16 +846,18 @@ ferr_t fchannel_receive(fchannel_t* channel, fchannel_receive_flags_t flags, fch
 	// the queue may now be empty, in which case we need to wake up the waitq for our peer
 	queue_emptied = simple_ring_queued_count(&private_channel->messages) == 0;
 
-	flock_mutex_unlock(&private_channel->mutex);
-
-	// there's now another slot available; increment the insertion semaphore and wake up the queue removal waitq
-	flock_semaphore_up(&private_channel->message_insertion_semaphore);
+	// there's now another slot available; wake up the queue removal waitq
 	fwaitq_wake_many(&private_channel->base.queue_removal_waitq, SIZE_MAX);
 
 	// if we emptied our message queue, notify anyone that wants to know by waking up that waitq
 	if (queue_emptied) {
 		fwaitq_wake_many(&private_channel->base.queue_empty_waitq, SIZE_MAX);
 	}
+
+	flock_mutex_unlock(&private_channel->mutex);
+
+	// now increment the insertion semaphore
+	flock_semaphore_up(&private_channel->message_insertion_semaphore);
 
 out:
 	if (status != ferr_ok) {
@@ -967,15 +1002,15 @@ ferr_t fchannel_server_accept(fchannel_server_t* server, fchannel_server_accept_
 	// check if we emptied the queue
 	queue_emptied = simple_ring_queued_count(&private_server->pending_clients) == 0;
 
-	flock_mutex_unlock(&private_server->mutex);
-
-	// there's now another slot available; increment the insertion semaphore
-	flock_semaphore_up(&private_server->pending_client_insertion_semaphore);
-
 	if (queue_emptied) {
 		// we emptied the queue, so notify anyone who wants to know
 		fwaitq_wake_many(&private_server->base.queue_empty_waitq, SIZE_MAX);
 	}
+
+	flock_mutex_unlock(&private_server->mutex);
+
+	// there's now another slot available; increment the insertion semaphore
+	flock_semaphore_up(&private_server->pending_client_insertion_semaphore);
 
 	*out_channel = channel;
 

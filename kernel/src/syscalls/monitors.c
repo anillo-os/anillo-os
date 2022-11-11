@@ -704,18 +704,26 @@ static void fsyscall_monitor_item_delete(fsyscall_monitor_item_t* item) {
 	}
 
 	switch (item->header.type) {
+		// schedule the releases for the channel and server channel items
+		// rather than doing them here now because they could be the last
+		// references to the item in question, in which case, they would be
+		// destroyed. destroying them requires taking their internal locks
+		// in some cases, but sometimes those internal locks are held while
+		// notifying us via a waitq. this is a problem because our waitq waiters
+		// try to acquire our monitor lock, but we're currently holding our lock.
+
 		case fsyscall_monitor_item_type_channel: {
 			fsyscall_monitor_item_channel_t* channel_item = (void*)item;
 			fchannel_t* channel = channel_item->channel;
 			channel_item->channel = NULL;
-			fchannel_release(channel);
+			FERRO_WUR_IGNORE(fwork_schedule_new((void*)fchannel_release, channel, 0, NULL));
 		} break;
 
 		case fsyscall_monitor_item_type_server_channel: {
 			fsyscall_monitor_item_server_channel_t* server_channel_item = (void*)item;
 			fchannel_server_t* server_channel = server_channel_item->server_channel;
 			server_channel_item->server_channel = NULL;
-			fchannel_server_release(server_channel);
+			FERRO_WUR_IGNORE(fwork_schedule_new((void*)fchannel_server_release, server_channel, 0, NULL));
 		} break;
 
 		case fsyscall_monitor_item_type_futex: {
