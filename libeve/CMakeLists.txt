@@ -19,6 +19,12 @@ add_anillo_dylib(libeve
 		${libeve_sources}
 )
 
+add_library(libeve_static STATIC ${libeve_sources})
+
+set_target_properties(libeve_static PROPERTIES
+	OUTPUT_NAME eve
+)
+
 target_link_libraries(libeve PUBLIC
 	libsys
 
@@ -27,8 +33,18 @@ target_link_libraries(libeve PUBLIC
 	libsyscall
 )
 
+target_link_libraries(libeve_static PUBLIC
+	libsys_static
+	libsyscall
+)
+
 target_link_libraries(libeve PRIVATE
 	libsimple
 )
 
+target_link_libraries(libeve_static PRIVATE
+	libsimple_static
+)
+
 target_include_directories(libeve PUBLIC ${libeve_includes})
+target_include_directories(libeve_static PUBLIC ${libeve_includes})
