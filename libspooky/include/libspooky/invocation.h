@@ -23,6 +23,7 @@
 #include <libspooky/function.h>
 #include <libeve/libeve.h>
 #include <libspooky/data.h>
+#include <libspooky/proxy.h>
 
 LIBSPOOKY_DECLARATIONS_BEGIN;
 
@@ -31,6 +32,7 @@ LIBSPOOKY_OBJECT_CLASS(invocation);
 typedef void (*spooky_invocation_complete_f)(void* context, spooky_invocation_t* invocation, ferr_t status);
 
 LIBSPOOKY_WUR ferr_t spooky_invocation_create(const char* name, size_t name_length, spooky_function_t* function, eve_channel_t* channel, spooky_invocation_t** out_invocation);
+LIBSPOOKY_WUR ferr_t spooky_invocation_create_proxy(const char* name, size_t name_length, spooky_function_t* function, spooky_proxy_t* proxy, spooky_invocation_t** out_invocation);
 
 /**
  * Only valid for outgoing invocations. No longer valid after the first call to this function or spooky_invocation_execute_sync().

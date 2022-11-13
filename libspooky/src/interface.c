@@ -38,6 +38,10 @@ static const spooky_object_class_t interface_class = {
 	.destroy = spooky_interface_destroy,
 };
 
+const spooky_object_class_t* spooky_object_class_interface(void) {
+	return &interface_class;
+};
+
 ferr_t spooky_interface_create(const spooky_interface_entry_t* entries, size_t entry_count, spooky_interface_t** out_interface) {
 	ferr_t status = ferr_ok;
 	spooky_interface_object_t* interface = NULL;

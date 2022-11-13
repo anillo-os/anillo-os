@@ -7,6 +7,7 @@ set(libspooky_sources
 	src/interface.c
 	src/invocation.c
 	src/objects.c
+	src/proxy.c
 	src/serializer.c
 	src/structure.c
 	src/types.c

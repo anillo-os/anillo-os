@@ -294,6 +294,10 @@ static const spooky_object_class_t invocation_class = {
 	.destroy = spooky_invocation_destroy,
 };
 
+const spooky_object_class_t* spooky_object_class_invocation(void) {
+	return &invocation_class;
+};
+
 static void spooky_invocation_function_data_lengths(spooky_function_t* function, size_t* out_input_data_length, size_t* out_output_data_length, size_t* out_input_callback_count, size_t* out_output_callback_count) {
 	spooky_function_object_t* func = (void*)function;
 

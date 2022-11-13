@@ -162,7 +162,7 @@ static void eve_channel_try_receive(eve_channel_object_t* channel) {
 		// FIXME: handle this gracefully. maybe we could queue messages that we received
 		//        but failed to schedule loop work for, or maybe we could reserve space in the
 		//        work queue before receiving the message (this is probably the better option).
-		status = eve_loop_enqueue(eve_loop_get_current(), eve_channel_message_handler, handler_context);
+		status = (handler_context->reply_handler || channel->message_handler) ? eve_loop_enqueue(eve_loop_get_current(), eve_channel_message_handler, handler_context) : ferr_unknown;
 		if (status != ferr_ok) {
 			sys_release(message);
 			eve_release((void*)channel);
@@ -268,7 +268,7 @@ static void eve_channel_try_send_locked(eve_channel_object_t* channel) {
 							handler_context->context = NULL;
 						}
 
-						status = eve_loop_enqueue(eve_loop_get_current(), eve_channel_message_send_error_handler, handler_context);
+						status = (handler_context->reply_handler || channel->message_send_error_handler) ? eve_loop_enqueue(eve_loop_get_current(), eve_channel_message_send_error_handler, handler_context) : ferr_unknown;
 						if (status != ferr_ok) {
 							// drop the message; we have no choice
 							sys_release(entry.message);
@@ -353,7 +353,9 @@ static void eve_channel_handle_events(eve_item_t* self, sys_monitor_events_t eve
 		sys_abort_status(eve_retain((void*)channel));
 
 		// can't really do anything about failing here, so just ignore it
-		LIBEVE_WUR_IGNORE(eve_loop_enqueue(eve_loop_get_current(), eve_channel_peer_close_handler, channel));
+		if (channel->peer_close_handler) {
+			LIBEVE_WUR_IGNORE(eve_loop_enqueue(eve_loop_get_current(), eve_channel_peer_close_handler, channel));
+		}
 
 		// notify outstanding reply waiters
 		sys_mutex_lock(&channel->outstanding_replies_mutex);
