@@ -18,51 +18,67 @@
 
 #include <libsys/libsys.h>
 #include <libeve/libeve.h>
+#include <libspooky/libspooky.h>
 
-static void message_handler(void* context, eve_channel_t* channel, sys_channel_message_t* message) {
-	sys_shared_memory_t* shared_memory = NULL;
-	uint64_t* ptr1 = NULL;
-	uint64_t* ptr3 = NULL;
+#include "interface.h"
 
-	sys_abort_status_log(sys_channel_message_detach_shared_memory(message, 0, &shared_memory));
-	sys_release(message);
-
-	sys_abort_status_log(sys_shared_memory_map(shared_memory, 1, 0, (void*)&ptr1));
-	sys_abort_status_log(sys_shared_memory_map(shared_memory, 1, 2, (void*)&ptr3));
-	sys_release(shared_memory);
-
-	sys_console_log_f("tinysh: mapped to %p and %p\n", ptr1, ptr3);
-
-	while (true) {
-		sys_console_log_f("current value = %llu, ~, %llu\n", *ptr1, *ptr3);
-		// 1s
-		LIBSYS_WUR_IGNORE(sys_thread_suspend_timeout(sys_thread_current(), 1ull * 1000 * 1000 * 1000, sys_timeout_type_relative_ns_monotonic));
-	}
-};
-
-static void peer_close_handler(void* context, eve_channel_t* channel) {
-	sys_console_log_f("server closed their end\n");
-	sys_abort_status_log(eve_loop_remove_item(eve_loop_get_current(), channel));
-};
-
-static void message_send_error_handler(void* context, eve_channel_t* channel, sys_channel_message_t* message, ferr_t error) {
-	sys_console_log_f("message send error = %d\n", error);
-	sys_release(message);
-};
-
-void main(void) {
-	eve_loop_t* main_loop = eve_loop_get_main();
+static void work(void* context) {
 	sys_channel_t* sys_channel = NULL;
 	eve_channel_t* channel = NULL;
+	spooky_invocation_t* invocation = NULL;
+	spooky_proxy_t* foo = NULL;
+	uint64_t foo_count = UINT64_MAX;
+
+	sysman_test_interface_ensure();
 
 	sys_abort_status_log(sys_channel_connect("org.anillo.sysman.test", sys_channel_realm_global, 0, &sys_channel));
 	sys_abort_status_log(eve_channel_create(sys_channel, NULL, &channel));
 	sys_release(sys_channel);
-	eve_channel_set_message_handler(channel, message_handler);
-	eve_channel_set_peer_close_handler(channel, peer_close_handler);
-	eve_channel_set_message_send_error_handler(channel, message_send_error_handler);
-	sys_abort_status_log(eve_loop_add_item(main_loop, channel));
+	sys_abort_status_log(eve_loop_add_item(eve_loop_get_current(), channel));
 	eve_release(channel);
 
+	sys_abort_status_log(spooky_invocation_create("create_foo", sizeof("create_foo") - 1, sysman_test_interface.create_foo_function, channel, &invocation));
+	sys_abort_status_log(spooky_invocation_execute_sync(invocation));
+	sys_abort_status_log(spooky_invocation_get_proxy(invocation, 0, true, &foo));
+	spooky_release(invocation);
+
+	// we no longer need the initial channel
+	//
+	// this will release the channel, closing it in the process
+	sys_abort_status_log(eve_loop_remove_item(eve_loop_get_current(), channel));
+
+	sys_abort_status_log(spooky_invocation_create_proxy("add", sizeof("add") - 1, sysman_test_interface.foo_add_function, foo, &invocation));
+	sys_abort_status_log(spooky_invocation_set_u64(invocation, 0, 7));
+	sys_abort_status_log(spooky_invocation_execute_sync(invocation));
+	spooky_release(invocation);
+
+	sys_abort_status_log(spooky_invocation_create_proxy("count", sizeof("count") - 1, sysman_test_interface.foo_count_function, foo, &invocation));
+	sys_abort_status_log(spooky_invocation_execute_sync(invocation));
+	sys_abort_status_log(spooky_invocation_get_u64(invocation, 0, &foo_count));
+	spooky_release(invocation);
+
+	sys_console_log_f("foo count after adding 7 = %llu\n", foo_count);
+
+	foo_count = UINT64_MAX;
+
+	sys_abort_status_log(spooky_invocation_create_proxy("add", sizeof("add") - 1, sysman_test_interface.foo_add_function, foo, &invocation));
+	sys_abort_status_log(spooky_invocation_set_u64(invocation, 0, 38));
+	sys_abort_status_log(spooky_invocation_execute_sync(invocation));
+	spooky_release(invocation);
+
+	sys_abort_status_log(spooky_invocation_create_proxy("count", sizeof("count") - 1, sysman_test_interface.foo_count_function, foo, &invocation));
+	sys_abort_status_log(spooky_invocation_execute_sync(invocation));
+	sys_abort_status_log(spooky_invocation_get_u64(invocation, 0, &foo_count));
+	spooky_release(invocation);
+
+	sys_console_log_f("foo count after adding 38 = %llu\n", foo_count);
+
+	spooky_release(foo);
+};
+
+void main(void) {
+	eve_loop_t* main_loop = eve_loop_get_main();
+
+	LIBEVE_WUR_IGNORE(eve_loop_enqueue(main_loop, work, NULL));
 	eve_loop_run(main_loop);
 };

@@ -20,6 +20,7 @@ target_link_libraries(sysman PUBLIC
 	libsys
 	libsimple
 	libeve
+	libspooky
 )
 
 add_anillo_executable(tinysh
@@ -34,4 +35,5 @@ target_link_libraries(tinysh PUBLIC
 	libsys
 	libsimple
 	libeve
+	libspooky
 )

@@ -52,6 +52,7 @@ LIBSPOOKY_STRUCT(spooky_invocation_object) {
 	char* outgoing_data;
 	char* name;
 	size_t name_length;
+	spooky_proxy_t* proxy;
 };
 
 ferr_t spooky_invocation_create_incoming(eve_channel_t* channel, sys_channel_message_t* message, spooky_invocation_t** out_invocation);

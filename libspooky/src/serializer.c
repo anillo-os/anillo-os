@@ -22,9 +22,20 @@
 #include <libspooky/data.h>
 #include <libspooky/structure.private.h>
 #include <ferro/bits.h>
+#include <libspooky/proxy.h>
 
 ferr_t spooky_serializer_init(spooky_serializer_t* serializer) {
-	serializer->data = NULL;
+	serializer->length = 0;
+	return sys_channel_message_create(0, &serializer->message);
+};
+
+ferr_t spooky_serializer_finalize(spooky_serializer_t* serializer, sys_channel_message_t** out_message) {
+	if (out_message) {
+		*out_message = serializer->message;
+	} else {
+		sys_release(serializer->message);
+	}
+	serializer->message = NULL;
 	serializer->length = 0;
 	return ferr_ok;
 };
@@ -42,7 +53,7 @@ ferr_t spooky_serializer_reserve(spooky_serializer_t* serializer, size_t offset,
 	}
 
 	if (extra_len > 0) {
-		status = sys_mempool_reallocate(serializer->data, serializer->length + extra_len, NULL, (void*)&serializer->data);
+		status = sys_channel_message_extend(serializer->message, extra_len);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -64,6 +75,7 @@ ferr_t spooky_serializer_encode_integer(spooky_serializer_t* serializer, size_t 
 	uint64_t val = 0;
 	uint8_t bits_in_use = 0;
 	bool is_neg = false;
+	char* data = NULL;
 
 	if (length > sizeof(val)) {
 		status = ferr_invalid_argument;
@@ -115,9 +127,11 @@ ferr_t spooky_serializer_encode_integer(spooky_serializer_t* serializer, size_t 
 
 	start_offset = offset;
 
+	data = sys_channel_message_data(serializer->message);
+
 	if (val == 0) {
 		// special case: encode a single zero byte
-		serializer->data[offset] = 0;
+		data[offset] = 0;
 	}
 
 	// now encode the first 8 groups of 7 bits
@@ -127,12 +141,12 @@ ferr_t spooky_serializer_encode_integer(spooky_serializer_t* serializer, size_t 
 		}
 		uint8_t group = val & 0x7f;
 		val >>= 7;
-		serializer->data[offset + i] = group | (val == 0 ? 0 : 0x80);
+		data[offset + i] = group | (val == 0 ? 0 : 0x80);
 	}
 
 	// now encode the 9th byte (a full 8 bits), if necessary
 	if (val != 0) {
-		serializer->data[offset + 8] = val & 0xff;
+		data[offset + 8] = val & 0xff;
 	}
 
 	if (out_offset) {
@@ -178,6 +192,7 @@ ferr_t spooky_serializer_encode_type(spooky_serializer_t* serializer, size_t off
 	BASIC_TYPE_TAG(bool)
 	BASIC_TYPE_TAG(f32)
 	BASIC_TYPE_TAG(f64)
+	BASIC_TYPE_TAG(proxy)
 
 	// TODO: optimize for space-efficiency by de-duplicating types
 
@@ -188,7 +203,7 @@ ferr_t spooky_serializer_encode_type(spooky_serializer_t* serializer, size_t off
 
 	start_offset = offset;
 
-	serializer->data[offset] = tag;
+	((char*)sys_channel_message_data(serializer->message))[offset] = tag;
 	offset += 1;
 
 	if (tag == spooky_type_tag_function || tag == spooky_type_tag_nowait_function) {
@@ -251,6 +266,57 @@ ferr_t spooky_serializer_encode_type(spooky_serializer_t* serializer, size_t off
 
 	if (out_length) {
 		*out_length = offset - start_offset;
+	}
+
+out:
+	return status;
+};
+
+ferr_t spooky_serializer_encode_data(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, size_t length, const void* data) {
+	char* msg_data = NULL;
+	ferr_t status = spooky_serializer_reserve(serializer, offset, &offset, length);
+
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	msg_data = sys_channel_message_data(serializer->message);
+	simple_memcpy(msg_data + offset, data, length);
+
+	if (out_offset) {
+		*out_offset = offset;
+	}
+
+out:
+	return status;
+};
+
+ferr_t spooky_serializer_encode_channel(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, size_t* out_length, sys_channel_t* channel) {
+	ferr_t status = spooky_serializer_reserve(serializer, offset, &offset, sizeof(sys_channel_message_attachment_index_t));
+	sys_channel_message_attachment_index_t index = sys_channel_message_attachment_index_invalid;
+	char* msg_data = NULL;
+
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = sys_channel_message_attach_channel(serializer->message, channel, &index);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// can't use spooky_serializer_encode_integer() because we don't want to attach the channel until we know
+	// that we have space in the message data buffer to store the index (and we would need to know the index before
+	// calling spooky_serializer_encode_integer())
+	msg_data = sys_channel_message_data(serializer->message);
+	simple_memcpy(msg_data + offset, &index, sizeof(index));
+
+	if (out_offset) {
+		*out_offset = offset;
+	}
+
+	if (out_length) {
+		*out_length = sizeof(sys_channel_message_attachment_index_t);
 	}
 
 out:

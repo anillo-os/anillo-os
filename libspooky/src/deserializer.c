@@ -22,10 +22,12 @@
 #include <libspooky/data.h>
 #include <libspooky/structure.h>
 #include <libspooky/function.h>
+#include <libspooky/proxy.h>
 
-ferr_t spooky_deserializer_init(spooky_deserializer_t* deserializer, const void* data, size_t length) {
-	deserializer->data = data;
-	deserializer->length = length;
+ferr_t spooky_deserializer_init(spooky_deserializer_t* deserializer, sys_channel_message_t* message) {
+	deserializer->message = message;
+	deserializer->data = sys_channel_message_data(message);
+	deserializer->length = sys_channel_message_length(message);
 	deserializer->offset = 0;
 	return ferr_ok;
 };
@@ -181,6 +183,7 @@ ferr_t spooky_deserializer_decode_type(spooky_deserializer_t* deserializer, size
 		BASIC_TAG_CASE(bool);
 		BASIC_TAG_CASE(f32);
 		BASIC_TAG_CASE(f64);
+		BASIC_TAG_CASE(proxy);
 
 		case spooky_type_tag_function:
 		case spooky_type_tag_nowait_function: {
@@ -299,6 +302,33 @@ ferr_t spooky_deserializer_decode_type(spooky_deserializer_t* deserializer, size
 
 	if (out_length) {
 		*out_length = offset - start_offset;
+	}
+
+out:
+	return status;
+};
+
+ferr_t spooky_deserializer_decode_channel(spooky_deserializer_t* deserializer, size_t offset, size_t* out_offset, size_t* out_length, sys_channel_t** out_channel) {
+	sys_channel_message_attachment_index_t index = sys_channel_message_attachment_index_invalid;
+	ferr_t status = spooky_deserializer_skip(deserializer, offset, &offset, sizeof(index));
+
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	simple_memcpy(&index, deserializer->data + offset, sizeof(index));
+
+	status = sys_channel_message_detach_channel(deserializer->message, index, out_channel);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (out_offset) {
+		*out_offset = offset;
+	}
+
+	if (out_length) {
+		*out_length = sizeof(index);
 	}
 
 out:

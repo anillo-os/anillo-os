@@ -37,6 +37,8 @@ LIBSPOOKY_STRUCT(spooky_proxy_interface_entry) {
 
 typedef void (*spooky_proxy_destructor_f)(void* context);
 
+spooky_type_t* spooky_type_proxy(void);
+
 LIBSPOOKY_WUR ferr_t spooky_proxy_interface_create(const spooky_proxy_interface_entry_t* entries, size_t entry_count, spooky_proxy_interface_t** out_proxy_interface);
 
 //

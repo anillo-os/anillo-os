@@ -74,6 +74,9 @@ SPOOKY_INVOCATION_BASIC_ACCESSOR(double, f64);
 LIBSPOOKY_WUR ferr_t spooky_invocation_get_data(spooky_invocation_t* invocation, size_t index, bool retain, spooky_data_t** out_data);
 LIBSPOOKY_WUR ferr_t spooky_invocation_set_data(spooky_invocation_t* invocation, size_t index, spooky_data_t* data);
 
+LIBSPOOKY_WUR ferr_t spooky_invocation_get_proxy(spooky_invocation_t* invocation, size_t index, bool retain, spooky_proxy_t** out_proxy);
+LIBSPOOKY_WUR ferr_t spooky_invocation_set_proxy(spooky_invocation_t* invocation, size_t index, spooky_proxy_t* proxy);
+
 LIBSPOOKY_WUR ferr_t spooky_invocation_get_structure(spooky_invocation_t* invocation, size_t index, bool retain_members, void* out_structure, size_t* in_out_structure_size);
 LIBSPOOKY_WUR ferr_t spooky_invocation_set_structure(spooky_invocation_t* invocation, size_t index, const void* structure);
 

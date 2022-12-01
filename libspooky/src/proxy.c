@@ -19,6 +19,21 @@
 #include <libspooky/proxy.private.h>
 #include <libspooky/deserializer.private.h>
 #include <libspooky/invocation.private.h>
+#include <libspooky/types.private.h>
+
+static spooky_type_object_t proxy_type = {
+	.object = {
+		.object_class = &spooky_direct_object_class_type,
+		.reference_count = 0,
+		.flags = 0,
+	},
+	.byte_size = sizeof(spooky_proxy_t*),
+	.global = true,
+};
+
+spooky_type_t* spooky_type_proxy(void) {
+	return (void*)&proxy_type;
+};
 
 static void spooky_proxy_interface_destroy(spooky_object_t* obj) {
 	spooky_proxy_interface_object_t* proxy_interface = (void*)obj;
@@ -76,6 +91,8 @@ static void spooky_incoming_proxy_destroy(spooky_object_t* obj) {
 	spooky_incoming_proxy_object_t* incoming_proxy = (void*)obj;
 
 	if (incoming_proxy->channel) {
+		LIBSPOOKY_WUR_IGNORE(eve_loop_remove_item(eve_loop_get_current(), incoming_proxy->channel));
+
 		eve_release(incoming_proxy->channel);
 	}
 
@@ -208,7 +225,7 @@ static ferr_t spooky_outgoing_proxy_handle(spooky_proxy_t* obj, sys_channel_mess
 	size_t name_offset = 0;
 	spooky_proxy_interface_entry_t* entry = NULL;
 
-	status = spooky_deserializer_init(&deserializer, sys_channel_message_data(message), sys_channel_message_length(message));
+	status = spooky_deserializer_init(&deserializer, message);
 	if (status != ferr_ok) {
 		goto out;
 	}

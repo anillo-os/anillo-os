@@ -25,16 +25,18 @@
 LIBSPOOKY_DECLARATIONS_BEGIN;
 
 LIBSPOOKY_STRUCT(spooky_deserializer) {
+	sys_channel_message_t* message;
 	const char* data;
 	size_t length;
 	size_t offset;
 };
 
-LIBSPOOKY_WUR ferr_t spooky_deserializer_init(spooky_deserializer_t* deserializer, const void* data, size_t length);
+LIBSPOOKY_WUR ferr_t spooky_deserializer_init(spooky_deserializer_t* deserializer, sys_channel_message_t* message);
 
 LIBSPOOKY_WUR ferr_t spooky_deserializer_skip(spooky_deserializer_t* deserializer, size_t offset, size_t* out_offset, size_t length);
 LIBSPOOKY_WUR ferr_t spooky_deserializer_decode_integer(spooky_deserializer_t* deserializer, size_t offset, size_t* out_offset, void* out_value, size_t max_value_length, size_t* out_encoded_length, bool is_signed);
 LIBSPOOKY_WUR ferr_t spooky_deserializer_decode_type(spooky_deserializer_t* deserializer, size_t offset, size_t* out_offset, size_t* out_length, spooky_type_t** out_type);
+LIBSPOOKY_WUR ferr_t spooky_deserializer_decode_channel(spooky_deserializer_t* deserializer, size_t offset, size_t* out_offset, size_t* out_length, sys_channel_t** out_channel);
 
 LIBSPOOKY_DECLARATIONS_END;
 

@@ -151,7 +151,7 @@ ferr_t spooky_interface_handle(spooky_interface_t* obj, sys_channel_message_t* m
 	size_t name_offset = 0;
 	spooky_interface_entry_t* entry = NULL;
 
-	status = spooky_deserializer_init(&deserializer, sys_channel_message_data(message), sys_channel_message_length(message));
+	status = spooky_deserializer_init(&deserializer, message);
 	if (status != ferr_ok) {
 		goto out;
 	}

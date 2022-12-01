@@ -25,15 +25,19 @@
 LIBSPOOKY_DECLARATIONS_BEGIN;
 
 LIBSPOOKY_STRUCT(spooky_serializer) {
-	char* data;
+	sys_channel_message_t* message;
 	size_t length;
 };
 
 LIBSPOOKY_WUR ferr_t spooky_serializer_init(spooky_serializer_t* serializer);
+LIBSPOOKY_WUR ferr_t spooky_serializer_finalize(spooky_serializer_t* serializer, sys_channel_message_t** out_message);
 
 LIBSPOOKY_WUR ferr_t spooky_serializer_reserve(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, size_t length);
 LIBSPOOKY_WUR ferr_t spooky_serializer_encode_integer(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, const void* value, size_t length, size_t* out_length, bool is_signed);
 LIBSPOOKY_WUR ferr_t spooky_serializer_encode_type(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, size_t* out_length, spooky_type_t* type);
+LIBSPOOKY_WUR ferr_t spooky_serializer_encode_data(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, size_t length, const void* data);
+// consumes the caller's reference on the channel (which should be the only reference to it)
+LIBSPOOKY_WUR ferr_t spooky_serializer_encode_channel(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, size_t* out_length, sys_channel_t* channel);
 
 LIBSPOOKY_DECLARATIONS_END;
 

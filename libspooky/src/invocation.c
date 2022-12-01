@@ -21,6 +21,7 @@
 #include <libspooky/structure.private.h>
 #include <libspooky/serializer.private.h>
 #include <libspooky/deserializer.private.h>
+#include <libspooky/proxy.private.h>
 
 // TODO: proper support for nowait functions
 //       (they're supposed to respond immediately upon receiving the incoming invocation)
@@ -31,6 +32,12 @@ static void spooky_invocation_release_object(const void* object, spooky_type_t* 
 
 		if (data) {
 			spooky_release(data);
+		}
+	} else if (type == spooky_type_proxy()) {
+		spooky_proxy_t* proxy = *(spooky_proxy_t* const*)object;
+
+		if (proxy) {
+			spooky_release(proxy);
 		}
 	} else if (spooky_object_class(type) == spooky_object_class_structure()) {
 		spooky_structure_object_t* structure = (void*)type;
@@ -47,6 +54,12 @@ static ferr_t spooky_invocation_retain_object(const void* object, spooky_type_t*
 
 		if (data) {
 			return spooky_retain(data);
+		}
+	} else if (type == spooky_type_proxy()) {
+		spooky_proxy_t* proxy = *(spooky_proxy_t* const*)object;
+
+		if (proxy) {
+			return spooky_retain(proxy);
 		}
 	} else if (spooky_object_class(type) == spooky_object_class_structure()) {
 		spooky_structure_object_t* structure = (void*)type;
@@ -90,12 +103,7 @@ static ferr_t spooky_invocation_serialize_object(spooky_invocation_object_t* inv
 		size_t offset = UINT64_MAX;
 		bool is_f32 = type_obj == spooky_type_f32();
 		size_t length = is_f32 ? sizeof(float) : sizeof(double);
-		ferr_t status = spooky_serializer_reserve(serializer, offset, &offset, length);
-		if (status != ferr_ok) {
-			return status;
-		}
-		simple_memcpy(&serializer->data[offset], object, length);
-		return ferr_ok;
+		return spooky_serializer_encode_data(serializer, offset, &offset, length, object);
 	}
 
 	if (type_obj == spooky_type_data()) {
@@ -106,12 +114,18 @@ static ferr_t spooky_invocation_serialize_object(spooky_invocation_object_t* inv
 		if (status != ferr_ok) {
 			return status;
 		}
-		status = spooky_serializer_reserve(serializer, offset, &offset, length);
+		return spooky_serializer_encode_data(serializer, offset, &offset, length, spooky_data_contents(data));
+	}
+
+	if (type_obj == spooky_type_proxy()) {
+		spooky_proxy_t* proxy = *(spooky_proxy_t**)object;
+		size_t offset = UINT64_MAX;
+		sys_channel_t* channel = NULL;
+		ferr_t status = spooky_outgoing_proxy_create_channel(proxy, &channel);
 		if (status != ferr_ok) {
 			return status;
 		}
-		simple_memcpy(&serializer->data[offset], spooky_data_contents(data), length);
-		return status;
+		return spooky_serializer_encode_channel(serializer, offset, &offset, NULL, channel);
 	}
 
 	if (spooky_object_class(type_obj) == spooky_object_class_structure()) {
@@ -189,6 +203,23 @@ static ferr_t spooky_invocation_deserialize_object(spooky_invocation_object_t* i
 		return status;
 	}
 
+	if (type_obj == spooky_type_proxy()) {
+		spooky_proxy_t* proxy = NULL;
+		size_t offset = UINT64_MAX;
+		sys_channel_t* channel = NULL;
+		ferr_t status = spooky_deserializer_decode_channel(deserializer, offset, &offset, NULL, &channel);
+		if (status != ferr_ok) {
+			return status;
+		}
+		status = spooky_proxy_create_incoming(channel, eve_loop_get_main(), &proxy);
+		if (status != ferr_ok) {
+			sys_release(channel);
+			return status;
+		}
+		*(spooky_proxy_t**)object = proxy;
+		return status;
+	}
+
 	if (spooky_object_class(type_obj) == spooky_object_class_structure()) {
 		spooky_structure_object_t* structure = (void*)type_obj;
 		size_t offset = 0;
@@ -263,6 +294,10 @@ static void spooky_invocation_destroy(spooky_object_t* obj) {
 
 	if (invocation->channel) {
 		eve_release(invocation->channel);
+	}
+
+	if (invocation->proxy) {
+		spooky_release(invocation->proxy);
 	}
 
 	if (invocation->incoming_callback_infos) {
@@ -460,6 +495,23 @@ out:
 	return status;
 };
 
+ferr_t spooky_invocation_create_proxy(const char* name, size_t name_length, spooky_function_t* function, spooky_proxy_t* proxy, spooky_invocation_t** out_invocation) {
+	if (!spooky_proxy_is_incoming(proxy)) {
+		return ferr_invalid_argument;
+	}
+	if (spooky_retain(proxy) != ferr_ok) {
+		return ferr_permanent_outage;
+	}
+	ferr_t status = spooky_invocation_create(name, name_length, function, ((spooky_incoming_proxy_object_t*)proxy)->channel, out_invocation);
+	if (status == ferr_ok) {
+		spooky_invocation_object_t* invocation = (void*)*out_invocation;
+		invocation->proxy = proxy;
+	} else {
+		spooky_release(proxy);
+	}
+	return status;
+};
+
 ferr_t spooky_invocation_create_incoming(eve_channel_t* channel, sys_channel_message_t* message, spooky_invocation_t** out_invocation) {
 	ferr_t status = ferr_ok;
 	spooky_invocation_object_t* invocation = NULL;
@@ -484,7 +536,7 @@ ferr_t spooky_invocation_create_incoming(eve_channel_t* channel, sys_channel_mes
 		goto out;
 	}
 
-	status = spooky_deserializer_init(&deserializer, sys_channel_message_data(message), sys_channel_message_length(message));
+	status = spooky_deserializer_init(&deserializer, message);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -680,7 +732,7 @@ static void spooky_invocation_execute_async_reply_handler(void* _context, eve_ch
 		size_t data_offset = 0;
 		spooky_function_object_t* func = (void*)context->invocation->function_type;
 
-		status = spooky_deserializer_init(&deserializer, sys_channel_message_data(message), sys_channel_message_length(message));
+		status = spooky_deserializer_init(&deserializer, message);
 		if (status != ferr_ok) {
 			goto cleanup;
 		}
@@ -755,14 +807,10 @@ static ferr_t spooky_invocation_serialize_contents(spooky_invocation_object_t* i
 		}
 	}
 
-	// TODO: modify the serializer class to create a message itself
-	status = sys_channel_message_create_copy(serializer->data, serializer->length, out_message);
+	status = spooky_serializer_finalize(serializer, out_message);
 	if (status != ferr_ok) {
 		goto out;
 	}
-
-	LIBSPOOKY_WUR_IGNORE(sys_mempool_free(serializer->data));
-	serializer->data = NULL;
 
 out:
 	*out_outgoing_callback_index = outgoing_callback_index;
@@ -779,6 +827,7 @@ ferr_t spooky_invocation_execute_async(spooky_invocation_t* obj, spooky_invocati
 	size_t name_offset = UINT64_MAX;
 	sys_channel_message_t* message = NULL;
 	spooky_invocation_execute_async_context_t* reply_context = NULL;
+	bool destroy_serializer_on_fail = false;
 
 	// this cannot fail
 	sys_abort_status(spooky_retain((void*)invocation));
@@ -794,6 +843,8 @@ ferr_t spooky_invocation_execute_async(spooky_invocation_t* obj, spooky_invocati
 		goto out;
 	}
 
+	destroy_serializer_on_fail = true;
+
 	status = sys_mempool_allocate(sizeof(*reply_context), NULL, (void*)&reply_context);
 	if (status != ferr_ok) {
 		goto out;
@@ -808,12 +859,10 @@ ferr_t spooky_invocation_execute_async(spooky_invocation_t* obj, spooky_invocati
 		return status;
 	}
 
-	status = spooky_serializer_reserve(&serializer, name_offset, &name_offset, invocation->name_length);
+	status = spooky_serializer_encode_data(&serializer, name_offset, &name_offset, invocation->name_length, invocation->name);
 	if (status != ferr_ok) {
 		goto out;
 	}
-
-	simple_memcpy(&serializer.data[name_offset], invocation->name, invocation->name_length);
 
 	status = spooky_serializer_encode_type(&serializer, UINT64_MAX, NULL, NULL, invocation->function_type);
 	if (status != ferr_ok) {
@@ -824,6 +873,8 @@ ferr_t spooky_invocation_execute_async(spooky_invocation_t* obj, spooky_invocati
 	if (status != ferr_ok) {
 		goto out;
 	}
+
+	destroy_serializer_on_fail = false;
 
 	sys_channel_message_set_conversation_id(message, invocation->conversation_id);
 
@@ -845,8 +896,8 @@ out:
 		sys_release(message);
 	}
 
-	if (serializer.data) {
-		LIBSPOOKY_WUR_IGNORE(sys_mempool_free(serializer.data));
+	if (destroy_serializer_on_fail) {
+		LIBSPOOKY_WUR_IGNORE(spooky_serializer_finalize(&serializer, NULL));
 	}
 
 	if (status != ferr_ok) {
@@ -901,6 +952,7 @@ ferr_t spooky_invocation_complete(spooky_invocation_t* obj) {
 	size_t data_offset = 0;
 	spooky_function_object_t* func = (void*)invocation->function_type;
 	sys_channel_message_t* message = NULL;
+	bool destroy_serializer_on_fail = false;
 
 	if (!invocation->incoming) {
 		status = ferr_invalid_argument;
@@ -912,10 +964,14 @@ ferr_t spooky_invocation_complete(spooky_invocation_t* obj) {
 		goto out;
 	}
 
+	destroy_serializer_on_fail = true;
+
 	status = spooky_invocation_serialize_contents(invocation, &serializer, &outgoing_callback_index, &message);
 	if (status != ferr_ok) {
 		goto out;
 	}
+
+	destroy_serializer_on_fail = false;
 
 	sys_channel_message_set_conversation_id(message, invocation->conversation_id);
 
@@ -940,8 +996,8 @@ out:
 		sys_release(message);
 	}
 
-	if (serializer.data) {
-		LIBSPOOKY_WUR_IGNORE(sys_mempool_free(serializer.data));
+	if (destroy_serializer_on_fail) {
+		LIBSPOOKY_WUR_IGNORE(spooky_serializer_finalize(&serializer, NULL));
 	}
 
 	if (status != ferr_ok) {
@@ -1109,6 +1165,93 @@ ferr_t spooky_invocation_set_data(spooky_invocation_t* obj, size_t index, spooky
 
 	if (old_data) {
 		spooky_release(old_data);
+	}
+
+out:
+	return status;
+};
+
+ferr_t spooky_invocation_get_proxy(spooky_invocation_t* obj, size_t index, bool retain, spooky_proxy_t** out_proxy) {
+	ferr_t status = ferr_ok;
+	spooky_invocation_object_t* invocation = (void*)obj;
+	spooky_function_object_t* func = (void*)invocation->function_type;
+	bool is_incoming = false;
+	spooky_proxy_t* proxy = NULL;
+
+	if (index >= func->parameter_count) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (func->parameters[index].type != spooky_type_proxy()) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (invocation->incoming) {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_in;
+	} else {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_out;
+		if (is_incoming && !invocation->incoming_data) {
+			status = ferr_resource_unavailable;
+			goto out;
+		}
+	}
+
+	proxy = *(spooky_proxy_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
+
+	if (retain) {
+		status = spooky_retain(proxy);
+		if (status != ferr_ok) {
+			goto out;
+		}
+	}
+
+	*out_proxy = proxy;
+
+out:
+	return status;
+};
+
+ferr_t spooky_invocation_set_proxy(spooky_invocation_t* obj, size_t index, spooky_proxy_t* proxy) {
+	ferr_t status = ferr_ok;
+	spooky_invocation_object_t* invocation = (void*)obj;
+	spooky_function_object_t* func = (void*)invocation->function_type;
+	bool is_incoming = false;
+	spooky_proxy_t** proxy_ptr = NULL;
+	spooky_proxy_t* old_proxy = NULL;
+
+	if (index >= func->parameter_count) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (func->parameters[index].type != spooky_type_proxy()) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (invocation->incoming) {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_in;
+	} else {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_out;
+		if (is_incoming && !invocation->incoming_data) {
+			status = ferr_resource_unavailable;
+			goto out;
+		}
+	}
+
+	if (spooky_retain(proxy) != ferr_ok) {
+		status = ferr_permanent_outage;
+		goto out;
+	}
+
+	proxy_ptr = (spooky_proxy_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
+	old_proxy = *proxy_ptr;
+	*proxy_ptr = proxy;
+
+	if (old_proxy) {
+		spooky_release(old_proxy);
 	}
 
 out:
