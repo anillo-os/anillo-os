@@ -17,6 +17,8 @@
  */
 
 #include <libspooky/proxy.private.h>
+#include <libspooky/deserializer.private.h>
+#include <libspooky/invocation.private.h>
 
 static void spooky_proxy_interface_destroy(spooky_object_t* obj) {
 	spooky_proxy_interface_object_t* proxy_interface = (void*)obj;
@@ -148,7 +150,7 @@ ferr_t spooky_proxy_create_incoming(sys_channel_t* sys_channel, eve_loop_t* loop
 	ferr_t status = ferr_ok;
 	spooky_incoming_proxy_object_t* incoming_proxy = NULL;
 
-	status = sys_object_new(&incoming_proxy_class, sizeof(*incoming_proxy) - sizeof(incoming_proxy->base.object, (void*)&incoming_proxy));
+	status = sys_object_new(&incoming_proxy_class, sizeof(*incoming_proxy) - sizeof(incoming_proxy->base.object), (void*)&incoming_proxy);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -193,6 +195,159 @@ void* spooky_proxy_context(spooky_proxy_t* obj) {
 	return outgoing_proxy->context;
 };
 
-ferr_t spooky_outgoing_proxy_create_channel(spooky_proxy_t* outgoing_proxy, sys_channel_t** out_sys_channel) {
+// most of this was copied from `=spooky_interface_handle()
+// TODO: make this DRY by sharing code with spooky_interface_handle()
+static ferr_t spooky_outgoing_proxy_handle(spooky_proxy_t* obj, sys_channel_message_t* message, eve_channel_t* channel) {
+	ferr_t status = ferr_ok;
+	spooky_outgoing_proxy_object_t* proxy = (void*)obj;
+	spooky_proxy_interface_object_t* interface = proxy->interface;
+	spooky_invocation_t* invocation = NULL;
+	spooky_deserializer_t deserializer;
+	size_t name_length = 0;
+	const char* name = NULL;
+	size_t name_offset = 0;
+	spooky_proxy_interface_entry_t* entry = NULL;
 
+	status = spooky_deserializer_init(&deserializer, sys_channel_message_data(message), sys_channel_message_length(message));
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = spooky_deserializer_decode_integer(&deserializer, UINT64_MAX, NULL, &name_length, sizeof(name_length), NULL, false);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = spooky_deserializer_skip(&deserializer, UINT64_MAX, &name_offset, name_length);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	name = &deserializer.data[name_offset];
+
+	status = ferr_no_such_resource;
+	for (size_t i = 0; i < interface->entry_count; ++i) {
+		entry = &interface->entries[i];
+
+		if (entry->name_length != name_length) {
+			continue;
+		}
+
+		if (simple_strncmp(entry->name, name, name_length) != 0) {
+			continue;
+		}
+
+		status = ferr_ok;
+		break;
+	}
+
+	if (status != ferr_ok) {
+		entry = NULL;
+		goto out;
+	}
+
+	// TODO: check that the types match
+
+	status = spooky_invocation_create_incoming(channel, message, &invocation);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	entry->implementation(proxy->context, invocation);
+
+out:
+	if (status == ferr_ok) {
+		sys_release(message);
+	} else {
+		if (invocation) {
+			spooky_release(invocation);
+		}
+	}
+	return status;
+};
+
+static void spooky_outgoing_proxy_channel_destructor(void* context) {
+	spooky_proxy_t* proxy = context;
+	spooky_release(proxy);
+};
+
+static void spooky_outgoing_proxy_channel_message_handler(void* context, eve_channel_t* channel, sys_channel_message_t* message) {
+	spooky_proxy_t* proxy = context;
+
+	if (spooky_outgoing_proxy_handle(proxy, message, channel) != ferr_ok) {
+		// just discard the message
+		sys_console_log_f("Discarding message\n");
+		sys_release(message);
+	}
+
+	// on success, `spooky_outgoing_proxy_handle` consumes the message
+};
+
+static void spooky_outgoing_proxy_channel_peer_close_handler(void* context, eve_channel_t* channel) {
+	spooky_proxy_t* proxy = context;
+	// by removing the channel from the loop, we remove the only reference to the channel,
+	// causing it to close the underlying sys_channel and destroy the libeve channel (which calls our destructor and releases the proxy)
+	LIBSPOOKY_WUR_IGNORE(eve_loop_remove_item(eve_loop_get_current(), channel));
+};
+
+ferr_t spooky_outgoing_proxy_create_channel(spooky_proxy_t* outgoing_proxy, sys_channel_t** out_sys_channel) {
+	ferr_t status = ferr_ok;
+	sys_channel_t* our_side = NULL;
+	sys_channel_t* their_side = NULL;
+	eve_channel_t* channel = NULL;
+
+	status = spooky_retain(outgoing_proxy);
+	if (status != ferr_ok) {
+		outgoing_proxy = NULL;
+		goto out;
+	}
+
+	status = sys_channel_create_pair(&our_side, &their_side);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = eve_channel_create(our_side, outgoing_proxy, &channel);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// the channel now holds the only reference to our side of the sys_channel
+	sys_release(our_side);
+	our_side = NULL;
+
+	eve_item_set_destructor(channel, spooky_outgoing_proxy_channel_destructor);
+	eve_channel_set_message_handler(channel, spooky_outgoing_proxy_channel_message_handler);
+	eve_channel_set_peer_close_handler(channel, spooky_outgoing_proxy_channel_peer_close_handler);
+	// we discard messages that we failed to send, so don't set a message-send-failure handler
+
+	// the channel destructor will release the outgoing proxy reference
+	outgoing_proxy = NULL;
+
+	status = eve_loop_add_item(eve_loop_get_main(), channel);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// the channel is kept alive by the loop until our peer closes their end, after which it closes our channel and releases the proxy
+	eve_release(channel);
+
+out:
+	if (status == ferr_ok) {
+		*out_sys_channel = their_side;
+	} else {
+		if (channel) {
+			eve_release(channel);
+		}
+		if (our_side) {
+			sys_release(our_side);
+		}
+		if (their_side) {
+			sys_release(their_side);
+		}
+		if (outgoing_proxy) {
+			spooky_release(outgoing_proxy);
+		}
+	}
+	return status;
 };
