@@ -17,6 +17,9 @@
  */
 
 #include <libspooky/types.private.h>
+#include <libspooky/data.h>
+#include <libspooky/proxy.h>
+#include <libspooky/structure.private.h>
 
 static ferr_t spooky_type_retain(spooky_object_t* obj) {
 	spooky_type_object_t* type = (void*)obj;
@@ -72,3 +75,56 @@ SPOOKY_TYPE_DEF(bool, bool);
 
 SPOOKY_TYPE_DEF(float, f32);
 SPOOKY_TYPE_DEF(double, f64);
+
+ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type) {
+	if (type == spooky_type_data()) {
+		spooky_data_t* data = *(spooky_data_t* const*)object;
+
+		if (data) {
+			return spooky_retain(data);
+		}
+	} else if (type == spooky_type_proxy()) {
+		spooky_proxy_t* proxy = *(spooky_proxy_t* const*)object;
+
+		if (proxy) {
+			return spooky_retain(proxy);
+		}
+	} else if (spooky_object_class(type) == spooky_object_class_structure()) {
+		spooky_structure_object_t* structure = (void*)type;
+
+		for (size_t i = 0; i < structure->member_count; ++i) {
+			ferr_t status = spooky_retain_object_with_type((const char*)object + structure->members[i].offset, structure->members[i].type);
+			if (status != ferr_ok) {
+				// release all members that we successfully retained
+				for (size_t j = 0; j < i; ++j) {
+					spooky_release_object_with_type((const char*)object + structure->members[j].offset, structure->members[j].type);
+				}
+				return status;
+			}
+		}
+	}
+
+	return ferr_ok;
+};
+
+void spooky_release_object_with_type(const void* object, spooky_type_t* type) {
+	if (type == spooky_type_data()) {
+		spooky_data_t* data = *(spooky_data_t* const*)object;
+
+		if (data) {
+			spooky_release(data);
+		}
+	} else if (type == spooky_type_proxy()) {
+		spooky_proxy_t* proxy = *(spooky_proxy_t* const*)object;
+
+		if (proxy) {
+			spooky_release(proxy);
+		}
+	} else if (spooky_object_class(type) == spooky_object_class_structure()) {
+		spooky_structure_object_t* structure = (void*)type;
+
+		for (size_t i = 0; i < structure->member_count; ++i) {
+			spooky_release_object_with_type((const char*)object + structure->members[i].offset, structure->members[i].type);
+		}
+	}
+};

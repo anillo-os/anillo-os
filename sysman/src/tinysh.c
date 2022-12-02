@@ -26,16 +26,16 @@ static void work(void* context) {
 	spooky_proxy_t* foo = NULL;
 	uint64_t count = UINT64_MAX;
 
-	sysman_test_create_foo(NULL, &foo);
+	sys_abort_status_log(sysman_test_create_foo(NULL, &foo));
 
-	foo_add(foo, 7);
-	foo_count(foo, &count);
+	sys_abort_status_log(foo_add(foo, 7));
+	sys_abort_status_log(foo_count(foo, &count));
 	sys_console_log_f("foo count after adding 7 = %llu\n", count);
 
 	count = UINT64_MAX;
 
-	foo_add(foo, 38);
-	foo_count(foo, &count);
+	sys_abort_status_log(foo_add(foo, 38));
+	sys_abort_status_log(foo_count(foo, &count));
 	sys_console_log_f("foo count after adding 38 = %llu\n", count);
 
 	spooky_release(foo);

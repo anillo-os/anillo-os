@@ -26,59 +26,6 @@
 // TODO: proper support for nowait functions
 //       (they're supposed to respond immediately upon receiving the incoming invocation)
 
-static void spooky_invocation_release_object(const void* object, spooky_type_t* type) {
-	if (type == spooky_type_data()) {
-		spooky_data_t* data = *(spooky_data_t* const*)object;
-
-		if (data) {
-			spooky_release(data);
-		}
-	} else if (type == spooky_type_proxy()) {
-		spooky_proxy_t* proxy = *(spooky_proxy_t* const*)object;
-
-		if (proxy) {
-			spooky_release(proxy);
-		}
-	} else if (spooky_object_class(type) == spooky_object_class_structure()) {
-		spooky_structure_object_t* structure = (void*)type;
-
-		for (size_t i = 0; i < structure->member_count; ++i) {
-			spooky_invocation_release_object((const char*)object + structure->members[i].offset, structure->members[i].type);
-		}
-	}
-};
-
-static ferr_t spooky_invocation_retain_object(const void* object, spooky_type_t* type) {
-	if (type == spooky_type_data()) {
-		spooky_data_t* data = *(spooky_data_t* const*)object;
-
-		if (data) {
-			return spooky_retain(data);
-		}
-	} else if (type == spooky_type_proxy()) {
-		spooky_proxy_t* proxy = *(spooky_proxy_t* const*)object;
-
-		if (proxy) {
-			return spooky_retain(proxy);
-		}
-	} else if (spooky_object_class(type) == spooky_object_class_structure()) {
-		spooky_structure_object_t* structure = (void*)type;
-
-		for (size_t i = 0; i < structure->member_count; ++i) {
-			ferr_t status = spooky_invocation_retain_object((char*)object + structure->members[i].offset, structure->members[i].type);
-			if (status != ferr_ok) {
-				// release all members that we successfully retained
-				for (size_t j = 0; j < i; ++j) {
-					spooky_invocation_release_object((const char*)object + structure->members[j].offset, structure->members[j].type);
-				}
-				return status;
-			}
-		}
-	}
-
-	return ferr_ok;
-};
-
 static ferr_t spooky_invocation_serialize_object(spooky_invocation_object_t* invocation, spooky_serializer_t* serializer, const void* object, spooky_type_t* type_obj, size_t param_index) {
 	spooky_type_object_t* type = (void*)type_obj;
 
@@ -260,7 +207,7 @@ static void spooky_invocation_destroy(spooky_object_t* obj) {
 				continue;
 			}
 
-			spooky_invocation_release_object(invocation->incoming_data + offset, (void*)param_type);
+			spooky_release_object_with_type(invocation->incoming_data + offset, (void*)param_type);
 
 			offset += param_type->byte_size;
 		}
@@ -280,7 +227,7 @@ static void spooky_invocation_destroy(spooky_object_t* obj) {
 				continue;
 			}
 
-			spooky_invocation_release_object(invocation->outgoing_data + offset, (void*)param_type);
+			spooky_release_object_with_type(invocation->outgoing_data + offset, (void*)param_type);
 
 			offset += param_type->byte_size;
 		}
@@ -731,6 +678,7 @@ static void spooky_invocation_execute_async_reply_handler(void* _context, eve_ch
 		spooky_deserializer_t deserializer;
 		size_t data_offset = 0;
 		spooky_function_object_t* func = (void*)context->invocation->function_type;
+		bool aborted = false;
 
 		status = spooky_deserializer_init(&deserializer, message);
 		if (status != ferr_ok) {
@@ -738,6 +686,16 @@ static void spooky_invocation_execute_async_reply_handler(void* _context, eve_ch
 		}
 
 		// TODO: have the peer send back the function type they're using and check it matches ours
+
+		status = spooky_deserializer_decode_integer(&deserializer, 0, NULL, &aborted, sizeof(aborted), NULL, false);
+		if (status != ferr_ok) {
+			goto cleanup;
+		}
+
+		if (aborted) {
+			status = ferr_aborted;
+			goto cleanup;
+		}
 
 		for (size_t i = 0; i < func->parameter_count; ++i) {
 			spooky_function_parameter_info_t* param_info = &func->parameters[i];
@@ -949,8 +907,6 @@ ferr_t spooky_invocation_complete(spooky_invocation_t* obj) {
 	spooky_invocation_object_t* invocation = (void*)obj;
 	spooky_serializer_t serializer;
 	size_t outgoing_callback_index = 0;
-	size_t data_offset = 0;
-	spooky_function_object_t* func = (void*)invocation->function_type;
 	sys_channel_message_t* message = NULL;
 	bool destroy_serializer_on_fail = false;
 
@@ -965,6 +921,12 @@ ferr_t spooky_invocation_complete(spooky_invocation_t* obj) {
 	}
 
 	destroy_serializer_on_fail = true;
+
+	bool aborted = false;
+	status = spooky_serializer_encode_integer(&serializer, 0, NULL, &aborted, sizeof(aborted), NULL, false);
+	if (status != ferr_ok) {
+		goto out;
+	}
 
 	status = spooky_invocation_serialize_contents(invocation, &serializer, &outgoing_callback_index, &message);
 	if (status != ferr_ok) {
@@ -1006,6 +968,61 @@ out:
 			LIBSPOOKY_WUR_IGNORE(eve_channel_receive_conversation_cancel(invocation->channel, callback_info->conversation_id, callback_info->cancellation_token));
 		}
 		sys_release((void*)invocation);
+	}
+
+	return status;
+};
+
+ferr_t spooky_invocation_abort(spooky_invocation_t* obj) {
+	ferr_t status = ferr_ok;
+	spooky_invocation_object_t* invocation = (void*)obj;
+	spooky_serializer_t serializer;
+	sys_channel_message_t* message = NULL;
+	bool destroy_serializer_on_fail = false;
+
+	if (!invocation->incoming) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = spooky_serializer_init(&serializer);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	destroy_serializer_on_fail = true;
+
+	bool aborted = true;
+	status = spooky_serializer_encode_integer(&serializer, 0, NULL, &aborted, sizeof(aborted), NULL, false);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = spooky_serializer_finalize(&serializer, &message);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	destroy_serializer_on_fail = false;
+
+	sys_channel_message_set_conversation_id(message, invocation->conversation_id);
+
+	// TODO: same TODO as in spooky_invocation_complete()
+	status = eve_channel_send(invocation->channel, message, true);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// consumed by the send
+	message = NULL;
+
+out:
+	if (message) {
+		sys_release(message);
+	}
+
+	if (destroy_serializer_on_fail) {
+		LIBSPOOKY_WUR_IGNORE(spooky_serializer_finalize(&serializer, NULL));
 	}
 
 	return status;
@@ -1299,7 +1316,7 @@ ferr_t spooky_invocation_get_structure(spooky_invocation_t* obj, size_t index, b
 	struct_base = &(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset];
 
 	if (retain_members) {
-		status = spooky_invocation_retain_object(struct_base, (void*)structure);
+		status = spooky_retain_object_with_type(struct_base, (void*)structure);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -1343,12 +1360,12 @@ ferr_t spooky_invocation_set_structure(spooky_invocation_t* obj, size_t index, c
 
 	struct_base = &(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset];
 
-	status = spooky_invocation_retain_object(structure, (void*)structure_type);
+	status = spooky_retain_object_with_type(structure, (void*)structure_type);
 	if (status != ferr_ok) {
 		goto out;
 	}
 
-	spooky_invocation_release_object(struct_base, (void*)structure_type);
+	spooky_release_object_with_type(struct_base, (void*)structure_type);
 
 	simple_memcpy(struct_base, structure, structure_type->base.byte_size);
 

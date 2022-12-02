@@ -511,7 +511,7 @@ def write_param_type(prefix: str, param: Parameter):
 	for subparam in param.type.parameters:
 		write_param_type(f'{prefix}_{param.name}', subparam)
 
-	header_file.write(f'typedef void (*{prefix}_{param.name}_f)(void* _context')
+	header_file.write(f'typedef ferr_t (*{prefix}_{param.name}_f)(void* _context')
 	write_parameters(header_file, f'{prefix}_{param.name}', param.type.parameters, False)
 	header_file.write(');\n')
 
@@ -525,7 +525,7 @@ def write_function_type(type: Type):
 		param.name = f'arg{index}'
 		write_function_type(param.type)
 
-	source_file.write(f'typedef void (*_spookygen_type_{type_to_id[type]}_f)(void* _context')
+	source_file.write(f'typedef ferr_t (*_spookygen_type_{type_to_id[type]}_f)(void* _context')
 	write_parameters(source_file, '', params, False, True)
 	source_file.write(');\n')
 
@@ -542,14 +542,14 @@ for interface in interfaces:
 
 		if args.server or not is_root_interface:
 			if is_root_interface:
-				header_file.write(f'void {interface.name}_{function.name}_impl(void* _context')
+				header_file.write(f'ferr_t {interface.name}_{function.name}_impl(void* _context')
 			else:
-				header_file.write(f'typedef void (*{interface.name}_{function.name}_impl_f)(void* _context')
+				header_file.write(f'typedef ferr_t (*{interface.name}_{function.name}_impl_f)(void* _context')
 			write_parameters(header_file, f'{interface.name}_{function.name}', function.parameters, False)
 			header_file.write(');\n\n')
 
 		if not args.server or not is_root_interface:
-			header_file.write(f'void {interface.name}_{function.name}(void* context')
+			header_file.write(f'LIBSPOOKY_WUR ferr_t {interface.name}_{function.name}(void* context')
 			write_parameters(header_file, f'{interface.name}_{function.name}', function.parameters, False)
 			header_file.write(');\n\n')
 
@@ -585,6 +585,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 
 	source_file.writelines([
 		f'static void {name}(void* context, spooky_invocation_t* invocation) {{\n',
+		'\tferr_t status = ferr_ok;\n',
 		f'\t_spookygen_type_{type_to_id[type]}_f target = NULL;\n',
 		'\tvoid* target_context = NULL;\n',
 		'\n',
@@ -624,24 +625,49 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 
 	for index, param in enumerate(type.parameters):
 		if isinstance(param.type, BasicType):
-			source_file.write(f'\t{BASIC_TYPE_TAG_TO_NATIVE_TYPE[param.type.tag]} arg{index};\n')
+			init_str = " = NULL" if (param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy) else ""
+			source_file.write(f'\t{BASIC_TYPE_TAG_TO_NATIVE_TYPE[param.type.tag]} arg{index}{init_str};\n')
 			if param.direction == Direction.IN:
 				retain_arg = ", false" if (param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy) else ""
-				source_file.write(f'\tsys_abort_status_log(spooky_invocation_get_{param.type.tag.name}(invocation, {index}{retain_arg}, &arg{index}));\n')
+				source_file.writelines([
+					f'\tstatus = spooky_invocation_get_{param.type.tag.name}(invocation, {index}{retain_arg}, &arg{index});\n',
+					'\tif (status != ferr_ok) {\n',
+					'\t\tgoto out;\n',
+					'\t}\n',
+				])
 		elif isinstance(param.type, StructureType):
 			source_file.write(f'\tstruct _spookygen_struct_{param.type_id} arg{index};\n')
 			if param.direction == Direction.IN:
-				source_file.write(f'\tsize_t arg{index}_size = sizeof(arg{index});\n')
-				source_file.write(f'\tsys_abort_status_log(spooky_invocation_get_structure(invocation, {index}, false, &arg{index}, &arg{index}_size));\n')
+				source_file.writelines([
+					f'\tsize_t arg{index}_size = sizeof(arg{index});\n',
+					f'\tstatus = spooky_invocation_get_structure(invocation, {index}, false, &arg{index}, &arg{index}_size);\n',
+					'\tif (status != ferr_ok) {\n',
+					'\t\tgoto out;\n',
+					'\t}\n',
+				])
+			else:
+				source_file.write(f'\tsimple_memset(&arg{index}, 0, sizeof(arg{index}));\n')
 		elif isinstance(param.type, FunctionType):
 			if param.direction == Direction.IN:
-				source_file.write(f'\tspooky_invocation_t* arg{index}_invocation = NULL;\n')
-				source_file.write(f'\tsys_abort_status_log(spooky_invocation_get_invocation(invocation, {index}, &arg{index}_invocation));\n')
+				source_file.writelines([
+					f'\tspooky_invocation_t* arg{index}_invocation = NULL;\n',
+					f'\tstatus = spooky_invocation_get_invocation(invocation, {index}, &arg{index}_invocation);\n',
+					'\tif (status != ferr_ok) {\n',
+					'\t\tgoto out;\n',
+					'\t}\n',
+				])
 			else:
-				source_file.write(f'\tstruct _spookygen_callback_context* arg{index}_callback_context = NULL;\n')
-				source_file.write(f'\tsys_abort_status_log(sys_mempool_allocate(sizeof(*arg{index}_callback_context), NULL, (void*)&arg{index}_callback_context));\n')
+				source_file.writelines([
+					f'\tstruct _spookygen_callback_context* arg{index}_callback_context = NULL;\n',
+					f'\tstatus = sys_mempool_allocate(sizeof(*arg{index}_callback_context), NULL, (void*)&arg{index}_callback_context);\n',
+					'\tif (status != ferr_ok) {\n',
+					'\t\tgoto out;\n',
+					'\t}\n',
+					f'\targ{index}_callback_context->target = NULL;\n',
+					f'\targ{index}_callback_context->target_context = NULL;\n',
+				])
 
-	source_file.write('\ttarget(target_context')
+	source_file.write('\tstatus = target(target_context')
 
 	for index, param in enumerate(type.parameters):
 		is_input = param.direction == Direction.IN
@@ -658,22 +684,85 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 
 	source_file.write(');\n\n')
 
+	source_file.writelines([
+		'\tif (status != ferr_ok) {\n',
+		'\t\tgoto out;\n',
+		'\t}\n',
+	])
+
 	for index, param in enumerate(type.parameters):
 		if param.direction == Direction.IN:
 			continue
 
 		if isinstance(param.type, BasicType):
-			source_file.write(f'\tsys_abort_status_log(spooky_invocation_set_{param.type.tag.name}(invocation, {index}, arg{index}));\n')
-			if param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy:
-				source_file.write(f'\tspooky_release(arg{index});\n')
+			source_file.writelines([
+				f'\tstatus = spooky_invocation_set_{param.type.tag.name}(invocation, {index}, arg{index});\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
+			])
 		elif isinstance(param.type, StructureType):
-			source_file.write(f'\tsys_abort_status_log(spooky_invocation_set_structure(invocation, {index}, &arg{index}));\n')
+			source_file.writelines([
+				f'\tstatus = spooky_invocation_set_structure(invocation, {index}, &arg{index});\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
+			])
 		elif isinstance(param.type, FunctionType):
-			source_file.write(f'\tsys_abort_status_log(spooky_invocation_set_function(invocation, {index}, _spookygen_callback_handler_{param.type_id}, arg{index}_callback_context));\n')
+			source_file.writelines([
+				f'\tstatus = spooky_invocation_set_function(invocation, {index}, _spookygen_callback_handler_{param.type_id}, arg{index}_callback_context);\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
+				'\targ{index}_callback_context = NULL;\n',
+			])
 
 	source_file.writelines([
-		'\tsys_abort_status_log(spooky_invocation_complete(invocation));\n',
+		'\tstatus = spooky_invocation_complete(invocation);\n',
+		'\tif (status != ferr_ok) {\n',
+		'\t\tgoto out;\n',
+		'\t}\n',
+		'\n',
+		'out:\n',
+		'\tif (status != ferr_ok) {\n',
+		'\t\tLIBSPOOKY_WUR_IGNORE(spooky_invocation_abort(invocation));\n',
+		'\t}\n',
+		'\n',
 		'\tspooky_release(invocation);\n',
+	])
+
+	for index, param in enumerate(type.parameters):
+		if param.direction == Direction.IN:
+			#if isinstance(param.type, FunctionType):
+			#	source_file.writelines([
+			#		'\n',
+			#		f'\tif (arg{index}_invocation) {{\n',
+			#		f'\t\tspooky_release(arg{index}_invocation);\n',
+			#		'\t}\n',
+			#		'\n',
+			#	])
+			pass
+		else:
+			if isinstance(param.type, BasicType):
+				if param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy:
+					source_file.writelines([
+						f'\tif (arg{index}) {{\n',
+						f'\t\tspooky_release(arg{index});\n',
+						'\t}\n',
+					])
+			elif isinstance(param.type, StructureType):
+				source_file.write(f'\tspooky_release_object_with_type(&arg{index}, _spookygen_types[{param.type_id}]);\n')
+			elif isinstance(param.type, FunctionType):
+				source_file.writelines([
+					'\n',
+					f'\tif (arg{index}_callback_context) {{\n',
+					'\t\t// TODO: cleanup target context somehow\n',
+					f'\t\tLIBSPOOKY_WUR_IGNORE(sys_mempool_free(arg{index}_callback_context));\n',
+					'\t}\n',
+					'\n',
+				])
+
+	source_file.writelines([
 		'};\n\n',
 	])
 
@@ -698,9 +787,10 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 			else:
 				write_outgoing_function_wrapper(f'_spookygen_callback_{param.type_id}', param.type, None, False, None)
 
-	source_file.write(f'static void {name}(void* context')
+	source_file.write(f'static ferr_t {name}(void* context')
 	write_parameters(source_file, '', params, False, True)
 	source_file.write(') {\n')
+	source_file.write('\tferr_t status = ferr_ok;\n')
 	source_file.write('\tspooky_invocation_t* invocation = context;\n')
 
 	source_file.writelines([
@@ -729,7 +819,10 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 
 		if not is_root_interface:
 			source_file.writelines([
-				f'\tsys_abort_status_log(spooky_invocation_create_proxy({json.dumps(raw_name)}, {len(raw_name)}, _spookygen_types[{type_to_id[type]}], context, &invocation));\n',
+				f'\tstatus = spooky_invocation_create_proxy({json.dumps(raw_name)}, {len(raw_name)}, _spookygen_types[{type_to_id[type]}], context, &invocation);\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
 				'\n',
 			])
 		else:
@@ -743,15 +836,26 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 			if default_server_name == None:
 				source_file.write('\t\t\tsys_abort();\n')
 			else:
-				source_file.write(f'\t\t\tsys_abort_status_log({root_interface_name}_init_explicit_locked({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, eve_loop_get_main()));\n')
+				source_file.writelines([
+					f'\t\t\tstatus = {root_interface_name}_init_explicit_locked({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, eve_loop_get_main());\n',
+					'\t\t\tif (status != ferr_ok) {\n',
+					'\t\t\t\tgoto out;\n',
+					'\t\t\t}\n',
+				])
 
 			source_file.writelines([
 				'\t\t}\n',
 				'\t\tchannel = _spookygen_channel;\n',
-				'\t\tsys_abort_status_log(eve_retain(channel));\n',
+				'\t\tstatus = eve_retain(channel);\n',
+				'\t\tif (status != ferr_ok) {\n',
+				'\t\t\tgoto out;\n',
+				'\t\t}\n',
 				'\t\tsys_mutex_unlock(&_spookygen_client_mutex);\n',
-				f'\t\tsys_abort_status_log(spooky_invocation_create({json.dumps(raw_name)}, {len(raw_name)}, _spookygen_types[{type_to_id[type]}], channel, &invocation));\n',
+				f'\t\tstatus = spooky_invocation_create({json.dumps(raw_name)}, {len(raw_name)}, _spookygen_types[{type_to_id[type]}], channel, &invocation);\n',
 				'\t\teve_release(channel);\n',
+				'\t\tif (status != ferr_ok) {\n',
+				'\t\t\tgoto out;\n',
+				'\t\t}\n',
 				'\t}\n',
 				'\n',
 			])
@@ -761,17 +865,42 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 			continue
 
 		if isinstance(param.type, BasicType):
-			source_file.write(f'\tsys_abort_status_log(spooky_invocation_set_{param.type.tag.name}(invocation, {index}, arg{index}));\n')
+			source_file.writelines([
+				f'\tstatus = spooky_invocation_set_{param.type.tag.name}(invocation, {index}, arg{index});\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
+			])
 		elif isinstance(param.type, StructureType):
-			source_file.write(f'\tsys_abort_status_log(spooky_invocation_set_structure(invocation, {index}, arg{index}));\n')
+			source_file.writelines([
+				f'\tstatus = spooky_invocation_set_structure(invocation, {index}, arg{index});\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
+			])
 		elif isinstance(param.type, FunctionType):
-			source_file.write(f'\tstruct _spookygen_callback_context* arg{index}_callback_context = NULL;\n')
-			source_file.write(f'\tsys_abort_status_log(sys_mempool_allocate(sizeof(*arg{index}_callback_context), NULL, (void*)&arg{index}_callback_context));\n')
-			source_file.write(f'\targ{index}_callback_context->target = arg{index};\n')
-			source_file.write(f'\targ{index}_callback_context->target_context = _context_arg{index};\n')
-			source_file.write(f'\tsys_abort_status_log(spooky_invocation_set_function(invocation, {index}, _spookygen_callback_handler_{param.type_id}, arg{index}_callback_context));\n')
+			source_file.writelines([
+				f'\tstruct _spookygen_callback_context* arg{index}_callback_context = NULL;\n',
+				f'\tstatus = sys_mempool_allocate(sizeof(*arg{index}_callback_context), NULL, (void*)&arg{index}_callback_context);\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
+				f'\targ{index}_callback_context->target = arg{index};\n',
+				f'\targ{index}_callback_context->target_context = _context_arg{index};\n',
+				f'\tstatus = spooky_invocation_set_function(invocation, {index}, _spookygen_callback_handler_{param.type_id}, arg{index}_callback_context));\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
+				# the callback context is stored in the invocation and will be passed to the function upon cleanup of the invocation
+				f'\targ{index}_callback_context = NULL;\n'
+			])
 
-	source_file.write('\tsys_abort_status_log(spooky_invocation_execute_sync(invocation));\n')
+	source_file.writelines([
+		'\tstatus = spooky_invocation_execute_sync(invocation);\n',
+		'\tif (status != ferr_ok) {\n',
+		'\t\tgoto out;\n',
+		'\t}\n',
+	])
 
 	for index, param in enumerate(params):
 		if param.direction == Direction.IN:
@@ -779,18 +908,79 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 
 		if isinstance(param.type, BasicType):
 			retain_arg = ", true" if (param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy) else ""
-			source_file.write(f'\tsys_abort_status_log(spooky_invocation_get_{param.type.tag.name}(invocation, {index}{retain_arg}, arg{index}));\n')
+			source_file.writelines([
+				f'\tbool arg{index}_should_cleanup_on_fail = false;\n',
+				f'\tstatus = spooky_invocation_get_{param.type.tag.name}(invocation, {index}{retain_arg}, arg{index});\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
+				f'\targ{index}_should_cleanup_on_fail = true;\n',
+			])
 		elif isinstance(param.type, StructureType):
-			source_file.write(f'\tsize_t arg{index}_size = sizeof(*arg{index});\n')
-			source_file.write(f'\tsys_abort_status_log(spooky_invocation_get_structure(invocation, {index}, true, arg{index}, &arg{index}_size));\n')
+			source_file.writelines([
+				f'\tsize_t arg{index}_size = sizeof(*arg{index});\n',
+				f'\tbool arg{index}_should_cleanup_on_fail = false;\n',
+				f'\tstatus = spooky_invocation_get_structure(invocation, {index}, true, arg{index}, &arg{index}_size);\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
+				f'\targ{index}_should_cleanup_on_fail = true;\n',
+			])
 		elif isinstance(param.type, FunctionType):
-			source_file.write(f'\tspooky_invocation_t* arg{index}_invocation = NULL;\n')
-			source_file.write(f'\tsys_abort_status_log(spooky_invocation_get_invocation(invocation, {index}, &arg{index}_invocation));\n')
-			source_file.write(f'\t*arg{index} = _spookygen_callback_{param.type_id};\n')
-			source_file.write(f'\t*_context_arg{index} = arg{index}_invocation;\n')
+			source_file.writelines([
+				f'\tspooky_invocation_t* arg{index}_invocation = NULL;\n',
+				f'\tstatus = spooky_invocation_get_invocation(invocation, {index}, &arg{index}_invocation);\n',
+				'\tif (status != ferr_ok) {\n',
+				'\t\tgoto out;\n',
+				'\t}\n',
+				f'\t*arg{index} = _spookygen_callback_{param.type_id};\n',
+				f'\t*_context_arg{index} = arg{index}_invocation;\n',
+			])
 
-	source_file.write('\tspooky_release(invocation);\n')
-	source_file.write('};\n\n')
+	source_file.writelines([
+		'out:\n',
+		'\tif (invocation) {\n',
+		'\t\tspooky_release(invocation);\n',
+		'\t}\n',
+		'\n',
+		'\tif (status != ferr_ok) {\n',
+	])
+
+	for index, param in enumerate(params):
+		if param.direction == Direction.IN:
+			if isinstance(param.type, BasicType):
+				if param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy:
+					source_file.writelines([
+						f'\t\tif (arg{index} && arg{index}_should_cleanup_on_fail) {{\n',
+						f'\t\t\tspooky_release(*arg{index});\n',
+						'\t\t}\n',
+					])
+			elif isinstance(param.type, StructureType):
+				source_file.writelines([
+					f'\t\tif (arg{index} && arg{index}_should_cleanup_on_fail) {{\n',
+					f'\t\t\tspooky_release_object_with_type(arg{index}, _spookygen_types[{param.type_id}]);\n',
+					'\t\t}\n',
+				])
+			elif isinstance(param.type, FunctionType):
+				source_file.writelines([
+					f'\t\tif (arg{index}_invocation) {{\n',
+					f'\t\t\tspooky_release(arg{index}_invocation);\n',
+					'\t\t}\n',
+				])
+		else:
+			if isinstance(param.type, FunctionType):
+				source_file.writelines([
+					f'\t\tif (arg{index}_callback_context) {{\n',
+					f'\t\t\tLIBSPOOKY_WUR_IGNORE(sys_mempool_free(arg{index}_callback_context));\n',
+					'\t\t}\n',
+				])
+
+	source_file.writelines([
+		'\t}\n',
+		'\n',
+		'\treturn status;\n',
+		'};\n\n',
+	])
 
 for interface in interfaces:
 	for function in interface.functions:
@@ -804,10 +994,10 @@ for interface in interfaces:
 		if not args.server or not is_root_interface:
 			write_outgoing_function_wrapper(f'_spookygen_internal_{interface.name}_{function.name}', type, f'{interface.name}_{function.name}', interface.name == root_interface_name, function.name)
 
-			source_file.write(f'void {interface.name}_{function.name}(void* _spookygen_context')
+			source_file.write(f'ferr_t {interface.name}_{function.name}(void* _spookygen_context')
 			write_parameters(source_file, f'{interface.name}_{function.name}', function.parameters, False)
 			source_file.write(') {\n')
-			source_file.write(f'\t_spookygen_internal_{interface.name}_{function.name}(_spookygen_context')
+			source_file.write(f'\treturn _spookygen_internal_{interface.name}_{function.name}(_spookygen_context')
 			for param in function.parameters:
 				if isinstance(param.type, BasicType):
 					source_file.write(f', {param.name}')

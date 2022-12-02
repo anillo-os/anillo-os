@@ -45,6 +45,7 @@ LIBSPOOKY_WUR ferr_t spooky_invocation_execute_async(spooky_invocation_t* invoca
 LIBSPOOKY_WUR ferr_t spooky_invocation_execute_sync(spooky_invocation_t* invocation);
 
 LIBSPOOKY_WUR ferr_t spooky_invocation_complete(spooky_invocation_t* invocation);
+LIBSPOOKY_WUR ferr_t spooky_invocation_abort(spooky_invocation_t* invocation);
 
 /**
  * Incoming invocations are those that are created by our peer and received locally.

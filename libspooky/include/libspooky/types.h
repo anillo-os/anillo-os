@@ -43,6 +43,9 @@ spooky_type_t* spooky_type_bool(void);
 spooky_type_t* spooky_type_f32(void);
 spooky_type_t* spooky_type_f64(void);
 
+FERRO_WUR ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type);
+void spooky_release_object_with_type(const void* object, spooky_type_t* type);
+
 LIBSPOOKY_DECLARATIONS_END;
 
 #endif // _LIBSPOOKY_TYPES_H_

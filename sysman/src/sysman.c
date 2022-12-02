@@ -74,17 +74,19 @@ static void foo_destructor(void* context) {
 	LIBSYS_WUR_IGNORE(sys_mempool_free(foo));
 };
 
-static void foo_add_impl(void* _context, uint64_t value) {
+static ferr_t foo_add_impl(void* _context, uint64_t value) {
 	sysman_foo_t* foo = _context;
 	foo->count += value;
+	return ferr_ok;
 };
 
-static void foo_count_impl(void* _context, uint64_t* value) {
+static ferr_t foo_count_impl(void* _context, uint64_t* value) {
 	sysman_foo_t* foo = _context;
 	*value = foo->count;
+	return ferr_ok;
 };
 
-void sysman_test_create_foo_impl(void* _context, spooky_proxy_t** out_foo) {
+ferr_t sysman_test_create_foo_impl(void* _context, spooky_proxy_t** out_foo) {
 	sysman_foo_t* foo = NULL;
 
 	sys_abort_status_log(sys_mempool_allocate(sizeof(*foo), NULL, (void*)&foo));
@@ -99,6 +101,7 @@ void sysman_test_create_foo_impl(void* _context, spooky_proxy_t** out_foo) {
 	};
 
 	sys_abort_status_log(foo_create_proxy(&proxy_info, out_foo));
+	return ferr_ok;
 };
 #endif
 
