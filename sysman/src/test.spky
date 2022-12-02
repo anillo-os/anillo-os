@@ -1,0 +1,12 @@
+@interface = sysman_test
+@server = "org.anillo.sysman.test"
+@realm = global
+
+interface foo {
+	function add(value: in u64)
+	function count(value: out u64)
+}
+
+interface sysman_test {
+	function create_foo(foo: out foo)
+}

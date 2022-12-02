@@ -1,7 +1,7 @@
 %import common.CNAME -> NAME
 %import common (WS, SH_COMMENT, CPP_COMMENT, C_COMMENT, ESCAPED_STRING)
 
-start: [directives] (function | structure)*
+start: [directives] (structure | interface)*
 directives: directive+
 directive: interface_directive
          | server_name_directive
@@ -10,6 +10,8 @@ interface_directive: "@interface" "=" NAME
 server_name_directive: "@server" "=" ESCAPED_STRING
 server_realm_directive: "@realm" "=" REALM
 REALM: "children" | "parent" | "local" | "global"
+
+interface: "interface" NAME "{" function* "}"
 
 function: [decorations] "function" NAME "(" [_parameters ","?] ")"
 decorations: DECORATION+

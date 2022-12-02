@@ -1,6 +1,8 @@
 function(spooky_gen target_name rpc_def_path)
 	cmake_parse_arguments(SPOOKY_GEN "SERVER" "BASENAME;SOURCE;HEADER" "" ${ARGN})
 
+	file(REAL_PATH "${rpc_def_path}" SPOOKY_GEN_RPC_DEF_PATH BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+
 	if (SPOOKY_GEN_SERVER)
 		set(SPOOKY_GEN_SUFFIX "server")
 		set(SPOOKY_GEN_SERVER_ARG "--server")
@@ -28,7 +30,7 @@ function(spooky_gen target_name rpc_def_path)
 		COMMAND
 			"${CMAKE_SOURCE_DIR}/libspooky/scripts/spookygen.py"
 			"-i"
-			"${rpc_def_path}"
+			"${SPOOKY_GEN_RPC_DEF_PATH}"
 			"-s"
 			"${SPOOKY_GEN_SOURCE}"
 			"-H"
@@ -36,7 +38,7 @@ function(spooky_gen target_name rpc_def_path)
 			"${SPOOKY_GEN_SERVER_ARG}"
 		DEPENDS
 			"${CMAKE_SOURCE_DIR}/libspooky/scripts/spookygen.py"
-			"${rpc_def_path}"
+			"${SPOOKY_GEN_RPC_DEF_PATH}"
 		WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
 	)
 

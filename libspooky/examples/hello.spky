@@ -1,17 +1,25 @@
 @interface = hello
 @server = "org.anillo.helloman"
 
-nowait function greet(greeting: in data)
-function greet_and_wait(greeting: in data)
-function greet_and_wait2(greeting: in data)
-function greet_and_reply(greeting: in data, reply: out data)
-
 structure ComplexGreeting {
 	verb: data
 	greeter: data
 }
 
-function complex_greet(greeting: in ComplexGreeting)
-function accept_complex_reply(reply: out ComplexGreeting)
+interface person {
+	function say_goodbye(reply: out data)
+}
 
-function greet_with_callback(name: in data, callback: in function(greeting: in data, foo: out data))
+interface hello {
+	nowait function greet(greeting: in data)
+	function greet_and_wait(greeting: in data)
+	function greet_and_wait2(greeting: in data)
+	function greet_and_reply(greeting: in data, reply: out data)
+
+	function complex_greet(greeting: in ComplexGreeting)
+	function accept_complex_reply(reply: out ComplexGreeting)
+
+	function greet_with_callback(name: in data, callback: in function(greeting: in data, foo: out data))
+
+	function greet_person(name: in data, person: out person)
+}

@@ -30,10 +30,11 @@ names: Set[str] = set()
 next_type_id: int = 0
 type_to_id: Dict[Type, int] = dict()
 id_to_type: Dict[int, Type] = dict()
+interface_names: Set[str] = set()
 struct_types: Dict[str, Type] = dict()
 max_type_members: int = 0
 max_type_params: int = 0
-interface_name: str | None = None
+root_interface_name: str | None = None
 default_server_name: str | None = None
 default_realm: Realm | None = None
 default_client_realm: Realm | None = None
@@ -43,6 +44,8 @@ def name_to_type(name: str) -> Type:
 
 	if name in BasicTypeTag.__members__:
 		type = BasicType(BasicTypeTag[name])
+	elif name in interface_names:
+		type = BasicType(BasicTypeTag.proxy)
 	elif name in struct_types:
 		type = struct_types[name]
 	else:
@@ -82,32 +85,34 @@ class Direction(IntEnum):
 	OUT = 2
 
 class BasicTypeTag(IntEnum):
-	u8   =  0
-	u16  =  1
-	u32  =  2
-	u64  =  3
-	i8   =  4
-	i16  =  5
-	i32  =  6
-	i64  =  7
-	bool =  8
-	f32  =  9
-	f64  = 10
-	data = 11
+	u8    =  0
+	u16   =  1
+	u32   =  2
+	u64   =  3
+	i8    =  4
+	i16   =  5
+	i32   =  6
+	i64   =  7
+	bool  =  8
+	f32   =  9
+	f64   = 10
+	data  = 11
+	proxy = 12,
 
 BASIC_TYPE_TAG_TO_NATIVE_TYPE = {
-	BasicTypeTag.u8   : 'uint8_t',
-	BasicTypeTag.u16  : 'uint16_t',
-	BasicTypeTag.u32  : 'uint32_t',
-	BasicTypeTag.u64  : 'uint64_t',
-	BasicTypeTag.i8   : 'int8_t',
-	BasicTypeTag.i16  : 'int16_t',
-	BasicTypeTag.i32  : 'int32_t',
-	BasicTypeTag.i64  : 'int64_t',
-	BasicTypeTag.bool : 'bool',
-	BasicTypeTag.f32  : 'float',
-	BasicTypeTag.f64  : 'double',
-	BasicTypeTag.data : 'spooky_data_t*',
+	BasicTypeTag.u8    : 'uint8_t',
+	BasicTypeTag.u16   : 'uint16_t',
+	BasicTypeTag.u32   : 'uint32_t',
+	BasicTypeTag.u64   : 'uint64_t',
+	BasicTypeTag.i8    : 'int8_t',
+	BasicTypeTag.i16   : 'int16_t',
+	BasicTypeTag.i32   : 'int32_t',
+	BasicTypeTag.i64   : 'int64_t',
+	BasicTypeTag.bool  : 'bool',
+	BasicTypeTag.f32   : 'float',
+	BasicTypeTag.f64   : 'double',
+	BasicTypeTag.data  : 'spooky_data_t*',
+	BasicTypeTag.proxy : 'spooky_proxy_t*'
 }
 
 def type_to_native_for_source(type: Type) -> str:
@@ -262,6 +267,21 @@ class Structure(_Entry):
 	def __repr__(self) -> str:
 		return f"Structure(name={repr(self.name)}, members={repr(self.members)}, type_id={self.type_id})"
 
+class Interface(_Entry):
+	name: str
+	functions: List[Function]
+
+	def __init__(self, name: str, *functions: Function) -> None:
+		super().__init__()
+
+		self.name = name
+		self.functions = list(functions)
+
+		interface_names.add(name)
+
+	def __repr__(self) -> str:
+		return f"Interface(name={repr(self.name)}, functions={repr(self.functions)})"
+
 class ToAST(Transformer):
 	def NAME(self, tok: Token):
 		return tok.value
@@ -290,11 +310,11 @@ class ToAST(Transformer):
 
 	@v_args(inline=True)
 	def interface_directive(self, name: str):
-		global interface_name
-		if interface_name != None:
-			print("Duplicate interface name definition", file=sys.stderr)
+		global root_interface_name
+		if root_interface_name != None:
+			print("Duplicate root interface name definition", file=sys.stderr)
 			exit(1)
-		interface_name = name
+		root_interface_name = name
 
 	@v_args(inline=True)
 	def server_name_directive(self, string: str):
@@ -332,7 +352,7 @@ input_file = open(args.input)
 parse_tree = lark_parser.parse(input_file.read())
 input_file.close()
 
-ast: List[Function | Structure] = lark_trans.transform(parse_tree)
+ast: List[Interface | Structure] = lark_trans.transform(parse_tree)
 
 if default_realm == None:
 	default_realm = Realm.GLOBAL
@@ -344,7 +364,7 @@ elif default_client_realm == Realm.PARENT:
 	default_client_realm = Realm.CHILDREN
 
 structures: List[Structure] = [x for x in ast if isinstance(x, Structure)]
-functions: List[Function] = [x for x in ast if isinstance(x, Function)]
+interfaces: List[Interface] = [x for x in ast if isinstance(x, Interface)]
 
 if os.path.dirname(args.source) != '':
 	os.makedirs(os.path.dirname(args.source), exist_ok=True)
@@ -412,7 +432,7 @@ else:
 		'static sys_mutex_t _spookygen_client_mutex = SYS_MUTEX_INIT;\n',
 		'static eve_channel_t* _spookygen_channel = NULL;\n',
 		'\n',
-		f'static ferr_t {interface_name}_init_explicit_locked(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop);\n',
+		f'static ferr_t {root_interface_name}_init_explicit_locked(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop);\n',
 		'\n',
 	])
 
@@ -459,7 +479,7 @@ source_file.writelines([
 	'};\n',
 	'\n',
 	'static void _spookygen_ensure_init(void) {\n',
-	'\tsys_once(&_spookygen_init_token, _spookygen_init, NULL);\n',
+	'\tsys_once(&_spookygen_init_token, _spookygen_init, NULL, 0);\n',
 	'};\n',
 	'\n',
 ])
@@ -513,24 +533,44 @@ for type_id in range(0, next_type_id):
 	type = id_to_type[type_id]
 	write_function_type(type)
 
-for function in functions:
-	for param in function.parameters:
-		write_param_type(function.name, param)
+for interface in interfaces:
+	for function in interface.functions:
+		for param in function.parameters:
+			write_param_type(f'{interface.name}_{function.name}', param)
 
-	if args.server:
-		header_file.write(f'void {function.name}_impl(void* _context')
-		write_parameters(header_file, function.name, function.parameters, False)
-		header_file.write(');\n\n')
-	else:
-		header_file.write(f'void {function.name}(void* context')
-		write_parameters(header_file, function.name, function.parameters, False)
-		header_file.write(');\n\n')
+		is_root_interface = interface.name == root_interface_name
+
+		if args.server or not is_root_interface:
+			if is_root_interface:
+				header_file.write(f'void {interface.name}_{function.name}_impl(void* _context')
+			else:
+				header_file.write(f'typedef void (*{interface.name}_{function.name}_impl_f)(void* _context')
+			write_parameters(header_file, f'{interface.name}_{function.name}', function.parameters, False)
+			header_file.write(');\n\n')
+
+		if not args.server or not is_root_interface:
+			header_file.write(f'void {interface.name}_{function.name}(void* context')
+			write_parameters(header_file, f'{interface.name}_{function.name}', function.parameters, False)
+			header_file.write(');\n\n')
+
+for interface in interfaces:
+	if interface.name == root_interface_name:
+		continue
+
+	header_file.write(f'typedef struct {interface.name}_proxy_info {{\n')
+	header_file.write('\tvoid* context;\n')
+	header_file.write('\tvoid (*destructor)(void*);\n')
+
+	for function in interface.functions:
+		header_file.write(f'\t{interface.name}_{function.name}_impl_f {function.name};\n')
+
+	header_file.write(f'}} {interface.name}_proxy_info_t;\n\n')
 
 written_names: Set[str] = set()
 
 # i.e. for interface implementations or input callback implementations
 # invoked remotely by libspooky
-def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: str | None):
+def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: str | None, is_root_interface: bool, raw_name: str | None):
 	if name in written_names:
 		return
 
@@ -539,9 +579,9 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 	for index, param in enumerate(type.parameters):
 		if isinstance(param.type, FunctionType):
 			if param.direction == Direction.IN:
-				write_outgoing_function_wrapper(f'_spookygen_callback_{param.type_id}', param.type, None)
+				write_outgoing_function_wrapper(f'_spookygen_callback_{param.type_id}', param.type, None, False, None)
 			else:
-				write_incoming_function_wrapper(f'_spookygen_callback_handler_{param.type_id}', param.type, None)
+				write_incoming_function_wrapper(f'_spookygen_callback_handler_{param.type_id}', param.type, None, False, None)
 
 	source_file.writelines([
 		f'static void {name}(void* context, spooky_invocation_t* invocation) {{\n',
@@ -563,6 +603,15 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 			'\ttarget_context = ((struct _spookygen_callback_context*)context)->target_context;\n',
 			'\tLIBSPOOKY_WUR_IGNORE(sys_mempool_free(context));\n\n',
 		])
+	elif not is_root_interface:
+		source_file.writelines([
+			'\tif (!invocation) {\n',
+			'\t\treturn;\n',
+			'\t}\n',
+			'\n',
+			f'\ttarget = (({interface.name}_proxy_info_t*)context)->{raw_name};\n',
+			f'\ttarget_context = (({interface.name}_proxy_info_t*)context)->context;\n',
+		])
 	else:
 		source_file.writelines([
 			'\tif (!invocation) {\n',
@@ -577,7 +626,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 		if isinstance(param.type, BasicType):
 			source_file.write(f'\t{BASIC_TYPE_TAG_TO_NATIVE_TYPE[param.type.tag]} arg{index};\n')
 			if param.direction == Direction.IN:
-				retain_arg = ", false" if param.type.tag == BasicTypeTag.data else ""
+				retain_arg = ", false" if (param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy) else ""
 				source_file.write(f'\tsys_abort_status_log(spooky_invocation_get_{param.type.tag.name}(invocation, {index}{retain_arg}, &arg{index}));\n')
 		elif isinstance(param.type, StructureType):
 			source_file.write(f'\tstruct _spookygen_struct_{param.type_id} arg{index};\n')
@@ -615,7 +664,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 
 		if isinstance(param.type, BasicType):
 			source_file.write(f'\tsys_abort_status_log(spooky_invocation_set_{param.type.tag.name}(invocation, {index}, arg{index}));\n')
-			if param.type.tag == BasicTypeTag.data:
+			if param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy:
 				source_file.write(f'\tspooky_release(arg{index});\n')
 		elif isinstance(param.type, StructureType):
 			source_file.write(f'\tsys_abort_status_log(spooky_invocation_set_structure(invocation, {index}, &arg{index}));\n')
@@ -630,7 +679,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 
 # i.e. for output callback implementations
 # invoked directly by users
-def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: str | None):
+def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: str | None, is_root_interface: bool, raw_name: str | None):
 	if name in written_names:
 		return
 
@@ -645,9 +694,9 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 	for index, param in enumerate(params):
 		if isinstance(param.type, FunctionType):
 			if param.direction == Direction.IN:
-				write_incoming_function_wrapper(f'_spookygen_callback_handler_{param.type_id}', param.type, None)
+				write_incoming_function_wrapper(f'_spookygen_callback_handler_{param.type_id}', param.type, None, False, None)
 			else:
-				write_outgoing_function_wrapper(f'_spookygen_callback_{param.type_id}', param.type, None)
+				write_outgoing_function_wrapper(f'_spookygen_callback_{param.type_id}', param.type, None, False, None)
 
 	source_file.write(f'static void {name}(void* context')
 	write_parameters(source_file, '', params, False, True)
@@ -666,29 +715,46 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 		pass
 	else:
 		# this is a client-side wrapper for an interface method.
-		# the context is an optional invocation to use.
-		# if it's NULL, we have to create the invocation ourselves.
-		source_file.writelines([
-			'\tif (!invocation) {\n',
-			'\t\teve_channel_t* channel = NULL;\n',
-			'\t\tsys_mutex_lock(&_spookygen_client_mutex);\n',
-			'\t\tif (!_spookygen_channel) {\n',
-		])
-
-		if default_server_name == None:
-			source_file.write('\t\t\tsys_abort();\n')
-		else:
-			source_file.write(f'\t\t\tsys_abort_status_log({interface_name}_init_explicit_locked({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, eve_loop_get_main()));\n')
+		# the context is either an optional invocation to use or a proxy.
+		# if it's not an invocation, we have to create the invocation ourselves.
 
 		source_file.writelines([
-			'\t\t}\n',
-			'\t\tchannel = _spookygen_channel;\n',
-			'\t\tsys_abort_status_log(eve_retain(channel));\n',
-			'\t\tsys_mutex_unlock(&_spookygen_client_mutex);\n',
-			f'\t\tsys_abort_status_log(spooky_invocation_create({json.dumps(target_name)}, {len(target_name)}, _spookygen_types[{type_to_id[type]}], channel, &invocation));\n',
-			'\t\teve_release(channel);\n',
+			'\tif (invocation && spooky_object_class(invocation) != spooky_object_class_invocation()) {\n',
+			'\t\tinvocation = NULL;\n',
 			'\t}\n',
+			'\n',
 		])
+
+		assert raw_name != None
+
+		if not is_root_interface:
+			source_file.writelines([
+				f'\tsys_abort_status_log(spooky_invocation_create_proxy({json.dumps(raw_name)}, {len(raw_name)}, _spookygen_types[{type_to_id[type]}], context, &invocation));\n',
+				'\n',
+			])
+		else:
+			source_file.writelines([
+				'\tif (!invocation) {\n',
+				'\t\teve_channel_t* channel = NULL;\n',
+				'\t\tsys_mutex_lock(&_spookygen_client_mutex);\n',
+				'\t\tif (!_spookygen_channel) {\n',
+			])
+
+			if default_server_name == None:
+				source_file.write('\t\t\tsys_abort();\n')
+			else:
+				source_file.write(f'\t\t\tsys_abort_status_log({root_interface_name}_init_explicit_locked({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, eve_loop_get_main()));\n')
+
+			source_file.writelines([
+				'\t\t}\n',
+				'\t\tchannel = _spookygen_channel;\n',
+				'\t\tsys_abort_status_log(eve_retain(channel));\n',
+				'\t\tsys_mutex_unlock(&_spookygen_client_mutex);\n',
+				f'\t\tsys_abort_status_log(spooky_invocation_create({json.dumps(raw_name)}, {len(raw_name)}, _spookygen_types[{type_to_id[type]}], channel, &invocation));\n',
+				'\t\teve_release(channel);\n',
+				'\t}\n',
+				'\n',
+			])
 
 	for index, param in enumerate(params):
 		if param.direction == Direction.OUT:
@@ -712,7 +778,7 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 			continue
 
 		if isinstance(param.type, BasicType):
-			retain_arg = ", true" if param.type.tag == BasicTypeTag.data else ""
+			retain_arg = ", true" if (param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy) else ""
 			source_file.write(f'\tsys_abort_status_log(spooky_invocation_get_{param.type.tag.name}(invocation, {index}{retain_arg}, arg{index}));\n')
 		elif isinstance(param.type, StructureType):
 			source_file.write(f'\tsize_t arg{index}_size = sizeof(*arg{index});\n')
@@ -726,34 +792,40 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 	source_file.write('\tspooky_release(invocation);\n')
 	source_file.write('};\n\n')
 
-for function in functions:
-	type = cast(FunctionType, id_to_type[function.type_id])
+for interface in interfaces:
+	for function in interface.functions:
+		type = cast(FunctionType, id_to_type[function.type_id])
 
-	if args.server:
-		write_incoming_function_wrapper(f'_spookygen_impl_{function.name}', type, f'{function.name}_impl')
-	else:
-		write_outgoing_function_wrapper(f'_spookygen_internal_{function.name}', type, function.name)
+		is_root_interface = interface.name == root_interface_name
 
-		source_file.write(f'void {function.name}(void* _spookygen_context')
-		write_parameters(source_file, function.name, function.parameters, False)
-		source_file.write(') {\n')
-		source_file.write(f'\t_spookygen_internal_{function.name}(_spookygen_context')
-		for param in function.parameters:
-			if isinstance(param.type, BasicType):
-				source_file.write(f', {param.name}')
-			elif isinstance(param.type, StructureType):
-				const_str = "const " if param.direction == Direction.IN else ""
-				source_file.write(f', ({const_str}void*){param.name}')
-			elif isinstance(param.type, FunctionType):
-				source_file.write(f', (void*){param.name}, _context_{param.name}')
-		source_file.write(');\n')
-		source_file.write('};\n\n')
+		if args.server or not is_root_interface:
+			write_incoming_function_wrapper(f'_spookygen_impl_{interface.name}_{function.name}', type, f'{interface.name}_{function.name}_impl', interface.name == root_interface_name, function.name)
+
+		if not args.server or not is_root_interface:
+			write_outgoing_function_wrapper(f'_spookygen_internal_{interface.name}_{function.name}', type, f'{interface.name}_{function.name}', interface.name == root_interface_name, function.name)
+
+			source_file.write(f'void {interface.name}_{function.name}(void* _spookygen_context')
+			write_parameters(source_file, f'{interface.name}_{function.name}', function.parameters, False)
+			source_file.write(') {\n')
+			source_file.write(f'\t_spookygen_internal_{interface.name}_{function.name}(_spookygen_context')
+			for param in function.parameters:
+				if isinstance(param.type, BasicType):
+					source_file.write(f', {param.name}')
+				elif isinstance(param.type, StructureType):
+					const_str = "const " if param.direction == Direction.IN else ""
+					source_file.write(f', ({const_str}void*){param.name}')
+				elif isinstance(param.type, FunctionType):
+					source_file.write(f', (void*){param.name}, _context_{param.name}')
+			source_file.write(');\n')
+			source_file.write('};\n\n')
 
 if args.server:
-	header_file.write(f'spooky_interface_t* {interface_name}_interface(void);\n')
+	root_interface = [x for x in interfaces if x.name == root_interface_name][0]
+
+	header_file.write(f'spooky_interface_t* {root_interface_name}_interface(void);\n')
 	if default_server_name != None:
-		header_file.write(f'LIBSPOOKY_WUR ferr_t {interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
-	header_file.write(f'LIBSPOOKY_WUR ferr_t {interface_name}_serve_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
+		header_file.write(f'LIBSPOOKY_WUR ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
+	header_file.write(f'LIBSPOOKY_WUR ferr_t {root_interface_name}_serve_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
 
 	source_file.writelines([
 		'static void _spookygen_server_handler(void* context, eve_server_channel_t* server_channel, sys_channel_t* channel) {\n',
@@ -763,15 +835,15 @@ if args.server:
 
 	if default_server_name != None:
 		source_file.writelines([
-			f'ferr_t {interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
-			f'\treturn {interface_name}_serve_explicit({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, loop, out_server_channel);\n',
+			f'ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
+			f'\treturn {root_interface_name}_serve_explicit({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, loop, out_server_channel);\n',
 			'};\n\n',
 		])
 
 	source_file.writelines([
-		f'ferr_t {interface_name}_serve_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
+		f'ferr_t {root_interface_name}_serve_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
 		'\tferr_t status = ferr_ok;\n',
-		f'\tspooky_interface_entry_t entries[{len(functions)}];\n',
+		f'\tspooky_interface_entry_t entries[{len(root_interface.functions)}];\n',
 		'\tsys_server_channel_t* sys_server_channel = NULL;\n',
 		'\n',
 		'\t_spookygen_ensure_init();\n',
@@ -786,19 +858,19 @@ if args.server:
 	])
 
 	idx = 0
-	for function in functions:
+	for function in root_interface.functions:
 		source_file.writelines([
 			f'\tentries[{idx}].name = {json.dumps(function.name)};\n',
 			f'\tentries[{idx}].name_length = {len(function.name)};\n',
 			f'\tentries[{idx}].function = _spookygen_types[{function.type_id}];\n',
-			f'\tentries[{idx}].implementation = _spookygen_impl_{function.name};\n',
+			f'\tentries[{idx}].implementation = _spookygen_impl_{root_interface_name}_{function.name};\n',
 			f'\tentries[{idx}].context = NULL;\n',
 		])
 		idx += 1
 
 	source_file.writelines([
 		'\n',
-		f'\tstatus = spooky_interface_create(entries, {len(functions)}, &_spookygen_interface);\n',
+		f'\tstatus = spooky_interface_create(entries, {len(root_interface.functions)}, &_spookygen_interface);\n',
 		'\tif (status != ferr_ok) {\n',
 		'\t\tgoto out;\n'
 		'\t}\n',
@@ -845,13 +917,13 @@ if args.server:
 	])
 else:
 	if default_server_name != None:
-		header_file.write(f'LIBSPOOKY_WUR ferr_t {interface_name}_init(eve_loop_t* loop);\n')
-	header_file.write(f'LIBSPOOKY_WUR ferr_t {interface_name}_init_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop);\n')
+		header_file.write(f'LIBSPOOKY_WUR ferr_t {root_interface_name}_init(eve_loop_t* loop);\n')
+	header_file.write(f'LIBSPOOKY_WUR ferr_t {root_interface_name}_init_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop);\n')
 
 	if default_server_name != None:
 		source_file.writelines([
-			f'ferr_t {interface_name}_init(eve_loop_t* loop) {{\n',
-			f'\treturn {interface_name}_init_explicit({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, loop);\n',
+			f'ferr_t {root_interface_name}_init(eve_loop_t* loop) {{\n',
+			f'\treturn {root_interface_name}_init_explicit({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, loop);\n',
 			'};\n\n',
 		])
 
@@ -878,7 +950,7 @@ else:
 	])
 
 	source_file.writelines([
-		f'static ferr_t {interface_name}_init_explicit_locked(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop) {{\n',
+		f'static ferr_t {root_interface_name}_init_explicit_locked(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop) {{\n',
 		'\tferr_t status = ferr_ok;\n',
 		'\tsys_channel_t* sys_channel = NULL;\n',
 		'\n',
@@ -925,10 +997,83 @@ else:
 	])
 
 	source_file.writelines([
-		f'ferr_t {interface_name}_init_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop) {{\n',
+		f'ferr_t {root_interface_name}_init_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop) {{\n',
 		f'\tsys_mutex_lock(&_spookygen_client_mutex);\n',
-		f'\tferr_t status = {interface_name}_init_explicit_locked(name, name_length, realm, loop);\n',
+		f'\tferr_t status = {root_interface_name}_init_explicit_locked(name, name_length, realm, loop);\n',
 		'\tsys_mutex_unlock(&_spookygen_client_mutex);\n',
+		'\treturn status;\n',
+		'};\n\n',
+	])
+
+for interface in interfaces:
+	if interface.name == root_interface_name:
+		continue
+
+	header_file.write(f'\nferr_t {interface.name}_create_proxy(const {interface.name}_proxy_info_t* info, spooky_proxy_t** out_proxy);\n')
+
+	source_file.writelines([
+		f'void {interface.name}_proxy_destructor(void* context) {{\n',
+		f'\t{interface.name}_proxy_info_t* info = context;\n',
+		'\tif (info->destructor) {\n',
+		'\t\tinfo->destructor(info->context);\n',
+		'\t}\n',
+		'\tLIBSPOOKY_WUR_IGNORE(sys_mempool_free(context));\n',
+		'};\n\n',
+	])
+
+	source_file.writelines([
+		f'ferr_t {interface.name}_create_proxy(const {interface.name}_proxy_info_t* info, spooky_proxy_t** out_proxy) {{\n',
+		'\tferr_t status = ferr_ok;\n',
+		f'\tspooky_proxy_interface_t* proxy_interface = NULL;\n',
+		f'\tspooky_proxy_interface_entry_t entries[{len(interface.functions)}];\n',
+		f'\t{interface.name}_proxy_info_t* copy = NULL;\n',
+		'\n',
+		'\t_spookygen_ensure_init();\n',
+		'\n',
+		'\tstatus = sys_mempool_allocate(sizeof(*copy), NULL, (void*)&copy);\n',
+		'\tif (status != ferr_ok) {\n',
+		'\t\tgoto out;\n',
+		'\t}\n',
+		'\n',
+		'\tsimple_memcpy(copy, info, sizeof(*copy));\n',
+		'\n',
+	])
+
+	idx = 0
+	for function in interface.functions:
+		source_file.writelines([
+			f'\tentries[{idx}].name = {json.dumps(function.name)};\n',
+			f'\tentries[{idx}].name_length = {len(function.name)};\n',
+			f'\tentries[{idx}].function = _spookygen_types[{function.type_id}];\n',
+			f'\tentries[{idx}].implementation = _spookygen_impl_{interface.name}_{function.name};\n',
+		])
+		idx += 1
+
+	source_file.writelines([
+		'\n',
+		f'\tstatus = spooky_proxy_interface_create(entries, {len(interface.functions)}, &proxy_interface);\n',
+		'\tif (status != ferr_ok) {\n',
+		'\t\tgoto out;\n',
+		'\t}\n',
+		'\n',
+		f'\tstatus = spooky_proxy_create(proxy_interface, copy, {interface.name}_proxy_destructor, out_proxy);\n',
+		'\tif (status != ferr_ok) {\n',
+		'\t\tgoto out;\n',
+		'\t}\n',
+		'\n',
+		'out:\n',
+		'\tif (status == ferr_ok) {\n',
+		'\t\t// nothing for now\n',
+		'\t} else {\n',
+		'\t\tif (copy) {\n',
+		'\t\t\tLIBSPOOKY_WUR_IGNORE(sys_mempool_free(copy));\n',
+		'\t\t}\n',
+		'\t}\n',
+		'\n',
+		'\tif (proxy_interface) {\n',
+		'\t\tspooky_release(proxy_interface);\n',
+		'\t}\n',
+		'\n',
 		'\treturn status;\n',
 		'};\n\n',
 	])
