@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2022 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,23 +16,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBSYS_LIBSYS_PRIVATE_H_
-#define _LIBSYS_LIBSYS_PRIVATE_H_
+#ifndef _LIBSYS_MEMPOOL_PRIVATE_H_
+#define _LIBSYS_MEMPOOL_PRIVATE_H_
 
-#include <libsys/libsys.h>
+#include <libsys/mempool.h>
+#include <libsys/locks.h>
+#include <libsimple/mempool.h>
 
-#include <libsys/channels.private.h>
-#include <libsys/console.private.h>
-#include <libsys/counters.private.h>
-#include <libsys/general.private.h>
-#include <libsys/handoff.private.h>
-#include <libsys/locks.private.h>
-#include <libsys/mempool.private.h>
-#include <libsys/monitors.private.h>
-#include <libsys/objects.private.h>
-#include <libsys/pages.private.h>
-#include <libsys/processes.private.h>
-#include <libsys/threads.private.h>
-#include <libsys/timeout.private.h>
+extern sys_mutex_t mempool_global_lock;
+extern simple_mempool_instance_t mempool_main_instance;
 
-#endif // _LIBSYS_LIBSYS_PRIVATE_H_
+void sys_mempool_handoff(sys_mutex_t* lock, simple_mempool_instance_t* instance);
+
+#endif // _LIBSYS_MEMPOOL_PRIVATE_H_

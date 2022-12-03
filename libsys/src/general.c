@@ -20,11 +20,35 @@
 #include <gen/libsyscall/syscall-wrappers.h>
 #include <libsimple/libsimple.h>
 #include <libsys/console.private.h>
+#include <libsys/threads.private.h>
+#include <libsys/processes.private.h>
 
 ferr_t sys_init(void) {
 	ferr_t status = ferr_ok;
 
 	status = sys_console_init();
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	return status;
+};
+
+ferr_t sys_init_full(void) {
+	ferr_t status = ferr_ok;
+
+	status = sys_init();
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = sys_thread_init();
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = sys_proc_init();
 	if (status != ferr_ok) {
 		goto out;
 	}

@@ -25,9 +25,17 @@ add_anillo_dylib(libspooky
 )
 
 add_library(libspooky_static STATIC ${libspooky_sources})
+add_library(libspooky_dymple STATIC ${libspooky_sources})
+
+target_compile_definitions(libspooky_dymple PRIVATE
+	BUILDING_DYMPLE=1
+)
 
 set_target_properties(libspooky_static PROPERTIES
 	OUTPUT_NAME spooky
+)
+set_target_properties(libspooky_dymple PROPERTIES
+	OUTPUT_NAME spooky_dymple
 )
 
 target_link_libraries(libspooky PUBLIC
@@ -39,6 +47,10 @@ target_link_libraries(libspooky_static PUBLIC
 	libsys_static
 	libeve_static
 )
+target_link_libraries(libspooky_dymple PUBLIC
+	libsys_dymple
+	libeve_dymple
+)
 
 target_link_libraries(libspooky PRIVATE
 	libsimple
@@ -47,6 +59,10 @@ target_link_libraries(libspooky PRIVATE
 target_link_libraries(libspooky_static PRIVATE
 	libsimple_static
 )
+target_link_libraries(libspooky_dymple PRIVATE
+	libsimple_dymple
+)
 
 target_include_directories(libspooky PUBLIC ${libspooky_includes})
 target_include_directories(libspooky_static PUBLIC ${libspooky_includes})
+target_include_directories(libspooky_dymple PUBLIC ${libspooky_includes})

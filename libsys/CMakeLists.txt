@@ -43,9 +43,18 @@ add_anillo_dylib(libsys
 		${libsys_sources}
 )
 add_library(libsys_static STATIC ${libsys_sources})
+add_library(libsys_dymple STATIC ${libsys_sources})
+
+target_compile_definitions(libsys_dymple PRIVATE
+	BUILDING_DYMPLE=1
+)
 
 set_target_properties(libsys_static PROPERTIES
 	OUTPUT_NAME sys
+)
+
+set_target_properties(libsys_dymple PROPERTIES
+	OUTPUT_NAME sys_dymple
 )
 
 target_link_libraries(libsys PUBLIC
@@ -54,6 +63,12 @@ target_link_libraries(libsys PUBLIC
 	ferro_headers_uapi
 )
 target_link_libraries(libsys_static PUBLIC
+	${libsys_libs}
+	libsimple_static
+	libsimple_static_compat
+	ferro_headers_uapi
+)
+target_link_libraries(libsys_dymple PUBLIC
 	${libsys_libs}
 	libsimple_static
 	libsimple_static_compat
@@ -76,12 +91,17 @@ target_compile_options(libsys PRIVATE
 target_compile_options(libsys_static PRIVATE
 	-fno-omit-frame-pointer
 )
+target_compile_options(libsys_dymple PRIVATE
+	-fno-omit-frame-pointer
+)
 
 target_include_directories(libsys PUBLIC ${libsys_includes})
 target_include_directories(libsys_static PUBLIC ${libsys_includes})
+target_include_directories(libsys_dymple PUBLIC ${libsys_includes})
 
 target_include_directories(libsys PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 target_include_directories(libsys_static PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
+target_include_directories(libsys_dymple PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 
 add_library(libsys_headers INTERFACE)
 target_include_directories(libsys_headers INTERFACE ${libsys_includes})
@@ -96,3 +116,4 @@ calculate_offsets_base(libsys_offsets resources/offsets.c include/libsys/gen/off
 
 add_dependencies(libsys libsys_offsets)
 add_dependencies(libsys_static libsys_offsets)
+add_dependencies(libsys_dymple libsys_offsets)

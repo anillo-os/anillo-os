@@ -21,6 +21,8 @@
 
 #include <libsys/base.h>
 #include <libsys/console.private.h>
+#include <libsimple/mempool.h>
+#include <libsys/locks.h>
 
 #include <ferro/error.h>
 
@@ -28,6 +30,8 @@ LIBSYS_DECLARATIONS_BEGIN;
 
 LIBSYS_STRUCT(sys_handoff_context) {
 	sys_stream_handle_t console_stream_handle;
+	sys_mutex_t* mempool_lock;
+	simple_mempool_instance_t* mempool_main_instance;
 };
 
 /**

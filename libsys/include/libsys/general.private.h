@@ -24,6 +24,7 @@
 LIBSYS_DECLARATIONS_BEGIN;
 
 ferr_t sys_init(void);
+ferr_t sys_init_full(void);
 
 LIBSYS_DECLARATIONS_END;
 

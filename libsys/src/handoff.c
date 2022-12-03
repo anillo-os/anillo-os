@@ -19,9 +19,12 @@
 #include <libsys/handoff.private.h>
 #include <libsys/threads.private.h>
 #include <libsys/processes.private.h>
+#include <libsys/mempool.private.h>
 
 ferr_t sys_handoff_source(sys_handoff_context_t* context) {
 	context->console_stream_handle = console_handle;
+	context->mempool_lock = &mempool_global_lock;
+	context->mempool_main_instance = &mempool_main_instance;
 	return ferr_ok;
 };
 

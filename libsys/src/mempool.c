@@ -27,12 +27,19 @@
 #include <libsys/console.h>
 #include <libsys/threads.h>
 
-static sys_mutex_t sys_mempool_global_lock = SYS_MUTEX_INIT;
+sys_mutex_t mempool_global_lock = SYS_MUTEX_INIT;
+static sys_mutex_t* handed_off_global_lock = NULL;
 
-static simple_mempool_instance_t main_instance;
+simple_mempool_instance_t mempool_main_instance;
 static simple_mempool_instance_t physically_contiguous_instance;
+static simple_mempool_instance_t* handed_off_main_instance = NULL;
 
 static sys_once_t sys_mempool_init_token = SYS_ONCE_INITIALIZER;
+
+void sys_mempool_handoff(sys_mutex_t* lock, simple_mempool_instance_t* instance) {
+	handed_off_global_lock = lock;
+	handed_off_main_instance = instance;
+};
 
 FERRO_ALWAYS_INLINE uintptr_t region_boundary(uintptr_t start, size_t length, uint8_t boundary_alignment_power) {
 	if (boundary_alignment_power > 63) {
@@ -134,7 +141,7 @@ static simple_mempool_instance_options_t options = {
 
 static void sys_mempool_do_init(void* context) {
 	options.page_size = sys_config_read_page_size();
-	sys_abort_status(simple_mempool_instance_init(&main_instance, NULL, &main_allocator, &options));
+	sys_abort_status(simple_mempool_instance_init(&mempool_main_instance, NULL, &main_allocator, &options));
 	sys_abort_status(simple_mempool_instance_init(&physically_contiguous_instance, NULL, &physically_contiguous_allocator, &options));
 };
 
@@ -143,11 +150,11 @@ static void sys_mempool_ensure_init(void) {
 };
 
 LIBSYS_ALWAYS_INLINE void sys_mempool_lock(void) {
-	sys_mutex_lock_sigsafe(&sys_mempool_global_lock);
+	sys_mutex_lock_sigsafe(&mempool_global_lock);
 };
 
 LIBSYS_ALWAYS_INLINE void sys_mempool_unlock(void) {
-	sys_mutex_unlock_sigsafe(&sys_mempool_global_lock);
+	sys_mutex_unlock_sigsafe(&mempool_global_lock);
 };
 
 ferr_t sys_mempool_allocate(size_t byte_count, size_t* out_allocated_byte_count, void** out_address) {
@@ -170,12 +177,22 @@ ferr_t sys_mempool_free(void* address) {
 	sys_mempool_ensure_init();
 
 	sys_mempool_lock();
-	status = simple_mempool_free(&main_instance, address);
+	status = simple_mempool_free(&mempool_main_instance, address);
 	if (status != ferr_ok) {
 		// now try the physically contiguous instance
 		status = simple_mempool_free(&physically_contiguous_instance, address);
 	}
 	sys_mempool_unlock();
+
+	// try the handed-off instance
+	//
+	// this allows us to free memory allocated in the dynamic linker;
+	// this is necessary to e.g. release and destroy objects created in the dynamic linker.
+	if (status != ferr_ok && handed_off_global_lock) {
+		sys_mutex_lock(handed_off_global_lock);
+		status = simple_mempool_free(handed_off_main_instance, address);
+		sys_mutex_unlock(handed_off_global_lock);
+	}
 
 	return status;
 };
@@ -184,7 +201,7 @@ static void find_target_instance(sys_mempool_flags_t flags, simple_mempool_insta
 	if (flags & sys_mempool_flag_physically_contiguous) {
 		*out_instance = &physically_contiguous_instance;
 	} else {
-		*out_instance = &main_instance;
+		*out_instance = &mempool_main_instance;
 	}
 };
 
@@ -205,8 +222,8 @@ out:
 };
 
 static bool find_source_instance(void* address, simple_mempool_instance_t** out_instance) {
-	if (simple_mempool_belongs_to_instance(&main_instance, address)) {
-		*out_instance = &main_instance;
+	if (simple_mempool_belongs_to_instance(&mempool_main_instance, address)) {
+		*out_instance = &mempool_main_instance;
 		return true;
 	} else if (simple_mempool_belongs_to_instance(&physically_contiguous_instance, address)) {
 		*out_instance = &physically_contiguous_instance;
