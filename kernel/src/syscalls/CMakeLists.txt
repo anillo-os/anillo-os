@@ -12,13 +12,6 @@ add_library(ferro_syscalls STATIC
 	page_protect.c
 	page_shared.c
 	page_translate.c
-	fd_open_special.c
-	fd_close.c
-	fd_read.c
-	fd_write.c
-	fd_copy_path.c
-	fd_list_children.c
-	fd_open.c
 	thread_create.c
 	thread_id.c
 	thread_kill.c

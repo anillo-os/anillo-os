@@ -381,6 +381,26 @@ retry_lookup:
 
 	simple_memset(data->saved_syscall_context, 0, sizeof(*data->saved_syscall_context) + FTHREAD_EXTRA_SAVE_SIZE);
 
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	farch_xsave_area_legacy_t* xsave_legacy;
+
+	data->saved_syscall_context->rsp = (uintptr_t)data->user_stack_base + data->user_stack_size;
+	data->saved_syscall_context->cs = (farch_int_gdt_index_code_user * 8) | 3;
+	data->saved_syscall_context->ss = (farch_int_gdt_index_data_user * 8) | 3;
+
+	// set the reserved bit (bit 1) and the interrupt-enable bit (bit 9)
+	data->saved_syscall_context->rflags = (1ULL << 1) | (1ULL << 9);
+
+	// initialize MXCSR
+	xsave_legacy = (void*)data->saved_syscall_context->xsave_area;
+	xsave_legacy->mxcsr = 0x1f80ull | (0xffbfull << 32); // TODO: programmatically determine the xsave mask
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	data->saved_syscall_context->sp = (uintptr_t)data->user_stack_base + data->user_stack_size;
+
+	// leave the DAIF mask bits cleared to enable interrupts
+	data->saved_syscall_context->pstate = farch_thread_pstate_aarch64 | farch_thread_pstate_el0 | farch_thread_pstate_sp0;
+#endif
+
 	if (fthread_register_hook(thread, UTHREAD_HOOK_OWNER_ID, data, &hook_callbacks) == UINT8_MAX) {
 		status = ferr_temporary_outage;
 		goto out_locked;

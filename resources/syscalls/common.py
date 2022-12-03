@@ -183,6 +183,21 @@ structures.extend([
 		('base', '*'),
 		('size', 'u64'),
 	]),
+	Structure('memory_region', [
+		('start', '*'),
+		('length', 'u64'),
+	]),
+	Structure('process_memory_region', [
+		('source', 's:memory_region'),
+		('destination', '*'),
+	]),
+	Structure('process_create_info', [
+		('regions', '*c[s:process_memory_region]'),
+		('region_count', 'u64'),
+		('thread_context', '*c[!ferro_thread_context_t]'),
+		('descriptors', '*c[u64]'),
+		('descriptor_count', 'u64'),
+	]),
 ])
 
 (syscalls
@@ -196,15 +211,6 @@ structures.extend([
 	.add_syscall('page_bind_shared', mapping_id='u64', page_count='u64', page_offset_count='u64', address='*')
 	.add_syscall('page_translate', address='*c', out_phys_address='*[u64]')
 	.add_syscall('page_protect', address='*c', page_count='u64', permissions='e:page_permissions')
-	.add_syscall('fd_open_special', special_id='u64', out_fd='*[u64]')
-	.add_syscall('fd_close', fd='u64')
-	.add_syscall('fd_read', fd='u64', offset='u64', desired_length='u64', out_buffer='*', out_read_length='*[u64]')
-	.add_syscall('fd_write', fd='u64', offset='u64', desired_length='u64', buffer='*c', out_written_length='*[u64]')
-	.add_syscall('fd_copy_path', fd='u64', buffer_size='u64', out_buffer='mut_string', out_actual_size='*[u64]')
-	.add_syscall('fd_list_children_init', fd='u64', out_context='*[u64]')
-	.add_syscall('fd_list_children_finish', context='u64')
-	.add_syscall('fd_list_children', context='u64', string_size='u64', out_string='*', out_read_count='*[u64]')
-	.add_syscall('fd_open', path='string', path_length='u64', flags='u64', out_fd='*[u64]')
 	.add_syscall('thread_create', stack='*', stack_size='u64', entry='*c', out_thread_id='*[u64]')
 	.add_syscall('thread_id', out_thread_id='*[u64]')
 	.add_syscall('thread_kill', thread_id='u64')
@@ -221,11 +227,12 @@ structures.extend([
 	.add_syscall('futex_wait', address='*[u64]', channel='u64', expected_value='u64', timeout='u64', timeout_type='e:timeout_type', flags='u64')
 	.add_syscall('futex_wake', address='*[u64]', channel='u64', wakeup_count='u64', flags='u64')
 	.add_syscall('futex_associate', address='*[u64]', channel='u64', event='u64', value='u64')
-	.add_syscall('process_create', fd='u64', context_block='*c', context_block_size='u64', out_process_id='*[u64]')
-	.add_syscall('process_id', out_process_id='*[u64]')
-	.add_syscall('process_kill', process_id='u64')
-	.add_syscall('process_suspend', process_id='u64')
-	.add_syscall('process_resume', process_id='u64')
+	.add_syscall('process_create', info='*c[s:process_create_info]', out_process_handle='*[u64]')
+	.add_syscall('process_current', out_process_handle='*[u64]')
+	.add_syscall('process_id', process_handle='u64', out_process_id='*[u64]')
+	.add_syscall('process_kill', process_handle='u64')
+	.add_syscall('process_suspend', process_handle='u64')
+	.add_syscall('process_resume', process_handle='u64')
 	.add_syscall('server_channel_create', channel_name='string', channel_name_length='u64', realm='e:channel_realm', out_server_channel_id='*[u64]')
 	.add_syscall('server_channel_accept', server_channel_id='u64', flags='!fchannel_server_accept_flags_t', out_channel_id='*[u64]')
 	.add_syscall('server_channel_close', server_channel_id='u64', release_descriptor='u8')

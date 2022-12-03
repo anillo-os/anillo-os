@@ -36,17 +36,16 @@ void ferro_userspace_entry(void) {
 
 	fconsole_log("Loading init process...\n");
 
-	// TESTING
-	fvfs_descriptor_t* sysman_desc = NULL;
-	fpanic_status(fvfs_open("/sys/sysman/sysman", fvfs_descriptor_flag_read | fvfs_descriptor_flags_execute, &sysman_desc));
+	fvfs_descriptor_t* vfsman_desc = NULL;
+	fpanic_status(fvfs_open("/sys/vfsman/vfsman", fvfs_descriptor_flag_read | fvfs_descriptor_flags_execute, &vfsman_desc));
 
 	fproc_t* proc = NULL;
-	fpanic_status(fproc_new(sysman_desc, NULL, &proc));
+	fpanic_status(fproc_new(vfsman_desc, NULL, &proc));
 
 	fpanic_status(fprocreg_register(proc));
 
 	fpanic_status(fproc_resume(proc));
 
-	fvfs_release(sysman_desc);
+	fvfs_release(vfsman_desc);
 	fproc_release(proc);
 };

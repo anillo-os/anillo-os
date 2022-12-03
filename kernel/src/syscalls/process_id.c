@@ -19,13 +19,31 @@
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/userspace/processes.h>
 
-ferr_t fsyscall_handler_process_id(uint64_t* out_process_id) {
-	fproc_t* curr = fproc_current();
+extern const fproc_descriptor_class_t fsyscall_proc_class;
+
+ferr_t fsyscall_handler_process_id(uint64_t process_handle, uint64_t* out_process_id) {
+	ferr_t status = ferr_ok;
+	const fproc_descriptor_class_t* desc_class = NULL;
+	fproc_t* proc = NULL;
+
+	status = fproc_lookup_descriptor(fproc_current(), process_handle, true, (void*)&proc, &desc_class);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (desc_class != &fsyscall_proc_class) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
 
 	// TODO: check that `out_process_id` is valid before using it
 	// actually, TODO: don't perform direct memory access on userspace addresses
 
-	*out_process_id = curr->id;
+	*out_process_id = proc->id;
 
-	return ferr_ok;
+out:
+	if (proc) {
+		fproc_release(proc);
+	}
+	return status;
 };

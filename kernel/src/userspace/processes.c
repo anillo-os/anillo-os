@@ -193,11 +193,20 @@ void fproc_uthread_destroyed(void* context) {
 	fproc_release(proc);
 };
 
+FERRO_NO_RETURN
+extern void farch_uthread_syscall_exit_preserve_all(const fthread_saved_context_t* context);
+
 static void fproc_thread_init(void* context) {
 	fproc_t* proc = context;
-	void* address = proc->binary_info->interpreter_entry_address ? proc->binary_info->interpreter_entry_address : proc->binary_info->entry_address;
 
-	futhread_jump_user_self(address);
+	if (proc->binary_descriptor) {
+		void* address = proc->binary_info->interpreter_entry_address ? proc->binary_info->interpreter_entry_address : proc->binary_info->entry_address;
+		futhread_jump_user_self(address);
+	} else {
+		// jump into the frame that's already been set up
+		fint_disable();
+		farch_uthread_syscall_exit_preserve_all(FARCH_PER_CPU(current_uthread_data)->saved_syscall_context);
+	}
 };
 
 static void fproc_parent_process_died(void* context) {
@@ -261,10 +270,12 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t* parent_process, fp
 		goto out;
 	}
 
-	// load the binary into the address space
-	status = fuloader_load_file(file_descriptor, &proc->space, &proc->binary_info);
-	if (status != ferr_ok) {
-		goto out;
+	if (file_descriptor) {
+		// load the binary into the address space
+		status = fuloader_load_file(file_descriptor, &proc->space, &proc->binary_info);
+		if (status != ferr_ok) {
+			goto out;
+		}
 	}
 
 	// create the first thread
@@ -284,11 +295,13 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t* parent_process, fp
 		goto out;
 	}
 
-	if (fvfs_retain(file_descriptor) != ferr_ok) {
-		status = ferr_invalid_argument;
-		goto out;
+	if (file_descriptor) {
+		if (fvfs_retain(file_descriptor) != ferr_ok) {
+			status = ferr_invalid_argument;
+			goto out;
+		}
+		proc->binary_descriptor = file_descriptor;
 	}
-	proc->binary_descriptor = file_descriptor;
 
 	if (simple_ghmap_init(&proc->descriptor_table, 16, sizeof(fproc_descriptor_entry_t), simple_ghmap_allocate_mempool, simple_ghmap_free_mempool, NULL, NULL, NULL, NULL, NULL, NULL) != ferr_ok) {
 		status = ferr_temporary_outage;

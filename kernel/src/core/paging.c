@@ -3062,10 +3062,15 @@ ferr_t fpage_space_reserve_any(fpage_space_t* space, size_t page_count, void** o
 	return ferr_ok;
 };
 
-ferr_t fpage_space_insert_mapping(fpage_space_t* space, fpage_mapping_t* mapping, size_t page_offset, size_t page_count, uint8_t alignment_power, fpage_flags_t flags, void** out_virtual_address) {
+ferr_t fpage_space_insert_mapping(fpage_space_t* space, fpage_mapping_t* mapping, size_t page_offset, size_t page_count, uint8_t alignment_power, void* virtual_address, fpage_flags_t flags, void** out_virtual_address) {
 	ferr_t status = ferr_ok;
 	fpage_space_mapping_t* space_mapping = NULL;
 	void* alloc_addr = NULL;
+
+	if (!out_virtual_address && !virtual_address) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
 
 	status = fpage_mapping_retain(mapping);
 	if (status != ferr_ok) {
@@ -3078,14 +3083,30 @@ ferr_t fpage_space_insert_mapping(fpage_space_t* space, fpage_mapping_t* mapping
 		goto out;
 	}
 
+	// if it's in the buddy allocator's region(s), it's reserved for the buddy allocator and can't be mapped for anyone else
+	// TODO: allow this to be mapped by allocating it with the buddy allocator
+	if (virtual_address && space_region_belongs_to_buddy_allocator(space, virtual_address, page_count)) {
+		status = ferr_temporary_outage;
+		goto out;
+	}
+
 	fpage_prefault_stack(PREFAULT_PAGE_COUNT);
 	flock_spin_intsafe_lock(&space->l4_table_lock);
 
-	alloc_addr = space_allocate_virtual(space, page_count, alignment_power, NULL, false);
-	if (!alloc_addr) {
-		status = ferr_temporary_outage;
-		flock_spin_intsafe_unlock(&space->l4_table_lock);
-		goto out;
+	if (virtual_address) {
+		if (!space_region_is_free(space, (uintptr_t)virtual_address, page_count)) {
+			status = ferr_temporary_outage;
+			flock_spin_intsafe_unlock(&space->l4_table_lock);
+			goto out;
+		}
+		alloc_addr = virtual_address;
+	} else {
+		alloc_addr = space_allocate_virtual(space, page_count, alignment_power, NULL, false);
+		if (!alloc_addr) {
+			status = ferr_temporary_outage;
+			flock_spin_intsafe_unlock(&space->l4_table_lock);
+			goto out;
+		}
 	}
 
 	space_mapping->mapping = mapping;
@@ -3113,9 +3134,11 @@ ferr_t fpage_space_insert_mapping(fpage_space_t* space, fpage_mapping_t* mapping
 
 out:
 	if (status == ferr_ok) {
-		*out_virtual_address = alloc_addr;
+		if (out_virtual_address) {
+			*out_virtual_address = alloc_addr;
+		}
 	} else {
-		if (alloc_addr) {
+		if (!virtual_address && alloc_addr) {
 			space_free_virtual(space, alloc_addr, page_count, false);
 		}
 		if (space_mapping) {

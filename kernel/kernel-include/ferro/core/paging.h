@@ -400,7 +400,7 @@ FERRO_WUR ferr_t fpage_space_free(fpage_space_t* space, void* virtual_address, s
  *                * fpage_flag_prebound
  *                * fpage_flag_zero (whether or not zeroed pages are used is configured when the mapping is created)
  */
-FERRO_WUR ferr_t fpage_space_insert_mapping(fpage_space_t* space, fpage_mapping_t* mapping, size_t page_offset, size_t page_count, uint8_t alignment_power, fpage_flags_t flags, void** out_virtual_address);
+FERRO_WUR ferr_t fpage_space_insert_mapping(fpage_space_t* space, fpage_mapping_t* mapping, size_t page_offset, size_t page_count, uint8_t alignment_power, void* virtual_address, fpage_flags_t flags, void** out_virtual_address);
 FERRO_WUR ferr_t fpage_space_lookup_mapping(fpage_space_t* space, void* address, bool retain, fpage_mapping_t** out_mapping, size_t* out_page_offset, size_t* out_page_count);
 FERRO_WUR ferr_t fpage_space_remove_mapping(fpage_space_t* space, void* virtual_address);
 FERRO_WUR ferr_t fpage_space_move_into_mapping(fpage_space_t* space, void* address, size_t page_count, size_t page_offset, fpage_mapping_t* mapping);

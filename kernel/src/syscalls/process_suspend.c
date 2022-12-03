@@ -19,13 +19,20 @@
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/userspace/process-registry.h>
 
-ferr_t fsyscall_handler_process_suspend(uint64_t process_id) {
+extern const fproc_descriptor_class_t fsyscall_proc_class;
+
+ferr_t fsyscall_handler_process_suspend(uint64_t process_handle) {
 	ferr_t status = ferr_ok;
+	const fproc_descriptor_class_t* desc_class = NULL;
 	fproc_t* proc = NULL;
 
-	status = fprocreg_lookup(process_id, true, &proc);
+	status = fproc_lookup_descriptor(fproc_current(), process_handle, true, (void*)&proc, &desc_class);
 	if (status != ferr_ok) {
-		status = ferr_no_such_resource;
+		goto out;
+	}
+
+	if (desc_class != &fsyscall_proc_class) {
+		status = ferr_invalid_argument;
 		goto out;
 	}
 

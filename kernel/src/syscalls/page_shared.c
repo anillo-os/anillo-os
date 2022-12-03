@@ -44,10 +44,9 @@ ferr_t fsyscall_handler_page_allocate_shared(uint64_t page_count, fsyscall_page_
 out:
 	if (status == ferr_ok) {
 		*out_mapping_id = mapping_id;
-	} else {
-		if (mapping) {
-			fpage_mapping_release(mapping);
-		}
+	}
+	if (mapping) {
+		fpage_mapping_release(mapping);
 	}
 	return status;
 };
@@ -69,7 +68,7 @@ ferr_t fsyscall_handler_page_map_shared(uint64_t mapping_id, uint64_t page_count
 		goto out;
 	}
 
-	status = fpage_space_insert_mapping(fpage_space_current(), mapping, page_offset_count, page_count, alignment_power, fpage_flag_unprivileged, &address);
+	status = fpage_space_insert_mapping(fpage_space_current(), mapping, page_offset_count, page_count, alignment_power, NULL, fpage_flag_unprivileged, &address);
 	if (status != ferr_ok) {
 		goto out;
 	}
