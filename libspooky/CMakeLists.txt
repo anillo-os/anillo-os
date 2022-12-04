@@ -39,16 +39,16 @@ set_target_properties(libspooky_dymple PROPERTIES
 )
 
 target_link_libraries(libspooky PUBLIC
-	libsys
+	libsys_core
 	libeve
 )
 
 target_link_libraries(libspooky_static PUBLIC
-	libsys_static
+	libsys_core_static
 	libeve_static
 )
 target_link_libraries(libspooky_dymple PUBLIC
-	libsys_dymple
+	libsys_core_dymple
 	libeve_dymple
 )
 
@@ -60,9 +60,15 @@ target_link_libraries(libspooky_static PRIVATE
 	libsimple_static
 )
 target_link_libraries(libspooky_dymple PRIVATE
-	libsimple_dymple
+	libsimple_static
 )
 
 target_include_directories(libspooky PUBLIC ${libspooky_includes})
 target_include_directories(libspooky_static PUBLIC ${libspooky_includes})
 target_include_directories(libspooky_dymple PUBLIC ${libspooky_includes})
+
+add_library(libspooky_headers INTERFACE)
+target_include_directories(libspooky_headers INTERFACE ${libspooky_includes})
+target_link_libraries(libspooky_headers INTERFACE
+	libeve_headers
+)

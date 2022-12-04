@@ -28,9 +28,12 @@
 
 LIBSYS_DECLARATIONS_BEGIN;
 
+typedef uint64_t sys_proc_handle_t;
+
 LIBSYS_STRUCT(sys_proc_object) {
 	sys_object_t object;
 	sys_proc_id_t id;
+	sys_proc_handle_t handle;
 	bool detached;
 };
 

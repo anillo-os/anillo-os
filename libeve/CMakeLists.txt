@@ -35,7 +35,7 @@ set_target_properties(libeve_dymple PROPERTIES
 )
 
 target_link_libraries(libeve PUBLIC
-	libsys
+	libsys_core
 
 	# this is cheating (only libsys is supposed to link to libsyscall),
 	# but this allows us to do some pretty cool shenanigans with futex-based libsys synchronization objects
@@ -43,12 +43,12 @@ target_link_libraries(libeve PUBLIC
 )
 
 target_link_libraries(libeve_static PUBLIC
-	libsys_static
+	libsys_core_static
 	libsyscall
 )
 
 target_link_libraries(libeve_dymple PUBLIC
-	libsys_dymple
+	libsys_core_dymple
 	libsyscall
 )
 
@@ -67,3 +67,9 @@ target_link_libraries(libeve_dymple PRIVATE
 target_include_directories(libeve PUBLIC ${libeve_includes})
 target_include_directories(libeve_static PUBLIC ${libeve_includes})
 target_include_directories(libeve_dymple PUBLIC ${libeve_includes})
+
+add_library(libeve_headers INTERFACE)
+target_include_directories(libeve_headers INTERFACE ${libeve_includes})
+target_link_libraries(libeve_headers INTERFACE
+	libsys_headers
+)

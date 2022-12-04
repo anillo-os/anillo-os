@@ -8,11 +8,10 @@ set(libvfs_includes
 	include/public
 )
 
-add_anillo_dylib(libvfs
-	RAMDISK
-	INSTALL_PATH /sys/lib/libvfs.dylib
-	SOURCES
-		${libvfs_sources}
+add_library(libvfs_static STATIC ${libvfs_sources})
+
+set_target_properties(libvfs_static PROPERTIES
+	OUTPUT_NAME vfs
 )
 
 add_anillo_executable(vfsman
@@ -22,34 +21,34 @@ add_anillo_executable(vfsman
 		src/server/vfsman.c
 )
 
-target_include_directories(libvfs PUBLIC
+target_include_directories(libvfs_static PUBLIC
 	include/public
 )
 
-target_include_directories(libvfs PRIVATE
+target_include_directories(libvfs_static PRIVATE
 	"${CMAKE_CURRENT_BINARY_DIR}"
 	include/public
 	include/private
 )
 
-target_include_directories(vfsman PRIVATE
+target_include_directories(libvfs_static PRIVATE
 	"${CMAKE_CURRENT_BINARY_DIR}"
 	include/public
 	include/private
 )
 
-target_link_libraries(libvfs PUBLIC
-	libsys
-	libeve
+target_link_libraries(libvfs_static PUBLIC
+	libsys_headers
+	libeve_headers
 )
 
-target_link_libraries(libvfs PRIVATE
-	libsimple
-	libspooky
+target_link_libraries(libvfs_static PRIVATE
+	libsimple_headers
+	libspooky_headers
 )
 
 target_link_libraries(vfsman PRIVATE
-	libsys_static
+	libsys_core_static
 	libsimple_static
 	libeve_static
 	libspooky_static

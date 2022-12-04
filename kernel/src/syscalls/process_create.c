@@ -210,6 +210,14 @@ ferr_t fsyscall_handler_process_create(const fsyscall_process_create_info_t* inf
 	}
 #endif
 
+	if (info->flags & fsyscall_process_create_flag_use_default_stack) {
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+		data->saved_syscall_context->rsp = (uintptr_t)data->user_stack_base + data->user_stack_size;
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+		data->saved_syscall_context->sp = (uintptr_t)data->user_stack_base + data->user_stack_size;
+#endif
+	}
+
 	//
 	// install the handle in the current process
 	//

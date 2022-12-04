@@ -25,7 +25,6 @@
 
 #include <libsys/base.h>
 #include <ferro/error.h>
-#include <libsys/streams.h>
 #include <libsys/files.h>
 
 LIBSYS_DECLARATIONS_BEGIN;
@@ -36,11 +35,8 @@ LIBSYS_DECLARATIONS_BEGIN;
 	LIBSYS_WUR LIBSYS_PRINTF(_format_index, 0) ferr_t sys_format_out_ ## _name ## _v(__VA_ARGS__, size_t* out_written_count, const char* format, va_list arguments); \
 	LIBSYS_WUR LIBSYS_PRINTF(_format_index, 0) ferr_t sys_format_out_ ## _name ## _nv(__VA_ARGS__, size_t* out_written_count, const char* format, size_t format_length, va_list arguments);
 
-SYS_FORMAT_VARIANTS(stream, 3, 4, 5, sys_stream_t* stream);
-SYS_FORMAT_VARIANTS(stream_handle, 3, 4, 5, sys_stream_handle_t stream_handle);
 SYS_FORMAT_VARIANTS(buffer, 4, 5, 6, void* buffer, size_t buffer_size);
 SYS_FORMAT_VARIANTS(file, 4, 5, 6, sys_file_t* file, uint64_t offset);
-SYS_FORMAT_VARIANTS(fd, 4, 5, 6, sys_fd_t fd, uint64_t offset);
 
 LIBSYS_DECLARATIONS_END;
 

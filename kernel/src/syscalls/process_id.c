@@ -21,6 +21,11 @@
 
 extern const fproc_descriptor_class_t fsyscall_proc_class;
 
+// XXX: this should be in its own file. maybe.
+ferr_t fsyscall_handler_process_current(uint64_t* out_process_handle) {
+	return fproc_install_descriptor(fproc_current(), fproc_current(), &fsyscall_proc_class, out_process_handle);
+};
+
 ferr_t fsyscall_handler_process_id(uint64_t process_handle, uint64_t* out_process_id) {
 	ferr_t status = ferr_ok;
 	const fproc_descriptor_class_t* desc_class = NULL;

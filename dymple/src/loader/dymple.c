@@ -27,6 +27,7 @@
 #define LIBSYS_PATH "/sys/lib/libsys.dylib"
 
 #define SYS_HANDOFF_DESTINATION_SYMBOL_NAME "_sys_handoff_destination"
+#define SYS_INIT_SUPPORT_SYMBOL_NAME "_sys_init_support"
 
 void start(void) __asm__("start");
 
@@ -51,6 +52,7 @@ void start(void) {
 	if (dymple_find_loaded_image_by_name_n(LIBSYS_PATH, sizeof(LIBSYS_PATH) - 1, &libsys_image) == ferr_ok) {
 		sys_handoff_context_t handoff_context;
 		__typeof__(sys_handoff_destination)* sys_handoff_destination_func = NULL;
+		__typeof__(sys_init_support)* sys_init_support_func = NULL;
 
 		dymple_log_debug(dymple_log_category_general, "Going to perform libsys handoff; looking up necessary symbols...\n");
 
@@ -59,7 +61,7 @@ void start(void) {
 			sys_abort();
 		}
 
-		dymple_log_debug(dymple_log_category_general, "Found handoff destination function at %p; begginning handoff...\n", sys_handoff_destination_func);
+		dymple_log_debug(dymple_log_category_general, "Found handoff destination function at %p; beginning handoff...\n", sys_handoff_destination_func);
 
 		if (sys_handoff_source(&handoff_context) != ferr_ok) {
 			dymple_log_error(dymple_log_category_general, "Failed to start libsys handoff\n");
@@ -74,6 +76,18 @@ void start(void) {
 		}
 
 		dymple_log_debug(dymple_log_category_general, "Handoff completed successfully\n");
+
+		if (dymple_resolve_symbol(libsys_image, SYS_INIT_SUPPORT_SYMBOL_NAME, false, (void*)&sys_init_support_func) != ferr_ok) {
+			dymple_log_error(dymple_log_category_general, "Failed to find libsys support initialization function symbol\n");
+			sys_abort();
+		}
+
+		dymple_log_debug(dymple_log_category_general, "Found support initialization function at %p; beginning support initialization...\n", sys_init_support_func);
+
+		if (sys_init_support_func() != ferr_ok) {
+			dymple_log_error(dymple_log_category_general, "Failed to initialize libsys support library\n");
+			sys_abort();
+		}
 	}
 
 	// TODO: run initializers/constructors

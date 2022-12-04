@@ -18,14 +18,12 @@
 
 #include <libsys/console.private.h>
 #include <libsimple/libsimple.h>
-#include <libsys/streams.h>
-#include <libsys/format.h>
+#include <libsys/format.private.h>
 #include <libsys/abort.h>
-
-sys_stream_handle_t console_handle = SYS_STREAM_HANDLE_INVALID;
+#include <gen/libsyscall/syscall-wrappers.h>
 
 ferr_t sys_console_init(void) {
-	return sys_stream_open_special_handle(sys_stream_special_id_console_standard_output, &console_handle);
+	return ferr_ok;
 };
 
 void sys_console_log(const char* string) {
@@ -48,7 +46,8 @@ ferr_t sys_console_log_nc(const char* string, size_t string_length, size_t* out_
 	size_t written_count = 0;
 
 	while (written_count < string_length) {
-		status = sys_stream_write_handle(console_handle, string_length - written_count, &string[written_count], &written_count);
+		status = libsyscall_wrapper_log(&string[written_count], string_length - written_count);
+		written_count += string_length - written_count;
 
 		if (status == ferr_temporary_outage) {
 			if (retry_count >= TEMPORARY_OUTAGE_RETRY_COUNT) {
@@ -111,5 +110,5 @@ ferr_t sys_console_log_fvc(const char* format, size_t* out_written_count, va_lis
 };
 
 ferr_t sys_console_log_fnvc(const char* format, size_t format_length, size_t* out_written_count, va_list arguments) {
-	return sys_format_out_stream_handle_nv(console_handle, out_written_count, format, format_length, arguments);
+	return sys_format_out_console_nv(0, out_written_count, format, format_length, arguments);
 };

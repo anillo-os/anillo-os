@@ -111,6 +111,9 @@ enums.extend([
 	Enum('signal_stack_flags', 'u64', prefix='signal_stack_flag', values=[
 		('clear_on_use', '1 << 0'),
 	]),
+	Enum('process_create_flags', 'u64', prefix='process_create_flag', values=[
+		('use_default_stack', '1 << 0'),
+	]),
 ])
 
 structures.extend([
@@ -195,6 +198,7 @@ structures.extend([
 		('regions', '*c[s:process_memory_region]'),
 		('region_count', 'u64'),
 		('thread_context', '*c[!ferro_thread_context_t]'),
+		('flags', 'e:process_create_flags'),
 		('descriptors', '*c[u64]'),
 		('descriptor_count', 'u64'),
 	]),

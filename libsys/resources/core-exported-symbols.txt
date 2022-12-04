@@ -6,3 +6,4 @@ ___stack_chk_guard
 # private
 _simple_ghmap_allocate_sys_mempool
 _simple_ghmap_free_sys_mempool
+___sys_format_out

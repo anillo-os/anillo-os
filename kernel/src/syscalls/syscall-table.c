@@ -22,7 +22,6 @@
 #include <ferro/core/panic.h>
 
 void fsyscall_init(void) {
-	fsyscall_init_fd_list_children();
 	fsyscall_init_channels();
 };
 

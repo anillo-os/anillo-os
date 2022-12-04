@@ -28,7 +28,8 @@ target_include_directories(dymple PRIVATE
 )
 
 target_link_libraries(dymple PUBLIC
-	libsys_dymple
+	libsys_core_dymple
+	libsys_support_dymple
 	libsimple_static
 	libsimple_static_compat
 	libmacho

@@ -16,17 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <libsys/format.h>
+#include <libsys/format.private.h>
 #include <stdarg.h>
 #include <libsimple/libsimple.h>
-
-/**
- * @retval ferr_ok At least some data was successfully written.
- * @retval ferr_temporary_outage No data was able to written.
- *
- * @note If this function returns ::ferr_ok but `0` is written into @p out_written_count, it will be treated as if ::ferr_temporary_outage had been returned.
- */
-typedef ferr_t (*sys_format_write_f)(void* context, const void* buffer, size_t buffer_length, size_t* out_written_count);
+#include <gen/libsyscall/syscall-wrappers.h>
 
 // this will NOT retry if only part of the buffer was written
 static ferr_t sys_format_write_wrapper(sys_format_write_f write, void* context, const void* buffer, size_t buffer_length, size_t* out_written_count) {
@@ -364,7 +357,7 @@ out:
 	return status;
 };
 
-LIBSYS_WUR static ferr_t sys_format_out(void* context, sys_format_write_f write, size_t* out_written_count, const char* format, size_t format_length, va_list args) {
+ferr_t __sys_format_out(void* context, sys_format_write_f write, size_t* out_written_count, const char* format, size_t format_length, va_list args) {
 	ferr_t status = ferr_ok;
 	sys_format_write_context_t write_context = {
 		.context = context,
@@ -654,50 +647,16 @@ out:
 	return status;
 };
 
-#define SYS_FORMAT_VARIANT_WRAPPER(_name, _context_decl, _context_init, ...) \
-	LIBSYS_STRUCT(sys_format_out_ ## _name ## _context) _context_decl; \
-	static ferr_t sys_format_out_ ## _name ## _write(void* context, const void* buffer, size_t buffer_length, size_t* out_written_count); \
-	ferr_t sys_format_out_ ## _name(__VA_ARGS__, size_t* out_written_count, const char* format, ...) { \
-		sys_format_out_ ## _name ## _context_t context = _context_init; \
-		va_list args; \
-		va_start(args, format); \
-		ferr_t status = sys_format_out(&context, sys_format_out_ ## _name ## _write, out_written_count, format, simple_strlen(format), args); \
-		va_end(args); \
-		return status; \
-	}; \
-	ferr_t sys_format_out_ ## _name ## _n(__VA_ARGS__, size_t* out_written_count, const char* format, size_t format_length, ...) { \
-		sys_format_out_ ## _name ## _context_t context = _context_init; \
-		va_list args; \
-		va_start(args, format_length); \
-		ferr_t status = sys_format_out(&context, sys_format_out_ ## _name ## _write, out_written_count, format, format_length, args); \
-		va_end(args); \
-		return status; \
-	}; \
-	ferr_t sys_format_out_ ## _name ## _v(__VA_ARGS__, size_t* out_written_count, const char* format, va_list arguments) { \
-		sys_format_out_ ## _name ## _context_t context = _context_init; \
-		return sys_format_out(&context, sys_format_out_ ## _name ## _write, out_written_count, format, simple_strlen(format), arguments); \
-	}; \
-	ferr_t sys_format_out_ ## _name ## _nv(__VA_ARGS__, size_t* out_written_count, const char* format, size_t format_length, va_list arguments) { \
-		sys_format_out_ ## _name ## _context_t context = _context_init; \
-		return sys_format_out(&context, sys_format_out_ ## _name ## _write, out_written_count, format, format_length, arguments); \
-	}; \
-	static ferr_t sys_format_out_ ## _name ## _write(void* xcontext, const void* buffer, size_t buffer_length, size_t* out_written_count)
+SYS_FORMAT_VARIANT_WRAPPER(console, {}, {}, int ignored) {
+	SYS_FORMAT_WRITE_HEADER(console);
 
-#define SYS_FORMAT_WRITE_HEADER(_name) \
-	sys_format_out_ ## _name ## _context_t* context = xcontext;
+	ferr_t status = libsyscall_wrapper_log(buffer, buffer_length);
 
-#define SYS_FORMAT_CONTEXT_INIT(...) { __VA_ARGS__ }
+	if (status == ferr_ok) {
+		*out_written_count += buffer_length;
+	}
 
-SYS_FORMAT_VARIANT_WRAPPER(stream, { sys_stream_t* stream; }, SYS_FORMAT_CONTEXT_INIT(stream), sys_stream_t* stream) {
-	SYS_FORMAT_WRITE_HEADER(stream);
-
-	return sys_stream_write(context->stream, buffer_length, buffer, out_written_count);
-};
-
-SYS_FORMAT_VARIANT_WRAPPER(stream_handle, { sys_stream_handle_t stream_handle; }, SYS_FORMAT_CONTEXT_INIT(stream_handle), sys_stream_handle_t stream_handle) {
-	SYS_FORMAT_WRITE_HEADER(stream_handle);
-
-	return sys_stream_write_handle(context->stream_handle, buffer_length, buffer, out_written_count);
+	return status;
 };
 
 SYS_FORMAT_VARIANT_WRAPPER(buffer, { char* buffer; size_t buffer_size; }, SYS_FORMAT_CONTEXT_INIT(buffer, buffer_size), void* buffer, size_t buffer_size) {
@@ -711,28 +670,4 @@ SYS_FORMAT_VARIANT_WRAPPER(buffer, { char* buffer; size_t buffer_size; }, SYS_FO
 	context->buffer_size -= size_to_write;
 
 	return ferr_ok;
-};
-
-SYS_FORMAT_VARIANT_WRAPPER(file, { sys_file_t* file; uint64_t offset; }, SYS_FORMAT_CONTEXT_INIT(file, offset), sys_file_t* file, uint64_t offset) {
-	SYS_FORMAT_WRITE_HEADER(file);
-
-	ferr_t status = sys_file_write(context->file, context->offset, buffer_length, buffer, out_written_count);
-
-	if (status == ferr_ok) {
-		context->offset += *out_written_count;
-	}
-
-	return status;
-};
-
-SYS_FORMAT_VARIANT_WRAPPER(fd, { sys_fd_t fd; uint64_t offset; }, SYS_FORMAT_CONTEXT_INIT(fd), sys_fd_t fd, uint64_t offset) {
-	SYS_FORMAT_WRITE_HEADER(fd);
-
-	ferr_t status = sys_file_write_fd(context->fd, context->offset, buffer_length, buffer, out_written_count);
-
-	if (status == ferr_ok) {
-		context->offset += *out_written_count;
-	}
-
-	return status;
 };

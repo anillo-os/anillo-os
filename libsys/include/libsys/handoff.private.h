@@ -29,7 +29,6 @@
 LIBSYS_DECLARATIONS_BEGIN;
 
 LIBSYS_STRUCT(sys_handoff_context) {
-	sys_stream_handle_t console_stream_handle;
 	sys_mutex_t* mempool_lock;
 	simple_mempool_instance_t* mempool_main_instance;
 };

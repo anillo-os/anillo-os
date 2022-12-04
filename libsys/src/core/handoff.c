@@ -22,7 +22,6 @@
 #include <libsys/mempool.private.h>
 
 ferr_t sys_handoff_source(sys_handoff_context_t* context) {
-	context->console_stream_handle = console_handle;
 	context->mempool_lock = &mempool_global_lock;
 	context->mempool_main_instance = &mempool_main_instance;
 	return ferr_ok;
@@ -31,16 +30,8 @@ ferr_t sys_handoff_source(sys_handoff_context_t* context) {
 ferr_t sys_handoff_destination(sys_handoff_context_t* context) {
 	ferr_t status = ferr_ok;
 
-	console_handle = context->console_stream_handle;
-
 	// thread initialization should be done in the loaded dylib (which is what's being initialized here)
 	status = sys_thread_init();
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	// ditto for process initialization
-	status = sys_proc_init();
 	if (status != ferr_ok) {
 		goto out;
 	}

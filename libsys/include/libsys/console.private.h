@@ -22,13 +22,9 @@
 #include <libsys/console.h>
 #include <ferro/error.h>
 
-#include <libsys/streams.h>
-
 LIBSYS_DECLARATIONS_BEGIN;
 
 LIBSYS_WUR ferr_t sys_console_init(void);
-
-extern sys_stream_handle_t console_handle;
 
 LIBSYS_DECLARATIONS_END;
 

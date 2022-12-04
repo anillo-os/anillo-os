@@ -16,24 +16,50 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBSYS_LIBSYS_PRIVATE_H_
-#define _LIBSYS_LIBSYS_PRIVATE_H_
-
-#include <libsys/libsys.h>
-
-#include <libsys/channels.private.h>
-#include <libsys/console.private.h>
-#include <libsys/counters.private.h>
-#include <libsys/format.private.h>
 #include <libsys/general.private.h>
-#include <libsys/handoff.private.h>
-#include <libsys/locks.private.h>
-#include <libsys/mempool.private.h>
-#include <libsys/monitors.private.h>
-#include <libsys/objects.private.h>
-#include <libsys/pages.private.h>
-#include <libsys/processes.private.h>
+#include <gen/libsyscall/syscall-wrappers.h>
+#include <libsimple/libsimple.h>
+#include <libsys/console.private.h>
 #include <libsys/threads.private.h>
-#include <libsys/timeout.private.h>
 
-#endif // _LIBSYS_LIBSYS_PRIVATE_H_
+ferr_t sys_init(void) {
+	ferr_t status = ferr_ok;
+
+	status = sys_console_init();
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	return status;
+};
+
+ferr_t sys_init_core_full(void) {
+	ferr_t status = ferr_ok;
+
+	status = sys_init();
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = sys_thread_init();
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	return status;
+};
+
+ferr_t sys_kernel_log(const char* message) {
+	return sys_kernel_log_n(message, simple_strlen(message));
+};
+
+ferr_t sys_kernel_log_n(const char* message, size_t message_length) {
+	return libsyscall_wrapper_log(message, message_length);
+};
+
+void sys_exit(int status) {
+	libsyscall_wrapper_exit(status);
+	__builtin_unreachable();
+};
