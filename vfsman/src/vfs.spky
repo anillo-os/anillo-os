@@ -1,0 +1,13 @@
+@interface = vfsman
+@server = "org.anillo.vfsman"
+@realm = global
+
+interface vfsman_file {
+	function read(offset: in u64, size: in u64, buffer: out data, status: out i32)
+	function write(offset: in u64, buffer: in data, status: out i32)
+	function get_path(path: out data, status: out i32)
+}
+
+interface vfsman {
+	function open(path: in data, file: out vfsman_file, status: out i32)
+}

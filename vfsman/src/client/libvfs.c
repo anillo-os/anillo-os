@@ -16,4 +16,190 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-// TODO
+#include <libvfs/libvfs.private.h>
+#include <libsys/objects.private.h>
+#include <libsimple/general.h>
+
+#define SPOOKYGEN_vfsman_STORAGE static
+#include <vfs.client.h>
+#include <vfs.client.c>
+
+ferr_t vfs_retain(vfs_object_t* object) {
+	return sys_retain(object);
+};
+
+void vfs_release(vfs_object_t* object) {
+	return sys_release(object);
+};
+
+const vfs_object_class_t* vfs_object_class(vfs_object_t* object) {
+	return sys_object_class(object);
+};
+
+static void vfs_file_destroy(vfs_object_t* obj) {
+	vfs_file_object_t* file = (void*)obj;
+
+	if (file->proxy) {
+		spooky_release(file->proxy);
+	}
+
+	sys_object_destroy(obj);
+};
+
+static const vfs_object_class_t vfs_file_class = {
+	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
+	.destroy = vfs_file_destroy,
+};
+
+const vfs_object_class_t* vfs_object_class_file(void) {
+	return &vfs_file_class;
+};
+
+ferr_t vfs_open(const char* path, vfs_file_t** out_file) {
+	return vfs_open_n(path, simple_strlen(path), out_file);
+};
+
+ferr_t vfs_open_n(const char* path, size_t length, vfs_file_t** out_file) {
+	ferr_t status = ferr_ok;
+	spooky_data_t* path_data = NULL;
+	vfs_file_object_t* file = NULL;
+	ferr_t open_status = ferr_ok;
+
+	status = sys_object_new(&vfs_file_class, sizeof(*file) - sizeof(file->object), (void*)&file);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	simple_memset((char*)file + sizeof(file->object), 0, sizeof(*file) - sizeof(file->object));
+
+	// yes, spooky_data_create_nocopy takes a non-const pointer, but it's fine.
+	// it doesn't modify the data on its own and none of the functions we call with the data modify it either.
+	status = spooky_data_create_nocopy((void*)path, length, &path_data);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = vfsman_open(NULL, path_data, &file->proxy, &open_status);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = open_status;
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	if (status == ferr_ok) {
+		*out_file = (void*)file;
+	} else if (file) {
+		vfs_release((void*)file);
+	}
+	if (path_data) {
+		spooky_release(path_data);
+	}
+	if (status == ferr_aborted) {
+		status = ferr_should_restart;
+	}
+	return status;
+};
+
+ferr_t vfs_file_read(vfs_file_t* obj, size_t offset, size_t size, void* buffer, size_t* out_read_size) {
+	ferr_t status = ferr_ok;
+	vfs_file_object_t* file = (void*)obj;
+	spooky_data_t* buffer_data = NULL;
+	ferr_t read_status = ferr_ok;
+
+	status = vfsman_file_read(file->proxy, offset, size, &buffer_data, &read_status);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = read_status;
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	simple_memcpy(buffer, spooky_data_contents(buffer_data), spooky_data_length(buffer_data));
+
+	if (out_read_size) {
+		*out_read_size = spooky_data_length(buffer_data);
+	}
+
+out:
+	if (buffer_data) {
+		spooky_release(buffer_data);
+	}
+	if (status == ferr_aborted) {
+		status = ferr_should_restart;
+	}
+	return status;
+};
+
+ferr_t vfs_file_write(vfs_file_t* obj, size_t offset, size_t size, const void* buffer, size_t* out_written_size) {
+	ferr_t status = ferr_ok;
+	vfs_file_object_t* file = (void*)obj;
+	spooky_data_t* buffer_data = NULL;
+	ferr_t write_status = ferr_ok;
+
+	// like in vfs_open_n(), casting the const away here is safe; we never modify the data in this buffer
+	status = spooky_data_create_nocopy((void*)buffer, size, &buffer_data);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = vfsman_file_write(file->proxy, offset, buffer_data, &write_status);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = write_status;
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	if (buffer_data) {
+		spooky_release(buffer_data);
+	}
+	if (status == ferr_aborted) {
+		status = ferr_should_restart;
+	}
+	return status;
+};
+
+ferr_t vfs_file_copy_path(vfs_file_t* obj, char* buffer, size_t size, size_t* out_actual_size) {
+	ferr_t status = ferr_ok;
+	vfs_file_object_t* file = (void*)obj;
+	spooky_data_t* buffer_data = NULL;
+	ferr_t copy_status = ferr_ok;
+
+	status = vfsman_file_get_path(file->proxy, &buffer_data, &copy_status);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = copy_status;
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (out_actual_size) {
+		*out_actual_size = spooky_data_length(buffer_data);
+	}
+
+	if (spooky_data_length(buffer_data) > size) {
+		status = ferr_too_big;
+	} else {
+		simple_memcpy(buffer, spooky_data_contents(buffer_data), spooky_data_length(buffer_data));
+	}
+
+out:
+	if (buffer_data) {
+		spooky_release(buffer_data);
+	}
+	if (status == ferr_aborted) {
+		status = ferr_should_restart;
+	}
+	return status;
+};

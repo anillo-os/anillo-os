@@ -21,6 +21,25 @@
 
 #include <libvfs/base.h>
 
-// TODO
+typedef sys_object_t vfs_object_t;
+typedef sys_object_class_t vfs_object_class_t;
+
+LIBSYS_WUR ferr_t vfs_retain(vfs_object_t* object);
+void vfs_release(vfs_object_t* object);
+
+#define LIBVFS_OBJECT_CLASS(_name) \
+	typedef vfs_object_t vfs_ ## _name ## _t; \
+	const vfs_object_class_t* vfs_object_class_ ## _name (void);
+
+const vfs_object_class_t* vfs_object_class(vfs_object_t* object);
+
+LIBVFS_OBJECT_CLASS(file);
+
+LIBVFS_WUR ferr_t vfs_open(const char* path, vfs_file_t** out_file);
+LIBVFS_WUR ferr_t vfs_open_n(const char* path, size_t length, vfs_file_t** out_file);
+
+LIBVFS_WUR ferr_t vfs_file_read(vfs_file_t* file, size_t offset, size_t size, void* buffer, size_t* out_read_size);
+LIBVFS_WUR ferr_t vfs_file_write(vfs_file_t* file, size_t offset, size_t size, const void* buffer, size_t* out_written_size);
+LIBVFS_WUR ferr_t vfs_file_copy_path(vfs_file_t* file, char* buffer, size_t size, size_t* out_actual_size);
 
 #endif // _LIBVFS_LIBVFS_H_

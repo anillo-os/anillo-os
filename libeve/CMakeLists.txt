@@ -8,6 +8,15 @@ set(libeve_sources
 	src/server-channel.c
 )
 
+set(libeve_dymple_sources
+	src/item.c
+	src/objects.c
+
+	src/dymple/channel.c
+	src/dymple/loop.c
+	src/dymple/server-channel.c
+)
+
 set(libeve_includes
 	include
 )
@@ -20,7 +29,7 @@ add_anillo_dylib(libeve
 )
 
 add_library(libeve_static STATIC ${libeve_sources})
-add_library(libeve_dymple STATIC ${libeve_sources})
+add_library(libeve_dymple STATIC ${libeve_dymple_sources})
 
 target_compile_definitions(libeve_dymple PRIVATE
 	BUILDING_DYMPLE=1

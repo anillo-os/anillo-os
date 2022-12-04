@@ -60,6 +60,7 @@ add_anillo_dylib(libsys
 )
 
 add_library(libsys_core_static STATIC ${libsys_core_sources})
+add_library(libsys_support_static STATIC ${libsys_support_sources})
 add_library(libsys_core_dymple STATIC ${libsys_core_sources})
 add_library(libsys_support_dymple STATIC ${libsys_support_sources})
 
@@ -72,6 +73,9 @@ target_compile_definitions(libsys_support_dymple PRIVATE
 
 set_target_properties(libsys_core_static PROPERTIES
 	OUTPUT_NAME sys_core
+)
+set_target_properties(libsys_support_static PROPERTIES
+	OUTPUT_NAME sys_support
 )
 
 set_target_properties(libsys_core_dymple PROPERTIES
@@ -92,6 +96,13 @@ target_link_libraries(libsys_core_static PUBLIC
 	libsimple_static
 	libsimple_static_compat
 	ferro_headers_uapi
+)
+target_link_libraries(libsys_support_static PUBLIC
+	libsys_core_static
+	libvfs_static
+	libeve_static
+	libspooky_static
+	libmacho
 )
 target_link_libraries(libsys_core_dymple PUBLIC
 	${libsys_libs}
@@ -149,6 +160,9 @@ target_compile_options(libsys_support PRIVATE
 target_compile_options(libsys_core_static PRIVATE
 	-fno-omit-frame-pointer
 )
+target_compile_options(libsys_support_static PRIVATE
+	-fno-omit-frame-pointer
+)
 target_compile_options(libsys_core_dymple PRIVATE
 	-fno-omit-frame-pointer
 )
@@ -160,6 +174,7 @@ target_include_directories(libsys PUBLIC ${libsys_includes})
 target_include_directories(libsys_core PUBLIC ${libsys_includes})
 target_include_directories(libsys_support PUBLIC ${libsys_includes})
 target_include_directories(libsys_core_static PUBLIC ${libsys_includes})
+target_include_directories(libsys_support_static PUBLIC ${libsys_includes})
 target_include_directories(libsys_core_dymple PUBLIC ${libsys_includes})
 target_include_directories(libsys_support_dymple PUBLIC ${libsys_includes})
 
@@ -167,6 +182,7 @@ target_include_directories(libsys PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 target_include_directories(libsys_core PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 target_include_directories(libsys_support PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 target_include_directories(libsys_core_static PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
+target_include_directories(libsys_support_static PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 target_include_directories(libsys_core_dymple PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 target_include_directories(libsys_support_dymple PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/include)
 
@@ -185,6 +201,7 @@ add_dependencies(libsys libsys_offsets)
 add_dependencies(libsys_core libsys_offsets)
 add_dependencies(libsys_support libsys_offsets)
 add_dependencies(libsys_core_static libsys_offsets)
+add_dependencies(libsys_support_static libsys_offsets)
 add_dependencies(libsys_core_dymple libsys_offsets)
 add_dependencies(libsys_support_dymple libsys_offsets)
 

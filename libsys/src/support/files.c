@@ -23,9 +23,11 @@
 #include <gen/libsyscall/syscall-wrappers.h>
 #include <libsys/objects.private.h>
 #include <libsimple/libsimple.h>
+#include <libvfs/libvfs.h>
 
 LIBSYS_STRUCT(sys_file_object) {
 	sys_object_t object;
+	vfs_file_t* file;
 };
 
 static void sys_file_destroy(sys_object_t* object);
@@ -39,6 +41,10 @@ LIBSYS_OBJECT_CLASS_GETTER(file, file_class);
 
 static void sys_file_destroy(sys_object_t* object) {
 	sys_file_object_t* file = (void*)object;
+
+	if (file->file) {
+		vfs_release(file->file);
+	}
 
 	sys_object_destroy(object);
 };
@@ -54,7 +60,17 @@ ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file) {
 	}
 	file = (void*)xfile;
 
-	status = ferr_unsupported;
+	file->file = NULL;
+
+	switch (id) {
+		case sys_file_special_id_process_binary:
+			status = ferr_unsupported;
+			break;
+
+		default:
+			status = ferr_invalid_argument;
+			break;
+	}
 
 out:
 	if (status == ferr_ok) {
@@ -67,8 +83,9 @@ out:
 	return status;
 };
 
-ferr_t sys_file_read(sys_file_t* xfile, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count) {
-	return ferr_unsupported;
+ferr_t sys_file_read(sys_file_t* obj, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count) {
+	sys_file_object_t* file = (void*)obj;
+	return vfs_file_read(file->file, offset, buffer_size, out_buffer, out_read_count);
 };
 
 #define OUTAGE_LIMIT 5
@@ -120,12 +137,14 @@ ferr_t sys_file_read_retry(sys_file_t* file, uint64_t offset, size_t buffer_size
 	return status;
 };
 
-ferr_t sys_file_write(sys_file_t* xfile, uint64_t offset, size_t buffer_size, const void* buffer, size_t* out_written_count) {
-	return ferr_unsupported;
+ferr_t sys_file_write(sys_file_t* obj, uint64_t offset, size_t buffer_size, const void* buffer, size_t* out_written_count) {
+	sys_file_object_t* file = (void*)obj;
+	return vfs_file_write(file->file, offset, buffer_size, buffer, out_written_count);
 };
 
-ferr_t sys_file_copy_path(sys_file_t* xfile, size_t buffer_size, void* out_buffer, size_t* out_actual_size) {
-	return ferr_unsupported;
+ferr_t sys_file_copy_path(sys_file_t* obj, size_t buffer_size, void* out_buffer, size_t* out_actual_size) {
+	sys_file_object_t* file = (void*)obj;
+	return vfs_file_copy_path(file->file, out_buffer, buffer_size, out_actual_size);
 };
 
 ferr_t sys_file_copy_path_allocate(sys_file_t* file, char** out_string, size_t* out_string_length) {
@@ -190,7 +209,9 @@ ferr_t sys_file_open_n(const char* path, size_t path_length, sys_file_t** out_fi
 	}
 	file = (void*)xfile;
 
-	status = ferr_unsupported;
+	file->file = NULL;
+
+	status = vfs_open_n(path, path_length, &file->file);
 
 out:
 	if (status == ferr_ok) {

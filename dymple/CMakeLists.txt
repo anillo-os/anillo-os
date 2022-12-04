@@ -48,6 +48,14 @@ add_anillo_dylib(libdymple
 		"${CMAKE_SOURCE_DIR}/cmake/dummy.c"
 )
 
+add_library(libstackchk_stub_static STATIC
+	src/stackchk_stub/${ANILLO_ARCH}/stubs.S
+)
+
+set_target_properties(libstackchk_stub_static PROPERTIES
+	OUTPUT_NAME stackchk_stub
+)
+
 target_include_directories(libdymple PUBLIC include)
 target_link_libraries(libdymple INTERFACE libsys_headers)
 

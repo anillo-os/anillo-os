@@ -380,6 +380,10 @@ header_file.writelines([
 	'\n',
 	f'#include <libspooky/libspooky.h>\n',
 	'\n',
+	f'#ifndef SPOOKYGEN_{root_interface_name}_STORAGE\n',
+	f'\t#define SPOOKYGEN_{root_interface_name}_STORAGE\n',
+	f'#endif // SPOOKYGEN_{root_interface_name}_STORAGE\n',
+	'\n',
 ])
 
 written_structs: Set[str] = set()
@@ -549,7 +553,7 @@ for interface in interfaces:
 			header_file.write(');\n\n')
 
 		if not args.server or not is_root_interface:
-			header_file.write(f'LIBSPOOKY_WUR ferr_t {interface.name}_{function.name}(void* context')
+			header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {interface.name}_{function.name}(void* context')
 			write_parameters(header_file, f'{interface.name}_{function.name}', function.parameters, False)
 			header_file.write(');\n\n')
 
@@ -947,7 +951,7 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 	])
 
 	for index, param in enumerate(params):
-		if param.direction == Direction.IN:
+		if param.direction == Direction.OUT:
 			if isinstance(param.type, BasicType):
 				if param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy:
 					source_file.writelines([
@@ -994,7 +998,7 @@ for interface in interfaces:
 		if not args.server or not is_root_interface:
 			write_outgoing_function_wrapper(f'_spookygen_internal_{interface.name}_{function.name}', type, f'{interface.name}_{function.name}', interface.name == root_interface_name, function.name)
 
-			source_file.write(f'ferr_t {interface.name}_{function.name}(void* _spookygen_context')
+			source_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {interface.name}_{function.name}(void* _spookygen_context')
 			write_parameters(source_file, f'{interface.name}_{function.name}', function.parameters, False)
 			source_file.write(') {\n')
 			source_file.write(f'\treturn _spookygen_internal_{interface.name}_{function.name}(_spookygen_context')
@@ -1014,8 +1018,8 @@ if args.server:
 
 	header_file.write(f'spooky_interface_t* {root_interface_name}_interface(void);\n')
 	if default_server_name != None:
-		header_file.write(f'LIBSPOOKY_WUR ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
-	header_file.write(f'LIBSPOOKY_WUR ferr_t {root_interface_name}_serve_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
+		header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
+	header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_serve_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
 
 	source_file.writelines([
 		'static void _spookygen_server_handler(void* context, eve_server_channel_t* server_channel, sys_channel_t* channel) {\n',
@@ -1025,13 +1029,13 @@ if args.server:
 
 	if default_server_name != None:
 		source_file.writelines([
-			f'ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
+			f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
 			f'\treturn {root_interface_name}_serve_explicit({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, loop, out_server_channel);\n',
 			'};\n\n',
 		])
 
 	source_file.writelines([
-		f'ferr_t {root_interface_name}_serve_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
+		f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_serve_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
 		'\tferr_t status = ferr_ok;\n',
 		f'\tspooky_interface_entry_t entries[{len(root_interface.functions)}];\n',
 		'\tsys_server_channel_t* sys_server_channel = NULL;\n',
@@ -1107,12 +1111,12 @@ if args.server:
 	])
 else:
 	if default_server_name != None:
-		header_file.write(f'LIBSPOOKY_WUR ferr_t {root_interface_name}_init(eve_loop_t* loop);\n')
-	header_file.write(f'LIBSPOOKY_WUR ferr_t {root_interface_name}_init_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop);\n')
+		header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_init(eve_loop_t* loop);\n')
+	header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_init_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop);\n')
 
 	if default_server_name != None:
 		source_file.writelines([
-			f'ferr_t {root_interface_name}_init(eve_loop_t* loop) {{\n',
+			f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_init(eve_loop_t* loop) {{\n',
 			f'\treturn {root_interface_name}_init_explicit({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, loop);\n',
 			'};\n\n',
 		])
@@ -1187,7 +1191,7 @@ else:
 	])
 
 	source_file.writelines([
-		f'ferr_t {root_interface_name}_init_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop) {{\n',
+		f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_init_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop) {{\n',
 		f'\tsys_mutex_lock(&_spookygen_client_mutex);\n',
 		f'\tferr_t status = {root_interface_name}_init_explicit_locked(name, name_length, realm, loop);\n',
 		'\tsys_mutex_unlock(&_spookygen_client_mutex);\n',
@@ -1199,10 +1203,10 @@ for interface in interfaces:
 	if interface.name == root_interface_name:
 		continue
 
-	header_file.write(f'\nferr_t {interface.name}_create_proxy(const {interface.name}_proxy_info_t* info, spooky_proxy_t** out_proxy);\n')
+	header_file.write(f'\nSPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {interface.name}_create_proxy(const {interface.name}_proxy_info_t* info, spooky_proxy_t** out_proxy);\n')
 
 	source_file.writelines([
-		f'void {interface.name}_proxy_destructor(void* context) {{\n',
+		f'static void {interface.name}_proxy_destructor(void* context) {{\n',
 		f'\t{interface.name}_proxy_info_t* info = context;\n',
 		'\tif (info->destructor) {\n',
 		'\t\tinfo->destructor(info->context);\n',
@@ -1212,7 +1216,7 @@ for interface in interfaces:
 	])
 
 	source_file.writelines([
-		f'ferr_t {interface.name}_create_proxy(const {interface.name}_proxy_info_t* info, spooky_proxy_t** out_proxy) {{\n',
+		f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {interface.name}_create_proxy(const {interface.name}_proxy_info_t* info, spooky_proxy_t** out_proxy) {{\n',
 		'\tferr_t status = ferr_ok;\n',
 		f'\tspooky_proxy_interface_t* proxy_interface = NULL;\n',
 		f'\tspooky_proxy_interface_entry_t entries[{len(interface.functions)}];\n',
