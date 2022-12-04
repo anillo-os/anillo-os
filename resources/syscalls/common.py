@@ -213,6 +213,7 @@ structures.extend([
 	.add_syscall('page_map_shared', mapping_id='u64', page_count='u64', page_offset_count='u64', flags='e:page_map_shared_flags', alignment_power='u8', out_address='*')
 	.add_syscall('page_close_shared', mapping_id='u64')
 	.add_syscall('page_bind_shared', mapping_id='u64', page_count='u64', page_offset_count='u64', address='*')
+	.add_syscall('page_count_shared', mapping_id='u64', out_page_count='*[u64]')
 	.add_syscall('page_translate', address='*c', out_phys_address='*[u64]')
 	.add_syscall('page_protect', address='*c', page_count='u64', permissions='e:page_permissions')
 	.add_syscall('thread_create', stack='*', stack_size='u64', entry='*c', out_thread_id='*[u64]')

@@ -77,6 +77,10 @@ LIBSYS_WUR ferr_t sys_path_extension_name(const char* path, bool skip_dot, const
 LIBSYS_WUR ferr_t sys_path_extension_name_n(const char* path, size_t path_length, bool skip_dot, const char** out_start, size_t* out_length);
 LIBSYS_WUR ferr_t sys_path_extension_name_s(const sys_path_t* path, bool skip_dot, const char** out_start, size_t* out_length);
 
+bool sys_path_is_absolute(const char* path);
+bool sys_path_is_absolute_n(const char* path, size_t path_length);
+bool sys_path_is_absolute_s(const sys_path_t* path);
+
 LIBSYS_DECLARATIONS_END;
 
 #endif // _LIBSYS_PATHS_H_

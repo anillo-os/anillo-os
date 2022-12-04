@@ -23,6 +23,10 @@
 #include <libsys/mempool.h>
 #include <libmacho/libmacho.h>
 #include <libsys/pages.h>
+#include <libsys/files.private.h>
+#include <libvfs/libvfs.private.h>
+#include <libspooky/proxy.private.h>
+#include <libsys/channels.private.h>
 
 static sys_proc_object_t* this_process = NULL;
 
@@ -384,6 +388,8 @@ ferr_t sys_proc_create(sys_file_t* file, void* context_block, size_t context_blo
 	libsyscall_process_memory_region_t* regions = NULL;
 	size_t region_count = 0;
 	sys_uloader_info_t* loader_info = NULL;
+	uint64_t descriptors[1] = {UINT64_MAX};
+	sys_channel_t* binary_desc = NULL;
 
 	if (
 		(!out_proc && ((flags & sys_proc_flag_resume) == 0 || (flags & sys_proc_flag_detach) == 0))
@@ -443,15 +449,31 @@ ferr_t sys_proc_create(sys_file_t* file, void* context_block, size_t context_blo
 	#error Unknown architecture
 #endif
 
+	// create the process binary descriptor
+
+	status = vfs_file_duplicate_raw(((sys_file_object_t*)file)->file, &binary_desc);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	descriptors[0] = ((sys_channel_object_t*)binary_desc)->channel_did;
+
+	// create the process
+
 	info.flags = libsyscall_process_create_flag_use_default_stack;
 	info.thread_context = &context;
 	info.regions = regions;
 	info.region_count = region_count;
+	info.descriptors = descriptors;
+	info.descriptor_count = sizeof(descriptors) / sizeof(*descriptors);
 
 	status = libsyscall_wrapper_process_create(&info, &proc_handle);
 	if (status != ferr_ok) {
 		goto out;
 	}
+
+	// assigning the descriptor to the new process consumes it
+	((sys_channel_object_t*)binary_desc)->channel_did = SYS_CHANNEL_DID_INVALID;
 
 	status = libsyscall_wrapper_process_id(proc_handle, &proc_id);
 	if (status != ferr_ok) {
@@ -488,6 +510,9 @@ out:
 	}
 	if (loader_info) {
 		sys_uloader_unload_file(loader_info);
+	}
+	if (binary_desc) {
+		sys_release(binary_desc);
 	}
 	return status;
 };

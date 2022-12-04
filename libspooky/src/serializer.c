@@ -193,6 +193,7 @@ ferr_t spooky_serializer_encode_type(spooky_serializer_t* serializer, size_t off
 	BASIC_TYPE_TAG(f32)
 	BASIC_TYPE_TAG(f64)
 	BASIC_TYPE_TAG(proxy)
+	BASIC_TYPE_TAG(channel)
 
 	// TODO: optimize for space-efficiency by de-duplicating types
 

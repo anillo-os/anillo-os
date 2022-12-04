@@ -7,3 +7,4 @@ ___stack_chk_guard
 _simple_ghmap_allocate_sys_mempool
 _simple_ghmap_free_sys_mempool
 ___sys_format_out
+___sys_object_class_channel

@@ -129,6 +129,11 @@ ferr_t fsyscall_handler_page_bind_shared(uint64_t mapping_id, uint64_t page_coun
 		goto out;
 	}
 
+	if (desc_class != &fsyscall_shared_page_class) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
 	status = fproc_lookup_mapping(fproc_current(), address, &mapped_page_count, &mapping_flags, &old_mapping);
 	if (status != ferr_ok) {
 		goto out;
@@ -163,6 +168,41 @@ out:
 	}
 	if (old_mapping) {
 		fpage_mapping_release(old_mapping);
+	}
+	return status;
+};
+
+ferr_t fsyscall_handler_page_count_shared(uint64_t mapping_id, uint64_t* out_page_count) {
+	ferr_t status = ferr_ok;
+	const fproc_descriptor_class_t* desc_class = NULL;
+	fpage_mapping_t* mapping = NULL;
+	size_t page_count;
+
+	if (!out_page_count) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = fproc_lookup_descriptor(fproc_current(), mapping_id, true, (void*)&mapping, &desc_class);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (desc_class != &fsyscall_shared_page_class) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = fpage_mapping_page_count(mapping, &page_count);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	*out_page_count = page_count;
+
+out:
+	if (mapping) {
+		desc_class->release(mapping);
 	}
 	return status;
 };

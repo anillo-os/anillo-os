@@ -103,6 +103,28 @@ out:
 	return status;
 };
 
+ferr_t spooky_data_create_transfer(void* contents, size_t length, spooky_data_t** out_data) {
+	ferr_t status = ferr_ok;
+	spooky_data_object_t* data = NULL;
+
+	status = sys_object_new(&data_class, sizeof(*data) - sizeof(data->object), (void*)&data);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	data->length = length;
+	data->contents = contents;
+	data->owns_contents = true;
+
+out:
+	if (status == ferr_ok) {
+		*out_data = (void*)data;
+	} else if (data) {
+		spooky_release((void*)data);
+	}
+	return status;
+};
+
 ferr_t spooky_data_copy(spooky_data_t* obj, spooky_data_t** out_data) {
 	spooky_data_object_t* other = (void*)obj;
 	return spooky_data_create(other->contents, other->length, out_data);

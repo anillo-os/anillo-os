@@ -73,12 +73,12 @@ static void channel_message_attachment_channel_destroy(sys_object_t* object) {
 	sys_object_destroy(object);
 };
 
-static const sys_object_class_t channel_object_class = {
+const sys_object_class_t __sys_object_class_channel = {
 	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
 	.destroy = channel_destroy,
 };
 
-LIBSYS_OBJECT_CLASS_GETTER(channel, channel_object_class);
+LIBSYS_OBJECT_CLASS_GETTER(channel, __sys_object_class_channel);
 
 static const sys_object_class_t server_channel_object_class = {
 	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
@@ -109,14 +109,14 @@ ferr_t sys_channel_create_pair(sys_channel_t** out_first, sys_channel_t** out_se
 
 	// create the objects first, because allocating memory is cheap in comparison to making syscalls
 
-	status = sys_object_new(&channel_object_class, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&first);
+	status = sys_object_new(&__sys_object_class_channel, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&first);
 	if (status != ferr_ok) {
 		goto out;
 	}
 
 	first->channel_did = SYS_CHANNEL_DID_INVALID;
 
-	status = sys_object_new(&channel_object_class, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&second);
+	status = sys_object_new(&__sys_object_class_channel, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&second);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -194,7 +194,7 @@ ferr_t sys_channel_connect_n(const char* server_name, size_t server_name_length,
 
 	// create the object first, because allocating memory is cheap in comparison to making syscalls
 
-	status = sys_object_new(&channel_object_class, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&channel);
+	status = sys_object_new(&__sys_object_class_channel, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&channel);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -399,7 +399,7 @@ ferr_t sys_server_channel_accept(sys_server_channel_t* object, sys_server_channe
 		libsyscall_flags |= fserver_channel_accept_flag_no_wait;
 	}
 
-	status = sys_object_new(&channel_object_class, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&channel);
+	status = sys_object_new(&__sys_object_class_channel, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&channel);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -673,7 +673,7 @@ ferr_t sys_channel_message_detach_channel(sys_channel_message_t* object, sys_cha
 	}
 
 	if (out_channel) {
-		status = sys_object_new(&channel_object_class, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&channel);
+		status = sys_object_new(&__sys_object_class_channel, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&channel);
 		if (status != ferr_ok) {
 			goto out;
 		}

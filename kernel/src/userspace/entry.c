@@ -26,8 +26,18 @@
 #include <ferro/syscalls/syscalls.h>
 #include <ferro/core/console.h>
 #include <ferro/userspace/process-registry.h>
+#include <ferro/core/ramdisk.h>
+
+extern const fproc_descriptor_class_t fsyscall_shared_page_class;
 
 void ferro_userspace_entry(void) {
+	fpage_mapping_t* ramdisk_mapping = NULL;
+	ferro_ramdisk_t* ramdisk = NULL;
+	void* ramdisk_phys = NULL;
+	size_t ramdisk_size = 0;
+	fproc_did_t ramdisk_did = FPROC_DID_MAX;
+	void* ramdisk_copy_tmp = NULL;
+
 	futhread_init();
 
 	fsyscall_init();
@@ -36,6 +46,14 @@ void ferro_userspace_entry(void) {
 
 	fconsole_log("Loading init process...\n");
 
+	ferro_ramdisk_get_data(&ramdisk, &ramdisk_phys, &ramdisk_size);
+	fpanic_status(fpage_mapping_new(fpage_round_up_to_page_count(ramdisk_size), fpage_mapping_flag_zero, &ramdisk_mapping));
+
+	// FIXME: the ramdisk needs to be loaded into its own set of pages so that we can bind the physical memory instead and avoid copying it
+	fpanic_status(fpage_space_insert_mapping(fpage_space_current(), ramdisk_mapping, 0, fpage_round_up_to_page_count(ramdisk_size), 0, NULL, fpage_flag_zero, &ramdisk_copy_tmp));
+	simple_memcpy(ramdisk_copy_tmp, ramdisk, ramdisk_size);
+	fpanic_status(fpage_space_remove_mapping(fpage_space_current(), ramdisk_copy_tmp));
+
 	fvfs_descriptor_t* vfsman_desc = NULL;
 	fpanic_status(fvfs_open("/sys/vfsman/vfsman", fvfs_descriptor_flag_read | fvfs_descriptor_flags_execute, &vfsman_desc));
 
@@ -43,6 +61,15 @@ void ferro_userspace_entry(void) {
 	fpanic_status(fproc_new(vfsman_desc, NULL, &proc));
 
 	fpanic_status(fprocreg_register(proc));
+
+	fpanic_status(fproc_install_descriptor(proc, ramdisk_mapping, &fsyscall_shared_page_class, &ramdisk_did));
+
+	if (ramdisk_did != 0) {
+		// the ramdisk mapping DID *has* to be the first in the process
+		fpanic("Wrong DID for ramdisk mapping");
+	}
+
+	fpage_mapping_release(ramdisk_mapping);
 
 	fpanic_status(fproc_resume(proc));
 

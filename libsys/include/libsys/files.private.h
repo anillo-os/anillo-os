@@ -16,33 +16,24 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-.text
+#ifndef _LIBSYS_FILES_PRIVATE_H_
+#define _LIBSYS_FILES_PRIVATE_H_
 
-.global ___stack_chk_fail
-___stack_chk_fail:
-	udf #0
+#include <libsys/files.h>
+#include <libsys/objects.private.h>
 
-// none of these stubs should ever be executed; they should be replaced by dymple on load
+LIBSYS_DECLARATIONS_BEGIN;
 
-.macro stub func
-	.text
-	.global \func
-	\func\():
-		udf #0
-.endm
+// HACK
+// this should not be here, since it exposes implementation details of libvfs
+typedef sys_object_t vfs_object_t;
+typedef vfs_object_t vfs_file_t;
 
-stub dyld_stub_binder
-stub _dymple_load_image_by_name
-stub _dymple_load_image_by_name_n
-stub _dymple_load_image_from_file
-stub _dymple_find_loaded_image_by_name
-stub _dymple_find_loaded_image_by_name_n
-stub _dymple_resolve_symbol
-stub _dymple_resolve_symbol_n
-stub _dymple_open_process_binary_raw
+LIBSYS_STRUCT(sys_file_object) {
+	sys_object_t object;
+	vfs_file_t* file;
+};
 
-.data
+LIBSYS_DECLARATIONS_END;
 
-.global ___stack_chk_guard
-___stack_chk_guard:
-	.quad 0
+#endif // _LIBSYS_FILES_PRIVATE_H_

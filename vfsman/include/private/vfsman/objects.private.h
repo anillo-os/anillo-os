@@ -16,33 +16,4 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-.text
-
-.global ___stack_chk_fail
-___stack_chk_fail:
-	udf #0
-
-// none of these stubs should ever be executed; they should be replaced by dymple on load
-
-.macro stub func
-	.text
-	.global \func
-	\func\():
-		udf #0
-.endm
-
-stub dyld_stub_binder
-stub _dymple_load_image_by_name
-stub _dymple_load_image_by_name_n
-stub _dymple_load_image_from_file
-stub _dymple_find_loaded_image_by_name
-stub _dymple_find_loaded_image_by_name_n
-stub _dymple_resolve_symbol
-stub _dymple_resolve_symbol_n
-stub _dymple_open_process_binary_raw
-
-.data
-
-.global ___stack_chk_guard
-___stack_chk_guard:
-	.quad 0
+#include <libsys/objects.private.h>

@@ -173,6 +173,7 @@ static dymple_override_t libdymple_stubs[] = {
 	STUB_REPLACEMENT(dymple_find_loaded_image_by_name_n),
 	STUB_REPLACEMENT(dymple_resolve_symbol),
 	STUB_REPLACEMENT(dymple_resolve_symbol_n),
+	STUB_REPLACEMENT(dymple_open_process_binary_raw),
 };
 
 ferr_t dymple_resolve_export(dymple_image_t* image, const char* name, size_t name_length, dymple_symbol_t** out_export) {

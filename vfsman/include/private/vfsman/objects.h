@@ -16,33 +16,26 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-.text
+#ifndef _VFSMAN_OBJECTS_H_
+#define _VFSMAN_OBJECTS_H_
 
-.global ___stack_chk_fail
-___stack_chk_fail:
-	udf #0
+#include <libsys/libsys.h>
+#include <libspooky/base.h>
 
-// none of these stubs should ever be executed; they should be replaced by dymple on load
+LIBSPOOKY_DECLARATIONS_BEGIN;
 
-.macro stub func
-	.text
-	.global \func
-	\func\():
-		udf #0
-.endm
+typedef sys_object_t vfsman_object_t;
+typedef sys_object_class_t vfsman_object_class_t;
 
-stub dyld_stub_binder
-stub _dymple_load_image_by_name
-stub _dymple_load_image_by_name_n
-stub _dymple_load_image_from_file
-stub _dymple_find_loaded_image_by_name
-stub _dymple_find_loaded_image_by_name_n
-stub _dymple_resolve_symbol
-stub _dymple_resolve_symbol_n
-stub _dymple_open_process_binary_raw
+LIBSYS_WUR ferr_t vfsman_retain(vfsman_object_t* object);
+void vfsman_release(vfsman_object_t* object);
 
-.data
+#define VFSMAN_OBJECT_CLASS(_name) \
+	typedef vfsman_object_t vfsman_ ## _name ## _t; \
+	const vfsman_object_class_t* vfsman_object_class_ ## _name (void);
 
-.global ___stack_chk_guard
-___stack_chk_guard:
-	.quad 0
+const vfsman_object_class_t* vfsman_object_class(vfsman_object_t* object);
+
+LIBSPOOKY_DECLARATIONS_END;
+
+#endif // _VFSMAN_OBJECTS_H_

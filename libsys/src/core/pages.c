@@ -98,3 +98,19 @@ ferr_t sys_shared_memory_bind(sys_shared_memory_t* obj, size_t page_count, size_
 out:
 	return status;
 };
+
+ferr_t sys_shared_memory_page_count(sys_shared_memory_t* obj, size_t* out_page_count) {
+	ferr_t status = ferr_ok;
+	sys_shared_memory_object_t* shared_memory = (void*)obj;
+	uint64_t page_count;
+
+	status = libsyscall_wrapper_page_count_shared(shared_memory->did, &page_count);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	*out_page_count = page_count;
+
+out:
+	return status;
+};

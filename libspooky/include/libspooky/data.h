@@ -28,6 +28,7 @@ LIBSPOOKY_OBJECT_CLASS(data);
 
 LIBSPOOKY_WUR ferr_t spooky_data_create(const void* data, size_t length, spooky_data_t** out_data);
 LIBSPOOKY_WUR ferr_t spooky_data_create_nocopy(void* data, size_t length, spooky_data_t** out_data);
+LIBSPOOKY_WUR ferr_t spooky_data_create_transfer(void* data, size_t length, spooky_data_t** out_data);
 LIBSPOOKY_WUR ferr_t spooky_data_copy(spooky_data_t* data, spooky_data_t** out_data);
 void* spooky_data_contents(spooky_data_t* data);
 size_t spooky_data_length(spooky_data_t* data);

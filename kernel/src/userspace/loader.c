@@ -474,8 +474,10 @@ ferr_t fuloader_load_file(fvfs_descriptor_t* file_descriptor, fpage_space_t* spa
 
 	if (file_to_load == file_descriptor) {
 		info->entry_address = (void*)entry_address;
+		info->interpreter_entry_address = NULL;
 	} else {
 		info->interpreter_entry_address = (void*)entry_address;
+		info->entry_address = NULL;
 	}
 
 	info->loaded_segment_count = 0;

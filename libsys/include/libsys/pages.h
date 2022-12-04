@@ -51,6 +51,7 @@ LIBSYS_WUR ferr_t sys_page_translate(const void* address, uint64_t* out_physical
 LIBSYS_WUR ferr_t sys_shared_memory_allocate(size_t page_count, sys_shared_memory_flags_t flags, sys_shared_memory_t** out_shared_memory);
 LIBSYS_WUR ferr_t sys_shared_memory_map(sys_shared_memory_t* shared_memory, size_t page_count, size_t page_offset_count, void** out_address);
 LIBSYS_WUR ferr_t sys_shared_memory_bind(sys_shared_memory_t* shared_memory, size_t page_count, size_t page_offset_count, void* address);
+LIBSYS_WUR ferr_t sys_shared_memory_page_count(sys_shared_memory_t* shared_memory, size_t* out_page_count);
 
 LIBSYS_ALWAYS_INLINE uintptr_t sys_page_round_up_multiple(uintptr_t number) {
 	return (number + (4096ULL - 1)) & -4096ULL;

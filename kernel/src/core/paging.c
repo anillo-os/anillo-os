@@ -3837,6 +3837,11 @@ out_unlocked:
 	return status;
 };
 
+ferr_t fpage_mapping_page_count(fpage_mapping_t* mapping, size_t* out_page_count) {
+	*out_page_count = mapping->page_count;
+	return ferr_ok;
+};
+
 //
 // page faults
 //

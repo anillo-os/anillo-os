@@ -19,6 +19,7 @@
 #include <libvfs/libvfs.private.h>
 #include <libsys/objects.private.h>
 #include <libsimple/general.h>
+#include <libspooky/proxy.private.h>
 
 #define SPOOKYGEN_vfsman_STORAGE static
 #include <vfs.client.h>
@@ -141,6 +142,7 @@ ferr_t vfs_file_write(vfs_file_t* obj, size_t offset, size_t size, const void* b
 	vfs_file_object_t* file = (void*)obj;
 	spooky_data_t* buffer_data = NULL;
 	ferr_t write_status = ferr_ok;
+	uint64_t written_count = 0;
 
 	// like in vfs_open_n(), casting the const away here is safe; we never modify the data in this buffer
 	status = spooky_data_create_nocopy((void*)buffer, size, &buffer_data);
@@ -148,7 +150,7 @@ ferr_t vfs_file_write(vfs_file_t* obj, size_t offset, size_t size, const void* b
 		goto out;
 	}
 
-	status = vfsman_file_write(file->proxy, offset, buffer_data, &write_status);
+	status = vfsman_file_write(file->proxy, offset, buffer_data, &written_count, &write_status);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -156,6 +158,10 @@ ferr_t vfs_file_write(vfs_file_t* obj, size_t offset, size_t size, const void* b
 	status = write_status;
 	if (status != ferr_ok) {
 		goto out;
+	}
+
+	if (out_written_size) {
+		*out_written_size = written_count;
 	}
 
 out:
@@ -197,6 +203,62 @@ ferr_t vfs_file_copy_path(vfs_file_t* obj, char* buffer, size_t size, size_t* ou
 out:
 	if (buffer_data) {
 		spooky_release(buffer_data);
+	}
+	if (status == ferr_aborted) {
+		status = ferr_should_restart;
+	}
+	return status;
+};
+
+ferr_t vfs_file_duplicate_raw(vfs_file_t* obj, sys_channel_t** out_channel) {
+	ferr_t status = ferr_ok;
+	vfs_file_object_t* file = (void*)obj;
+	ferr_t dup_status = ferr_ok;
+	sys_channel_t* channel = NULL;
+
+	status = vfsman_file_duplicate_raw(file->proxy, &channel, &dup_status);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = dup_status;
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	if (status == ferr_ok) {
+		*out_channel = channel;
+	} else if (channel) {
+		sys_release(channel);
+	}
+	if (status == ferr_aborted) {
+		status = ferr_should_restart;
+	}
+	return status;
+};
+
+ferr_t vfs_open_raw(sys_channel_t* channel, vfs_file_t** out_file) {
+	ferr_t status = ferr_ok;
+	vfs_file_object_t* file = NULL;
+
+	status = sys_object_new(&vfs_file_class, sizeof(*file) - sizeof(file->object), (void*)&file);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	simple_memset((char*)file + sizeof(file->object), 0, sizeof(*file) - sizeof(file->object));
+
+	status = spooky_proxy_create_incoming(channel, eve_loop_get_main(), &file->proxy);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	if (status == ferr_ok) {
+		*out_file = (void*)file;
+	} else if (file) {
+		vfs_release((void*)file);
 	}
 	if (status == ferr_aborted) {
 		status = ferr_should_restart;

@@ -16,19 +16,30 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <libsys/files.h>
+#include <libsys/files.private.h>
 #include <libsys/mempool.h>
 #include <libsys/abort.h>
 #include <stdbool.h>
 #include <gen/libsyscall/syscall-wrappers.h>
 #include <libsys/objects.private.h>
 #include <libsimple/libsimple.h>
-#include <libvfs/libvfs.h>
+#include <libvfs/libvfs.private.h>
+#include <libsys/channels.private.h>
 
-LIBSYS_STRUCT(sys_file_object) {
-	sys_object_t object;
-	vfs_file_t* file;
+#ifdef BUILDING_DYMPLE
+static sys_channel_object_t proc_binary_channel = {
+	.object = {
+		.flags = 0,
+		.object_class = &__sys_object_class_channel,
+		.reference_count = UINT32_MAX,
+	},
+
+	// DID 0 is always the process binary channel
+	.channel_did = 0,
 };
+#elif !defined(BUILDING_STATIC)
+#include <dymple/dymple.h>
+#endif
 
 static void sys_file_destroy(sys_object_t* object);
 
@@ -63,9 +74,36 @@ ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file) {
 	file->file = NULL;
 
 	switch (id) {
-		case sys_file_special_id_process_binary:
+		case sys_file_special_id_process_binary: {
+#ifdef BUILDING_DYMPLE
+			if (proc_binary_channel.channel_did == SYS_CHANNEL_DID_INVALID) {
+				status = ferr_permanent_outage;
+				goto out;
+			}
+
+			status = vfs_open_raw((void*)&proc_binary_channel, &file->file);
+			if (status != ferr_ok) {
+				goto out;
+			}
+
+			proc_binary_channel.channel_did = SYS_CHANNEL_DID_INVALID;
+#elif !defined(BUILDING_STATIC)
+			sys_channel_t* channel = NULL;
+
+			status = dymple_open_process_binary_raw(&channel);
+			if (status != ferr_ok) {
+				goto out;
+			}
+
+			status = vfs_open_raw(channel, &file->file);
+			if (status != ferr_ok) {
+				sys_release(channel);
+				goto out;
+			}
+#else
 			status = ferr_unsupported;
-			break;
+#endif
+		} break;
 
 		default:
 			status = ferr_invalid_argument;

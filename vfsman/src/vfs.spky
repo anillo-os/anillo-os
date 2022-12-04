@@ -4,8 +4,9 @@
 
 interface vfsman_file {
 	function read(offset: in u64, size: in u64, buffer: out data, status: out i32)
-	function write(offset: in u64, buffer: in data, status: out i32)
+	function write(offset: in u64, buffer: in data, written_count: out u64, status: out i32)
 	function get_path(path: out data, status: out i32)
+	function duplicate_raw(channel: out channel, status: out i32)
 }
 
 interface vfsman {

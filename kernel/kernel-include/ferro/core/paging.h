@@ -436,6 +436,8 @@ FERRO_WUR ferr_t fpage_mapping_bind(fpage_mapping_t* mapping, size_t page_offset
 
 FERRO_WUR ferr_t fpage_mapping_bind_indirect(fpage_mapping_t* mapping, size_t page_offset, size_t page_count, fpage_mapping_t* target_mapping, size_t target_mapping_page_offset, fpage_mapping_bind_flags_t flags);
 
+FERRO_WUR ferr_t fpage_mapping_page_count(fpage_mapping_t* mapping, size_t* out_page_count);
+
 /**
  * Initializes an address space so it can be used.
  */

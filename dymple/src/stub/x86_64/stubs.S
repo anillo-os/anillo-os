@@ -39,6 +39,7 @@ stub _dymple_find_loaded_image_by_name
 stub _dymple_find_loaded_image_by_name_n
 stub _dymple_resolve_symbol
 stub _dymple_resolve_symbol_n
+stub _dymple_open_process_binary_raw
 
 .data
 

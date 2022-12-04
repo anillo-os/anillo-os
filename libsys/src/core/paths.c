@@ -592,3 +592,19 @@ ferr_t sys_path_extension_name_s(const sys_path_t* path, bool skip_dot, const ch
 out:
 	return status;
 };
+
+bool sys_path_is_absolute(const char* path) {
+	return sys_path_is_absolute_n(path, simple_strlen(path));
+};
+
+bool sys_path_is_absolute_n(const char* path, size_t path_length) {
+	sys_path_t path_struct = {
+		.contents = path,
+		.length = path_length,
+	};
+	return sys_path_is_absolute_s(&path_struct);
+};
+
+bool sys_path_is_absolute_s(const sys_path_t* path) {
+	return path && path->length > 0 && path->contents[0] == '/';
+};

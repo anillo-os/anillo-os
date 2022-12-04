@@ -21,12 +21,14 @@ add_anillo_executable(vfsman
 	RAMDISK
 	INSTALL_PATH /sys/vfsman/vfsman
 	SOURCES
+		src/server/ramdisk.c
 		src/server/vfsman.c
 		"${CMAKE_CURRENT_BINARY_DIR}/vfs.server.c"
 )
 
 target_include_directories(libvfs_static PUBLIC
 	include/public
+	include/private
 )
 
 target_include_directories(libvfs_static PRIVATE

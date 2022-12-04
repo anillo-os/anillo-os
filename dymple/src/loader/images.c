@@ -22,6 +22,8 @@
 #include <dymple/relocations.h>
 #include <dymple/api.private.h>
 #include <libsimple/libsimple.h>
+#include <libsys/files.private.h>
+#include <libvfs/libvfs.private.h>
 
 #include <libmacho/libmacho.h>
 
@@ -83,21 +85,22 @@ static bool dymple_images_print_each(void* context, simple_ghmap_t* hashmap, sim
 	return true;
 };
 
+static sys_file_t* process_binary_file = NULL;
+
 ferr_t dymple_images_init(dymple_image_t** out_image) {
 	ferr_t status = ferr_ok;
-	sys_file_t* binary_file = NULL;
 
 	status = simple_ghmap_init_string_to_generic(&images, 4, sizeof(dymple_image_t), simple_ghmap_allocate_sys_mempool, simple_ghmap_free_sys_mempool, NULL);
 	if (status != ferr_ok) {
 		goto out;
 	}
 
-	status = sys_file_open_special(sys_file_special_id_process_binary, &binary_file);
+	status = sys_file_open_special(sys_file_special_id_process_binary, &process_binary_file);
 	if (status != ferr_ok) {
 		goto out;
 	}
 
-	status = dymple_load_image_from_file(binary_file, out_image);
+	status = dymple_load_image_from_file(process_binary_file, out_image);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -107,9 +110,6 @@ ferr_t dymple_images_init(dymple_image_t** out_image) {
 	}
 
 out:
-	if (binary_file) {
-		sys_release(binary_file);
-	}
 	return status;
 };
 
@@ -827,4 +827,8 @@ out:
 		*out_image = context.image;
 	}
 	return status;
+};
+
+ferr_t dymple_open_process_binary_raw(sys_channel_t** out_channel) {
+	return vfs_file_duplicate_raw(((sys_file_object_t*)process_binary_file)->file, out_channel);
 };

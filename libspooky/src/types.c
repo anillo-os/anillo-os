@@ -76,6 +76,8 @@ SPOOKY_TYPE_DEF(bool, bool);
 SPOOKY_TYPE_DEF(float, f32);
 SPOOKY_TYPE_DEF(double, f64);
 
+SPOOKY_TYPE_DEF(sys_channel_t*, channel);
+
 ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type) {
 	if (type == spooky_type_data()) {
 		spooky_data_t* data = *(spooky_data_t* const*)object;
@@ -102,6 +104,12 @@ ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type) {
 				return status;
 			}
 		}
+	} else if (type == spooky_type_channel()) {
+		sys_channel_t* channel = *(sys_channel_t* const*)object;
+
+		if (channel) {
+			return sys_retain(channel);
+		}
 	}
 
 	return ferr_ok;
@@ -125,6 +133,12 @@ void spooky_release_object_with_type(const void* object, spooky_type_t* type) {
 
 		for (size_t i = 0; i < structure->member_count; ++i) {
 			spooky_release_object_with_type((const char*)object + structure->members[i].offset, structure->members[i].type);
+		}
+	} else if (type == spooky_type_channel()) {
+		sys_channel_t* channel = *(sys_channel_t* const*)object;
+
+		if (channel) {
+			sys_release(channel);
 		}
 	}
 };

@@ -52,6 +52,8 @@ LIBSYS_STRUCT(sys_channel_message_object) {
 	bool owns_body_buffer;
 };
 
+extern const sys_object_class_t __sys_object_class_channel;
+
 FERRO_WUR ferr_t sys_channel_message_serialize(sys_channel_message_t* message, libsyscall_channel_message_t* out_syscall_message);
 void sys_channel_message_consumed(sys_channel_message_t* message, libsyscall_channel_message_t* in_syscall_message);
 

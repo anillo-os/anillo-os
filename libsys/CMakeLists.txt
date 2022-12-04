@@ -71,6 +71,10 @@ target_compile_definitions(libsys_support_dymple PRIVATE
 	BUILDING_DYMPLE=1
 )
 
+target_compile_definitions(libsys_support_static PRIVATE
+	BUILDING_STATIC=1
+)
+
 set_target_properties(libsys_core_static PROPERTIES
 	OUTPUT_NAME sys_core
 )

@@ -246,6 +246,8 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 };
 
 static ferro_ramdisk_t* ramdisk = NULL;
+static void* ramdisk_phys = NULL;
+static size_t ramdisk_size = 0;
 
 // TESTING/DEBUGGING
 extern void ferro_testing_entry(void);
@@ -275,7 +277,7 @@ static void ferro_entry_threaded(void* data) {
 	fvfs_init();
 
 	if (ramdisk) {
-		ferro_ramdisk_init(ramdisk);
+		ferro_ramdisk_init(ramdisk, ramdisk_phys, ramdisk_size);
 	} else {
 		fpanic("No ramdisk found!");
 	}
@@ -367,6 +369,8 @@ jump_here_for_virtual:;
 			config_data_length = curr->size;
 		} else if (curr->type == ferro_boot_data_type_ramdisk) {
 			ramdisk = curr->virtual_address;
+			ramdisk_phys = curr->physical_address;
+			ramdisk_size = curr->size;
 		}
 	}
 

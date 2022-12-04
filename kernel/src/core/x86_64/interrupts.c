@@ -189,6 +189,7 @@ void fint_log_frame(const fint_frame_t* frame) {
 };
 
 void fint_trace_interrupted_stack(const fint_frame_t* frame) {
+	fconsole_logf("%p\n", frame->core.rip);
 	trace_stack((void*)frame->saved_registers.rbp);
 };
 

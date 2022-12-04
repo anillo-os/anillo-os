@@ -75,6 +75,12 @@ static ferr_t spooky_invocation_serialize_object(spooky_invocation_object_t* inv
 		return spooky_serializer_encode_channel(serializer, offset, &offset, NULL, channel);
 	}
 
+	if (type_obj == spooky_type_channel()) {
+		sys_channel_t* channel = *(sys_channel_t**)object;
+		size_t offset = UINT64_MAX;
+		return spooky_serializer_encode_channel(serializer, offset, &offset, NULL, channel);
+	}
+
 	if (spooky_object_class(type_obj) == spooky_object_class_structure()) {
 		spooky_structure_object_t* structure = (void*)type_obj;
 		size_t offset = 0;
@@ -164,6 +170,17 @@ static ferr_t spooky_invocation_deserialize_object(spooky_invocation_object_t* i
 			return status;
 		}
 		*(spooky_proxy_t**)object = proxy;
+		return status;
+	}
+
+	if (type_obj == spooky_type_channel()) {
+		sys_channel_t* channel = NULL;
+		size_t offset = UINT64_MAX;
+		ferr_t status = spooky_deserializer_decode_channel(deserializer, offset, &offset, NULL, &channel);
+		if (status != ferr_ok) {
+			return status;
+		}
+		*(sys_channel_t**)object = channel;
 		return status;
 	}
 
@@ -1269,6 +1286,93 @@ ferr_t spooky_invocation_set_proxy(spooky_invocation_t* obj, size_t index, spook
 
 	if (old_proxy) {
 		spooky_release(old_proxy);
+	}
+
+out:
+	return status;
+};
+
+ferr_t spooky_invocation_get_channel(spooky_invocation_t* obj, size_t index, bool retain, sys_channel_t** out_channel) {
+	ferr_t status = ferr_ok;
+	spooky_invocation_object_t* invocation = (void*)obj;
+	spooky_function_object_t* func = (void*)invocation->function_type;
+	bool is_incoming = false;
+	sys_channel_t* channel = NULL;
+
+	if (index >= func->parameter_count) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (func->parameters[index].type != spooky_type_channel()) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (invocation->incoming) {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_in;
+	} else {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_out;
+		if (is_incoming && !invocation->incoming_data) {
+			status = ferr_resource_unavailable;
+			goto out;
+		}
+	}
+
+	channel = *(sys_channel_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
+
+	if (retain) {
+		status = sys_retain(channel);
+		if (status != ferr_ok) {
+			goto out;
+		}
+	}
+
+	*out_channel = channel;
+
+out:
+	return status;
+};
+
+ferr_t spooky_invocation_set_channel(spooky_invocation_t* obj, size_t index, sys_channel_t* channel) {
+	ferr_t status = ferr_ok;
+	spooky_invocation_object_t* invocation = (void*)obj;
+	spooky_function_object_t* func = (void*)invocation->function_type;
+	bool is_incoming = false;
+	sys_channel_t** channel_ptr = NULL;
+	sys_channel_t* old_channel = NULL;
+
+	if (index >= func->parameter_count) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (func->parameters[index].type != spooky_type_channel()) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (invocation->incoming) {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_in;
+	} else {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_out;
+		if (is_incoming && !invocation->incoming_data) {
+			status = ferr_resource_unavailable;
+			goto out;
+		}
+	}
+
+	if (sys_retain(channel) != ferr_ok) {
+		status = ferr_permanent_outage;
+		goto out;
+	}
+
+	channel_ptr = (sys_channel_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
+	old_channel = *channel_ptr;
+	*channel_ptr = channel;
+
+	if (old_channel) {
+		sys_release(old_channel);
 	}
 
 out:

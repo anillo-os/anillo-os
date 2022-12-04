@@ -98,6 +98,7 @@ class BasicTypeTag(IntEnum):
 	f64   = 10
 	data  = 11
 	proxy = 12,
+	channel = 13,
 
 BASIC_TYPE_TAG_TO_NATIVE_TYPE = {
 	BasicTypeTag.u8    : 'uint8_t',
@@ -112,8 +113,12 @@ BASIC_TYPE_TAG_TO_NATIVE_TYPE = {
 	BasicTypeTag.f32   : 'float',
 	BasicTypeTag.f64   : 'double',
 	BasicTypeTag.data  : 'spooky_data_t*',
-	BasicTypeTag.proxy : 'spooky_proxy_t*'
+	BasicTypeTag.proxy : 'spooky_proxy_t*',
+	BasicTypeTag.channel : 'sys_channel_t*',
 }
+
+def type_is_refcounted(type: BasicTypeTag) -> bool:
+	return type == BasicTypeTag.data or type == BasicTypeTag.proxy or type == BasicTypeTag.channel
 
 def type_to_native_for_source(type: Type) -> str:
 	if isinstance(type, BasicType):
@@ -629,10 +634,10 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 
 	for index, param in enumerate(type.parameters):
 		if isinstance(param.type, BasicType):
-			init_str = " = NULL" if (param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy) else ""
+			init_str = " = NULL" if type_is_refcounted(param.type.tag) else ""
 			source_file.write(f'\t{BASIC_TYPE_TAG_TO_NATIVE_TYPE[param.type.tag]} arg{index}{init_str};\n')
 			if param.direction == Direction.IN:
-				retain_arg = ", false" if (param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy) else ""
+				retain_arg = ", false" if type_is_refcounted(param.type.tag) else ""
 				source_file.writelines([
 					f'\tstatus = spooky_invocation_get_{param.type.tag.name}(invocation, {index}{retain_arg}, &arg{index});\n',
 					'\tif (status != ferr_ok) {\n',
@@ -748,10 +753,10 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 			pass
 		else:
 			if isinstance(param.type, BasicType):
-				if param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy:
+				if type_is_refcounted(param.type.tag):
 					source_file.writelines([
 						f'\tif (arg{index}) {{\n',
-						f'\t\tspooky_release(arg{index});\n',
+						f'\t\t{"sys" if param.type.tag == BasicTypeTag.channel else "spooky"}_release(arg{index});\n',
 						'\t}\n',
 					])
 			elif isinstance(param.type, StructureType):
@@ -911,7 +916,7 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 			continue
 
 		if isinstance(param.type, BasicType):
-			retain_arg = ", true" if (param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy) else ""
+			retain_arg = ", true" if type_is_refcounted(param.type.tag) else ""
 			source_file.writelines([
 				f'\tbool arg{index}_should_cleanup_on_fail = false;\n',
 				f'\tstatus = spooky_invocation_get_{param.type.tag.name}(invocation, {index}{retain_arg}, arg{index});\n',
@@ -953,10 +958,10 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 	for index, param in enumerate(params):
 		if param.direction == Direction.OUT:
 			if isinstance(param.type, BasicType):
-				if param.type.tag == BasicTypeTag.data or param.type.tag == BasicTypeTag.proxy:
+				if type_is_refcounted(param.type.tag):
 					source_file.writelines([
 						f'\t\tif (arg{index} && arg{index}_should_cleanup_on_fail) {{\n',
-						f'\t\t\tspooky_release(*arg{index});\n',
+						f'\t\t\t{"sys" if param.type.tag == BasicTypeTag.channel else "spooky"}_release(*arg{index});\n',
 						'\t\t}\n',
 					])
 			elif isinstance(param.type, StructureType):

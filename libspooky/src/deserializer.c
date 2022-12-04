@@ -184,6 +184,7 @@ ferr_t spooky_deserializer_decode_type(spooky_deserializer_t* deserializer, size
 		BASIC_TAG_CASE(f32);
 		BASIC_TAG_CASE(f64);
 		BASIC_TAG_CASE(proxy);
+		BASIC_TAG_CASE(channel);
 
 		case spooky_type_tag_function:
 		case spooky_type_tag_nowait_function: {
