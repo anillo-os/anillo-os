@@ -427,6 +427,8 @@ ferr_t sys_proc_create(sys_file_t* file, void* context_block, size_t context_blo
 		goto out;
 	}
 
+	region_count = loader_info->loaded_segment_count;
+
 	for (size_t i = 0; i < loader_info->loaded_segment_count; ++i) {
 		sys_uloader_loaded_segment_info_t* seg_info = &loader_info->loaded_segments[i];
 		libsyscall_process_memory_region_t* region = &regions[i];
@@ -442,7 +444,7 @@ ferr_t sys_proc_create(sys_file_t* file, void* context_block, size_t context_blo
 	void* entry_addr = loader_info->interpreter_entry_address ? loader_info->interpreter_entry_address : loader_info->entry_address;
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
-	context.rsp = (uintptr_t)entry_addr;
+	context.rip = (uintptr_t)entry_addr;
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
 	context.pc = (uintptr_t)entry_addr;
 #else

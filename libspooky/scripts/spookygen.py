@@ -710,6 +710,9 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 				'\t\tgoto out;\n',
 				'\t}\n',
 			])
+			if param.type.tag == BasicTypeTag.channel:
+				# channels are consumed upon successfully setting them
+				source_file.write(f'\targ{index} = NULL;\n')
 		elif isinstance(param.type, StructureType):
 			source_file.writelines([
 				f'\tstatus = spooky_invocation_set_structure(invocation, {index}, &arg{index});\n',
@@ -880,6 +883,9 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 				'\t\tgoto out;\n',
 				'\t}\n',
 			])
+			if param.type.tag == BasicTypeTag.channel:
+				# channels are consumed upon successfully setting them
+				source_file.write(f'\targ{index} = NULL;\n')
 		elif isinstance(param.type, StructureType):
 			source_file.writelines([
 				f'\tstatus = spooky_invocation_set_structure(invocation, {index}, arg{index});\n',

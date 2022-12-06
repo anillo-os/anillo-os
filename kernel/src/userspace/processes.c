@@ -101,11 +101,15 @@ static void fproc_all_uthreads_died(fproc_t* proc) {
 	// clear all private futexes
 	futex_table_destroy(&proc->futex_table);
 
-	fpanic_status(fuloader_unload_file(proc->binary_info));
+	if (proc->binary_info) {
+		fpanic_status(fuloader_unload_file(proc->binary_info));
+	}
 
 	proc->binary_info = NULL;
 
-	fvfs_release(proc->binary_descriptor);
+	if (proc->binary_descriptor) {
+		fvfs_release(proc->binary_descriptor);
+	}
 
 	// clear all open descriptors
 	// (thereby releasing all underlying descriptors)
@@ -205,6 +209,7 @@ static void fproc_thread_init(void* context) {
 	} else {
 		// jump into the frame that's already been set up
 		fint_disable();
+		fpanic_status(fpage_space_swap(FARCH_PER_CPU(current_uthread_data)->user_space));
 		farch_uthread_syscall_exit_preserve_all(FARCH_PER_CPU(current_uthread_data)->saved_syscall_context);
 	}
 };

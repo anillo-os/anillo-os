@@ -78,7 +78,7 @@ SPOOKY_TYPE_DEF(double, f64);
 
 SPOOKY_TYPE_DEF(sys_channel_t*, channel);
 
-ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type) {
+ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type, bool for_storage) {
 	if (type == spooky_type_data()) {
 		spooky_data_t* data = *(spooky_data_t* const*)object;
 
@@ -95,16 +95,18 @@ ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type) {
 		spooky_structure_object_t* structure = (void*)type;
 
 		for (size_t i = 0; i < structure->member_count; ++i) {
-			ferr_t status = spooky_retain_object_with_type((const char*)object + structure->members[i].offset, structure->members[i].type);
+			ferr_t status = spooky_retain_object_with_type((const char*)object + structure->members[i].offset, structure->members[i].type, for_storage);
 			if (status != ferr_ok) {
 				// release all members that we successfully retained
 				for (size_t j = 0; j < i; ++j) {
-					spooky_release_object_with_type((const char*)object + structure->members[j].offset, structure->members[j].type);
+					spooky_release_object_with_type((const char*)object + structure->members[j].offset, structure->members[j].type, for_storage);
 				}
 				return status;
 			}
 		}
-	} else if (type == spooky_type_channel()) {
+	} else if (type == spooky_type_channel() && !for_storage) {
+		// channels are not retained for storage, only for passing back out (e.g. in invocation argument getters)
+
 		sys_channel_t* channel = *(sys_channel_t* const*)object;
 
 		if (channel) {
@@ -115,7 +117,7 @@ ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type) {
 	return ferr_ok;
 };
 
-void spooky_release_object_with_type(const void* object, spooky_type_t* type) {
+void spooky_release_object_with_type(const void* object, spooky_type_t* type, bool for_storage) {
 	if (type == spooky_type_data()) {
 		spooky_data_t* data = *(spooky_data_t* const*)object;
 
@@ -132,9 +134,9 @@ void spooky_release_object_with_type(const void* object, spooky_type_t* type) {
 		spooky_structure_object_t* structure = (void*)type;
 
 		for (size_t i = 0; i < structure->member_count; ++i) {
-			spooky_release_object_with_type((const char*)object + structure->members[i].offset, structure->members[i].type);
+			spooky_release_object_with_type((const char*)object + structure->members[i].offset, structure->members[i].type, for_storage);
 		}
-	} else if (type == spooky_type_channel()) {
+	} else if (type == spooky_type_channel() && !for_storage) {
 		sys_channel_t* channel = *(sys_channel_t* const*)object;
 
 		if (channel) {

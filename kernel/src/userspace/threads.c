@@ -247,6 +247,7 @@ static ferr_t uthread_page_fault(void* context, fthread_t* thread, void* address
 
 	// DEBUGGING
 	fconsole_logf("Fauled on %p\n", address);
+	fint_log_frame(fint_current_frame());
 	fint_trace_interrupted_stack(fint_current_frame());
 
 	FERRO_WUR_IGNORE(fwork_schedule_new(uthread_page_fault_worker, thread, 0, NULL));

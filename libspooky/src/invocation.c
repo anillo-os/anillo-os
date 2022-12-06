@@ -78,7 +78,14 @@ static ferr_t spooky_invocation_serialize_object(spooky_invocation_object_t* inv
 	if (type_obj == spooky_type_channel()) {
 		sys_channel_t* channel = *(sys_channel_t**)object;
 		size_t offset = UINT64_MAX;
-		return spooky_serializer_encode_channel(serializer, offset, &offset, NULL, channel);
+		ferr_t status = spooky_serializer_encode_channel(serializer, offset, &offset, NULL, channel);
+		if (status != ferr_ok) {
+			return status;
+		}
+		// successfully attaching a channel to a message consumes that reference (which should be the only one).
+		// TODO: detach the channel if something later on in the invocation fails, so that we can keep the reference.
+		*(sys_channel_t**)object = NULL;
+		return ferr_ok;
 	}
 
 	if (spooky_object_class(type_obj) == spooky_object_class_structure()) {
@@ -224,7 +231,7 @@ static void spooky_invocation_destroy(spooky_object_t* obj) {
 				continue;
 			}
 
-			spooky_release_object_with_type(invocation->incoming_data + offset, (void*)param_type);
+			spooky_release_object_with_type(invocation->incoming_data + offset, (void*)param_type, false);
 
 			offset += param_type->byte_size;
 		}
@@ -244,7 +251,7 @@ static void spooky_invocation_destroy(spooky_object_t* obj) {
 				continue;
 			}
 
-			spooky_release_object_with_type(invocation->outgoing_data + offset, (void*)param_type);
+			spooky_release_object_with_type(invocation->outgoing_data + offset, (void*)param_type, false);
 
 			offset += param_type->byte_size;
 		}
@@ -1362,11 +1369,6 @@ ferr_t spooky_invocation_set_channel(spooky_invocation_t* obj, size_t index, sys
 		}
 	}
 
-	if (sys_retain(channel) != ferr_ok) {
-		status = ferr_permanent_outage;
-		goto out;
-	}
-
 	channel_ptr = (sys_channel_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
 	old_channel = *channel_ptr;
 	*channel_ptr = channel;
@@ -1420,7 +1422,7 @@ ferr_t spooky_invocation_get_structure(spooky_invocation_t* obj, size_t index, b
 	struct_base = &(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset];
 
 	if (retain_members) {
-		status = spooky_retain_object_with_type(struct_base, (void*)structure);
+		status = spooky_retain_object_with_type(struct_base, (void*)structure, false);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -1464,12 +1466,12 @@ ferr_t spooky_invocation_set_structure(spooky_invocation_t* obj, size_t index, c
 
 	struct_base = &(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset];
 
-	status = spooky_retain_object_with_type(structure, (void*)structure_type);
+	status = spooky_retain_object_with_type(structure, (void*)structure_type, true);
 	if (status != ferr_ok) {
 		goto out;
 	}
 
-	spooky_release_object_with_type(struct_base, (void*)structure_type);
+	spooky_release_object_with_type(struct_base, (void*)structure_type, false);
 
 	simple_memcpy(struct_base, structure, structure_type->base.byte_size);
 

@@ -531,16 +531,15 @@ static ferr_t vfsman_file_read_impl(void* _context, uint64_t offset, uint64_t si
 	vfsman_descriptor_t* descriptor = _context;
 	void* data = NULL;
 	ferr_t status = ferr_ok;
-	size_t data_size = 0;
 	size_t read_count = 0;
 
 	// TODO: limit `size` to something reasonable (e.g. under 32KiB)
-	status = sys_mempool_allocate(size, &data_size, &data);
+	status = sys_mempool_allocate(size, NULL, &data);
 	if (status != ferr_ok) {
 		goto out;
 	}
 
-	status = vfsman_read(descriptor, offset, data, data_size, &read_count);
+	status = vfsman_read(descriptor, offset, data, size, &read_count);
 	if (status != ferr_ok) {
 		goto out;
 	}

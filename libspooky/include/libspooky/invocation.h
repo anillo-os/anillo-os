@@ -79,9 +79,22 @@ LIBSPOOKY_WUR ferr_t spooky_invocation_get_proxy(spooky_invocation_t* invocation
 LIBSPOOKY_WUR ferr_t spooky_invocation_set_proxy(spooky_invocation_t* invocation, size_t index, spooky_proxy_t* proxy);
 
 LIBSPOOKY_WUR ferr_t spooky_invocation_get_channel(spooky_invocation_t* invocation, size_t index, bool retain, sys_channel_t** out_channel);
+
+/**
+ * Sets the given channel as the argument at the given index.
+ *
+ * @note Unlike most other invocation argument setters, this function consumes the caller's reference on the channel.
+ */
 LIBSPOOKY_WUR ferr_t spooky_invocation_set_channel(spooky_invocation_t* invocation, size_t index, sys_channel_t* channel);
 
 LIBSPOOKY_WUR ferr_t spooky_invocation_get_structure(spooky_invocation_t* invocation, size_t index, bool retain_members, void* out_structure, size_t* in_out_structure_size);
+
+/**
+ * Sets the given structure as the argument at the given index.
+ *
+ * @note This function will retain each member of the structure according to their behavior for individual setters.
+ *       This means that e.g. data and proxy objects will be retained, but channels will not (they're consumed).
+ */
 LIBSPOOKY_WUR ferr_t spooky_invocation_set_structure(spooky_invocation_t* invocation, size_t index, const void* structure);
 
 LIBSPOOKY_WUR ferr_t spooky_invocation_get_function(spooky_invocation_t* invocation, size_t index, spooky_function_implementation_f* out_function, void** out_context);

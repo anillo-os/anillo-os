@@ -84,6 +84,9 @@ void futex_table_destroy(futex_table_t* table) {
 	flock_mutex_unlock(&table->mutex);
 };
 
+// DEBUGGING
+#include <ferro/core/panic.h>
+
 ferr_t futex_lookup(futex_table_t* table, uintptr_t address, uint64_t channel, futex_t** out_futex) {
 	futex_t* futex = NULL;
 	bool created = false;
@@ -115,6 +118,8 @@ retry:
 				// TODO: optimize this by reinitializing it here and having futex_release() check for this
 				//       we're probably going to have to add a generation counter to do this safely.
 				flock_mutex_unlock(&table->mutex);
+
+				fpanic("LOOPING IN futex_lookup");
 
 				goto retry;
 			}
