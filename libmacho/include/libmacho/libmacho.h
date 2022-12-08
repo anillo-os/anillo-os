@@ -77,6 +77,7 @@ LIBMACHO_ENUM(uint32_t, macho_load_command_type) {
 	macho_load_command_type_load_dylib                          = 0x0c,
 	macho_load_command_type_load_dynamic_linker                 = 0x0e,
 	macho_load_command_type_segment_64                          = 0x19,
+	macho_load_command_type_reexport_dylib                      = 0x8000001f,
 	macho_load_command_type_compressed_dynamic_linker_info_only = 0x80000022,
 	macho_load_command_type_entry_point                         = 0x80000028,
 };

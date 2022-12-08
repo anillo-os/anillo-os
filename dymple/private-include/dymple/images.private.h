@@ -73,6 +73,9 @@ DYMPLE_STRUCT(dymple_image) {
 	size_t dependent_count;
 	dymple_image_t** dependents;
 
+	size_t reexport_count;
+	dymple_image_t** reexports;
+
 	void* export_trie;
 	size_t export_trie_size;
 

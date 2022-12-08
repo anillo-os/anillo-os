@@ -682,6 +682,124 @@ out:
 	LIBSPOOKY_WUR_IGNORE(sys_mempool_free(context));
 };
 
+static ferr_t spooky_invocation_serialize_contents(spooky_invocation_object_t* invocation, spooky_serializer_t* serializer, size_t* out_outgoing_callback_index, sys_channel_message_t** out_message);
+
+// acquires an extra reference on the invocation that must be released
+static ferr_t spooky_invocation_execute_begin(spooky_invocation_t* obj, sys_channel_message_t** out_message) {
+	ferr_t status = ferr_ok;
+	spooky_invocation_object_t* invocation = (void*)obj;
+	spooky_serializer_t serializer;
+	size_t outgoing_callback_index = 0;
+	spooky_function_object_t* func = (void*)invocation->function_type;
+	size_t data_offset = 0;
+	size_t name_offset = UINT64_MAX;
+	sys_channel_message_t* message = NULL;
+	bool destroy_serializer_on_fail = false;
+
+	// this cannot fail
+	sys_abort_status(spooky_retain((void*)invocation));
+
+	if (invocation->incoming) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = spooky_serializer_init(&serializer);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	destroy_serializer_on_fail = true;
+
+	status = spooky_serializer_encode_integer(&serializer, UINT64_MAX, NULL, &invocation->name_length, sizeof(invocation->name_length), NULL, false);
+	if (status != ferr_ok) {
+		return status;
+	}
+
+	status = spooky_serializer_encode_data(&serializer, name_offset, &name_offset, invocation->name_length, invocation->name);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = spooky_serializer_encode_type(&serializer, UINT64_MAX, NULL, NULL, invocation->function_type);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = spooky_invocation_serialize_contents(invocation, &serializer, &outgoing_callback_index, &message);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	destroy_serializer_on_fail = false;
+
+	sys_channel_message_set_conversation_id(message, invocation->conversation_id);
+
+out:
+	if (destroy_serializer_on_fail) {
+		LIBSPOOKY_WUR_IGNORE(spooky_serializer_finalize(&serializer, NULL));
+	}
+
+	if (status == ferr_ok) {
+		*out_message = message;
+	} else {
+		if (message) {
+			sys_release(message);
+		}
+		for (size_t i = 0; i < outgoing_callback_index; ++i) {
+			spooky_invocation_outgoing_callback_info_t* callback_info = &invocation->outgoing_callback_infos[i];
+			LIBSPOOKY_WUR_IGNORE(eve_channel_receive_conversation_cancel(invocation->channel, callback_info->conversation_id, callback_info->cancellation_token));
+		}
+		spooky_release((void*)invocation);
+	}
+	return status;
+};
+
+static ferr_t spooky_invocation_execute_end(spooky_invocation_t* obj, sys_channel_message_t* message) {
+	ferr_t status = ferr_ok;
+	spooky_deserializer_t deserializer;
+	size_t data_offset = 0;
+	spooky_invocation_object_t* invocation = (void*)obj;
+	spooky_function_object_t* func = (void*)invocation->function_type;
+	bool aborted = false;
+
+	status = spooky_deserializer_init(&deserializer, message);
+	if (status != ferr_ok) {
+		goto cleanup;
+	}
+
+	// TODO: have the peer send back the function type they're using and check it matches ours
+
+	status = spooky_deserializer_decode_integer(&deserializer, 0, NULL, &aborted, sizeof(aborted), NULL, false);
+	if (status != ferr_ok) {
+		goto cleanup;
+	}
+
+	if (aborted) {
+		status = ferr_aborted;
+		goto cleanup;
+	}
+
+	for (size_t i = 0; i < func->parameter_count; ++i) {
+		spooky_function_parameter_info_t* param_info = &func->parameters[i];
+
+		if (param_info->direction == spooky_function_parameter_direction_in) {
+			continue;
+		}
+
+		status = spooky_invocation_deserialize_object(invocation, &deserializer, &invocation->incoming_data[data_offset], param_info->type, i);
+		if (status != ferr_ok) {
+			goto cleanup;
+		}
+
+		data_offset += ((spooky_type_object_t*)param_info->type)->byte_size;
+	}
+
+cleanup:
+	sys_release(message);
+	return status;
+};
+
 LIBSPOOKY_STRUCT(spooky_invocation_execute_async_context) {
 	spooky_invocation_object_t* invocation;
 	spooky_invocation_complete_f completion_callback;
@@ -699,45 +817,7 @@ static void spooky_invocation_execute_async_reply_handler(void* _context, eve_ch
 
 		// no need to clean up callback listeners; they'll also receive "ferr_permanent_outage"
 	} else if (status == ferr_ok) {
-		spooky_deserializer_t deserializer;
-		size_t data_offset = 0;
-		spooky_function_object_t* func = (void*)context->invocation->function_type;
-		bool aborted = false;
-
-		status = spooky_deserializer_init(&deserializer, message);
-		if (status != ferr_ok) {
-			goto cleanup;
-		}
-
-		// TODO: have the peer send back the function type they're using and check it matches ours
-
-		status = spooky_deserializer_decode_integer(&deserializer, 0, NULL, &aborted, sizeof(aborted), NULL, false);
-		if (status != ferr_ok) {
-			goto cleanup;
-		}
-
-		if (aborted) {
-			status = ferr_aborted;
-			goto cleanup;
-		}
-
-		for (size_t i = 0; i < func->parameter_count; ++i) {
-			spooky_function_parameter_info_t* param_info = &func->parameters[i];
-
-			if (param_info->direction == spooky_function_parameter_direction_in) {
-				continue;
-			}
-
-			status = spooky_invocation_deserialize_object(context->invocation, &deserializer, &context->invocation->incoming_data[data_offset], param_info->type, i);
-			if (status != ferr_ok) {
-				goto cleanup;
-			}
-
-			data_offset += ((spooky_type_object_t*)param_info->type)->byte_size;
-		}
-
-cleanup:
-		sys_release(message);
+		status = spooky_invocation_execute_end((void*)context->invocation, message);
 	} else if (message) {
 		// this is the message we were trying to send; just release it and report the error back to the user
 		sys_release(message);
@@ -802,30 +882,12 @@ out:
 ferr_t spooky_invocation_execute_async(spooky_invocation_t* obj, spooky_invocation_complete_f completion_callback, void* context) {
 	ferr_t status = ferr_ok;
 	spooky_invocation_object_t* invocation = (void*)obj;
-	spooky_serializer_t serializer;
-	size_t outgoing_callback_index = 0;
-	spooky_function_object_t* func = (void*)invocation->function_type;
-	size_t data_offset = 0;
-	size_t name_offset = UINT64_MAX;
 	sys_channel_message_t* message = NULL;
 	spooky_invocation_execute_async_context_t* reply_context = NULL;
-	bool destroy_serializer_on_fail = false;
+	bool cleanup_callbacks = false;
 
 	// this cannot fail
 	sys_abort_status(spooky_retain((void*)invocation));
-	sys_abort_status(spooky_retain((void*)invocation));
-
-	if (invocation->incoming) {
-		status = ferr_invalid_argument;
-		goto out;
-	}
-
-	status = spooky_serializer_init(&serializer);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	destroy_serializer_on_fail = true;
 
 	status = sys_mempool_allocate(sizeof(*reply_context), NULL, (void*)&reply_context);
 	if (status != ferr_ok) {
@@ -836,29 +898,12 @@ ferr_t spooky_invocation_execute_async(spooky_invocation_t* obj, spooky_invocati
 	reply_context->context = context;
 	reply_context->invocation = invocation;
 
-	status = spooky_serializer_encode_integer(&serializer, UINT64_MAX, NULL, &invocation->name_length, sizeof(invocation->name_length), NULL, false);
-	if (status != ferr_ok) {
-		return status;
-	}
-
-	status = spooky_serializer_encode_data(&serializer, name_offset, &name_offset, invocation->name_length, invocation->name);
+	status = spooky_invocation_execute_begin(obj, &message);
 	if (status != ferr_ok) {
 		goto out;
 	}
 
-	status = spooky_serializer_encode_type(&serializer, UINT64_MAX, NULL, NULL, invocation->function_type);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	status = spooky_invocation_serialize_contents(invocation, &serializer, &outgoing_callback_index, &message);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	destroy_serializer_on_fail = false;
-
-	sys_channel_message_set_conversation_id(message, invocation->conversation_id);
+	cleanup_callbacks = true;
 
 	status = eve_channel_send_with_reply_async(invocation->channel, message, spooky_invocation_execute_async_reply_handler, reply_context);
 	if (status != ferr_ok) {
@@ -878,14 +923,12 @@ out:
 		sys_release(message);
 	}
 
-	if (destroy_serializer_on_fail) {
-		LIBSPOOKY_WUR_IGNORE(spooky_serializer_finalize(&serializer, NULL));
-	}
-
 	if (status != ferr_ok) {
-		for (size_t i = 0; i < outgoing_callback_index; ++i) {
-			spooky_invocation_outgoing_callback_info_t* callback_info = &invocation->outgoing_callback_infos[i];
-			LIBSPOOKY_WUR_IGNORE(eve_channel_receive_conversation_cancel(invocation->channel, callback_info->conversation_id, callback_info->cancellation_token));
+		if (cleanup_callbacks) {
+			for (size_t i = 0; i < invocation->outgoing_callback_info_count; ++i) {
+				spooky_invocation_outgoing_callback_info_t* callback_info = &invocation->outgoing_callback_infos[i];
+				LIBSPOOKY_WUR_IGNORE(eve_channel_receive_conversation_cancel(invocation->channel, callback_info->conversation_id, callback_info->cancellation_token));
+			}
 		}
 		if (reply_context) {
 			LIBSPOOKY_WUR_IGNORE(sys_mempool_free(reply_context));
@@ -896,34 +939,56 @@ out:
 	return status;
 };
 
-LIBSPOOKY_STRUCT(spooky_invocation_execute_sync_context) {
-	ferr_t status;
-	sys_semaphore_t semaphore;
-};
-
-static void spooky_invocation_execute_sync_complete(void* _context, spooky_invocation_t* invocation, ferr_t status) {
-	spooky_invocation_execute_sync_context_t* context = _context;
-	context->status = status;
-	sys_semaphore_up(&context->semaphore);
-};
-
 ferr_t spooky_invocation_execute_sync(spooky_invocation_t* obj) {
 	spooky_invocation_object_t* invocation = (void*)obj;
-	spooky_invocation_execute_sync_context_t context;
+	ferr_t status = ferr_ok;
+	sys_channel_message_t* message = NULL;
+	sys_channel_message_t* reply = NULL;
+	bool did_begin = false;
 
-	context.status = ferr_ok;
-	sys_semaphore_init(&context.semaphore, 0);
-
-	context.status = spooky_invocation_execute_async(obj, spooky_invocation_execute_sync_complete, &context);
-	if (context.status != ferr_ok) {
+	status = spooky_invocation_execute_begin(obj, &message);
+	if (status != ferr_ok) {
 		goto out;
 	}
 
-	// this might be a long wait, so use the suspendable version
-	eve_semaphore_down(&context.semaphore);
+	did_begin = true;
+
+	status = eve_channel_send_with_reply_sync(invocation->channel, message, &reply);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// sending the message consumes it
+	message = NULL;
+
+	// outgoing callbacks are also consumed by the send
+	for (size_t i = 0; i < invocation->outgoing_callback_info_count; ++i) {
+		invocation->outgoing_callback_infos[i].implementation = NULL;
+	}
+
+	status = spooky_invocation_execute_end(obj, reply);
+	//       ^ this always consumes the reply message, regardless of success or failure
+	if (status != ferr_ok) {
+		goto out;
+	}
 
 out:
-	return context.status;
+	if (message) {
+		sys_release(message);
+	}
+	if (status != ferr_ok) {
+		if (did_begin) {
+			for (size_t i = 0; i < invocation->outgoing_callback_info_count; ++i) {
+				spooky_invocation_outgoing_callback_info_t* callback_info = &invocation->outgoing_callback_infos[i];
+				LIBSPOOKY_WUR_IGNORE(eve_channel_receive_conversation_cancel(invocation->channel, callback_info->conversation_id, callback_info->cancellation_token));
+			}
+		}
+	}
+	if (did_begin) {
+		// spooky_invocation_execute_begin() retains the invocation and leaves it to us to clean up
+		sys_release(obj);
+	}
+	return status;
 };
 
 ferr_t spooky_invocation_complete(spooky_invocation_t* obj) {

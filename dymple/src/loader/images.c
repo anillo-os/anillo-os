@@ -406,7 +406,7 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 			goto out;
 		}
 
-		if (load_command.type != macho_load_command_type_load_dylib) {
+		if (load_command.type != macho_load_command_type_load_dylib && load_command.type != macho_load_command_type_reexport_dylib) {
 			continue;
 		}
 
@@ -456,6 +456,17 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 
 		dep_image->dependents[dep_image->dependent_count] = image;
 		++dep_image->dependent_count;
+
+		// if this is a reexport, register it as one
+		if (load_command.type == macho_load_command_type_reexport_dylib) {
+			if (sys_mempool_reallocate(image->reexports, sizeof(*image->reexports) * (image->reexport_count + 1), NULL, (void*)&image->reexports) != ferr_ok) {
+				status = ferr_temporary_outage;
+				goto out;
+			}
+
+			image->reexports[image->reexport_count] = dep_image;
+			++image->reexport_count;
+		}
 	}
 
 	dymple_log_debug(dymple_log_category_image_loading, "Loaded image dependencies (%zu dylib(s)); now looking for symbols\n", image->dependency_count);

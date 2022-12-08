@@ -226,6 +226,14 @@ ferr_t dymple_resolve_export(dymple_image_t* image, const char* name, size_t nam
 
 	status = dymple_export_trie_find(image, name, name_length, &export_info);
 	if (status != ferr_ok) {
+		// try to see if we can resolve it in a reexported dylib
+		for (size_t i = 0; i < image->reexport_count; ++i) {
+			if (dymple_resolve_export(image->reexports[i], name, name_length, out_export) == ferr_ok) {
+				status = ferr_ok;
+				break;
+			}
+		}
+
 		goto out;
 	}
 

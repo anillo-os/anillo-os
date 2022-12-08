@@ -732,6 +732,8 @@ void eve_semaphore_down(sys_semaphore_t* semaphore) {
 		return sys_semaphore_down(semaphore);
 	}
 
+	sys_event_init(&context.suspension_event);
+
 	// we're running in a work item, so let's suspend it
 	// (most of this is copied from sys_semaphore_down)
 
@@ -818,6 +820,8 @@ void eve_event_wait(sys_event_t* event) {
 	if (!current) {
 		return sys_event_wait(event);
 	}
+
+	sys_event_init(&context.suspension_event);
 
 	// we're running in a work item, so let's suspend it
 	// (most of this is copied from sys_event_wait)
