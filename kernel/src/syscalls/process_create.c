@@ -233,6 +233,19 @@ ferr_t fsyscall_handler_process_create(const fsyscall_process_create_info_t* inf
 
 	// now remove descriptors from the original process
 	// (they're transferred from the parent to the child upon success)
+	for (size_t i = 0; i < info->descriptor_count; ++i) {
+		void* desc = NULL;
+		const fproc_descriptor_class_t* desc_class = NULL;
+		fproc_did_t installed_did = FPROC_DID_MAX;
+
+		status = fproc_lookup_descriptor(fproc_current(), info->descriptors[i], false, &desc, &desc_class);
+		if (status != ferr_ok) {
+			goto out;
+		}
+
+		// this cannot fail
+		FERRO_WUR_IGNORE(fproc_uninstall_descriptor(proc, installed_did));
+	}
 
 out:
 	if (status != ferr_ok) {
