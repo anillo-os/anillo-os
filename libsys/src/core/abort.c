@@ -19,7 +19,14 @@
 #include <libsys/abort.h>
 #include <gen/libsyscall/syscall-wrappers.h>
 
+// DEBUGGING
+#include <libsys/console.h>
+
 void sys_abort(void) {
+	// DEBUGGING
+	sys_console_log("DYING NOW\n");
+	while (true);
+
 	libsyscall_wrapper_exit(-1);
 	__builtin_unreachable();
 };

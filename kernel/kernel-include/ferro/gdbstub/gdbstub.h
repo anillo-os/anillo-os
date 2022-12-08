@@ -29,6 +29,7 @@
 
 #include <ferro/base.h>
 #include <ferro/core/serial.h>
+#include <ferro/core/interrupts.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -46,6 +47,8 @@ FERRO_DECLARATIONS_BEGIN;
  * @param serial_port The port to use to communicate with GDB.
  */
 void fgdb_init(fserial_t* serial_port);
+
+FERRO_WUR ferr_t fgdb_register_passthrough_handlers(fint_special_handler_f breakpoint, fint_special_handler_f single_step, fint_special_handler_f watchpoint);
 
 /**
  * @}

@@ -30,6 +30,7 @@
 #include <ferro/core/workers.h>
 #include <ferro/core/console.h>
 #include <ferro/core/interrupts.h>
+#include <ferro/gdbstub/gdbstub.h>
 
 #include <libsimple/libsimple.h>
 
@@ -695,10 +696,16 @@ out_ignore:
 };
 
 void fthread_init(void) {
-	fpanic_status(fint_register_special_handler(fint_special_interrupt_invalid_instruction, thread_invalid_instruction_handler, NULL));
-	fpanic_status(fint_register_special_handler(fint_special_interrupt_common_single_step, thread_debug_handler, NULL));
-	fpanic_status(fint_register_special_handler(fint_special_interrupt_common_breakpoint, thread_debug_handler, NULL));
-	fpanic_status(fint_register_special_handler(fint_special_interrupt_common_watchpoint, thread_debug_handler, NULL));
+	ferr_t status = ferr_ok;
+	status |= fint_register_special_handler(fint_special_interrupt_invalid_instruction, thread_invalid_instruction_handler, NULL);
+	status |= fint_register_special_handler(fint_special_interrupt_common_single_step, thread_debug_handler, NULL);
+	status |= fint_register_special_handler(fint_special_interrupt_common_breakpoint, thread_debug_handler, NULL);
+	status |= fint_register_special_handler(fint_special_interrupt_common_watchpoint, thread_debug_handler, NULL);
+	if (status != ferr_ok) {
+		// it's likely that the gdbstub subsystem already registered handlers for these.
+		// in that case, register ourselves with the gdbstub subsystem.
+		fpanic_status(fgdb_register_passthrough_handlers(thread_debug_handler, thread_debug_handler, thread_debug_handler));
+	}
 };
 
 ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_base, size_t stack_size, fthread_flags_t flags, fthread_t** out_thread) {

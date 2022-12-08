@@ -64,6 +64,10 @@ static uint8_t fgdb_static_packet_buffer_send[STATIC_PACKET_BUFFER_SIZE];
 
 static atomic_bool reading_data = false;
 
+static fint_special_handler_f breakpoint_passthrough_handler = NULL;
+static fint_special_handler_f single_step_passthrough_handler = NULL;
+static fint_special_handler_f watchpoint_passthrough_handler = NULL;
+
 static void fgdb_packet_buffer_log(const fgdb_packet_buffer_t* packet_buffer);
 
 static uint8_t fgdb_read_u8() {
@@ -371,9 +375,9 @@ static void fgdb_packet_buffer_log(const fgdb_packet_buffer_t* packet_buffer) {
 	fconsole_log("\n");
 };
 
-static bool should_continue = false;
-static bool is_initial_breakpoint = true;
-static fthread_t* selected_thread = NULL;
+static volatile bool should_continue = false;
+static volatile bool is_initial_breakpoint = true;
+static fthread_t* volatile selected_thread = NULL;
 
 // TODO: once we get multicore support, we need to support that too
 
@@ -1144,7 +1148,7 @@ static void fgdb_serial_read_notify(void* data) {
 	} while (!data && !should_continue);
 };
 
-static void fgdb_breakpoint_handler(void* data) {
+static void fgdb_breakpoint_handler_common(void* data) {
 	fthread_id_t id = 0;
 
 	selected_thread = fthread_current();
@@ -1192,9 +1196,27 @@ static void fgdb_breakpoint_handler(void* data) {
 	should_continue = false;
 };
 
+static void fgdb_breakpoint_handler(void* data) {
+	fgdb_breakpoint_handler_common(data);
+
+	// TODO: determine when it's appropriate to call the passthrough handler
+#if 0
+	if (breakpoint_passthrough_handler) {
+		breakpoint_passthrough_handler(NULL);
+	}
+#endif
+};
+
 static void fgdb_single_step_handler(void* data) {
 	// this actually has the exact same behavior as a breakpoint
-	return fgdb_breakpoint_handler(data);
+	fgdb_breakpoint_handler_common(data);
+
+	// TODO: determine when it's appropriate to call the passthrough handler
+#if 0
+	if (watchpoint_passthrough_handler) {
+		watchpoint_passthrough_handler(NULL);
+	}
+#endif
 };
 
 static void fgdb_watchpoint_handler(void* data) {
@@ -1237,6 +1259,13 @@ static void fgdb_watchpoint_handler(void* data) {
 	}
 
 	should_continue = false;
+
+	// TODO: determine when it's appropriate to call the passthrough handler
+#if 0
+	if (watchpoint_passthrough_handler) {
+		watchpoint_passthrough_handler(NULL);
+	}
+#endif
 };
 
 void fgdb_init(fserial_t* serial_port) {
@@ -1275,4 +1304,11 @@ void fgdb_init(fserial_t* serial_port) {
 	__builtin_debugtrap();
 
 	fint_enable();
+};
+
+ferr_t fgdb_register_passthrough_handlers(fint_special_handler_f breakpoint, fint_special_handler_f single_step, fint_special_handler_f watchpoint) {
+	breakpoint_passthrough_handler = breakpoint;
+	single_step_passthrough_handler = single_step;
+	watchpoint_passthrough_handler = watchpoint;
+	return ferr_ok;
 };
