@@ -12,7 +12,7 @@ RUN apt-get -y update
 RUN rm /usr/share/keyrings/kitware-archive-keyring.gpg
 RUN apt-get -y install kitware-archive-keyring
 RUN apt-get -y install build-essential
-RUN apt-get -y install python3
+RUN apt-get -y install python3 python3-lark
 RUN apt-get -y install cmake
 RUN apt-get -y install clang
 RUN apt-get -y install lld
