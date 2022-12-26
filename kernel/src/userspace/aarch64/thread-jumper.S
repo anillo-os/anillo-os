@@ -187,3 +187,11 @@ _farch_uthread_return_to_userspace:
 
 	// and perform a fake exception return
 	eret
+
+// arg 1 (x0) is the context to load
+.align 4
+.text
+.global _farch_uthread_syscall_exit_preserve_all
+_farch_uthread_syscall_exit_preserve_all:
+	// on AARCH64, this is exactly the same as farch_uthread_return_to_userspace
+	b _farch_uthread_return_to_userspace
