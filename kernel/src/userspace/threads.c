@@ -240,15 +240,15 @@ static ferr_t uthread_bus_error(void* context, fthread_t* thread, void* address)
 };
 
 static ferr_t uthread_page_fault(void* context, fthread_t* thread, void* address) {
+	// DEBUGGING
+	fconsole_logf("Faulted on %p\n", address);
+	fint_log_frame(fint_current_frame());
+	fint_trace_interrupted_stack(fint_current_frame());
+
 	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
 	FERRO_WUR_IGNORE(fthread_retain(thread));
 	FERRO_WUR_IGNORE(fthread_block(thread, false));
 	private_data->faulted_memory_address = address;
-
-	// DEBUGGING
-	fconsole_logf("Fauled on %p\n", address);
-	fint_log_frame(fint_current_frame());
-	fint_trace_interrupted_stack(fint_current_frame());
 
 	FERRO_WUR_IGNORE(fwork_schedule_new(uthread_page_fault_worker, thread, 0, NULL));
 	return ferr_permanent_outage;

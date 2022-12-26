@@ -37,6 +37,7 @@ LIBSPOOKY_STRUCT(spooky_proxy_object) {
 LIBSPOOKY_STRUCT(spooky_incoming_proxy_object) {
 	spooky_proxy_object_t base;
 	eve_channel_t* channel;
+	eve_loop_t* loop;
 };
 
 LIBSPOOKY_STRUCT(spooky_outgoing_proxy_object) {

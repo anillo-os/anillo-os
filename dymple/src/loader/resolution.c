@@ -228,7 +228,7 @@ ferr_t dymple_resolve_export(dymple_image_t* image, const char* name, size_t nam
 	if (status != ferr_ok) {
 		// try to see if we can resolve it in a reexported dylib
 		for (size_t i = 0; i < image->reexport_count; ++i) {
-			if (dymple_resolve_export(image->reexports[i], name, name_length, out_export) == ferr_ok) {
+			if (dymple_resolve_export(image->reexports[i], name, name_length, &export) == ferr_ok) {
 				status = ferr_ok;
 				break;
 			}
@@ -245,6 +245,8 @@ ferr_t dymple_resolve_export(dymple_image_t* image, const char* name, size_t nam
 
 	flags = macho_export_flags_get(raw_flags);
 	kind = macho_export_flags_get_kind(raw_flags);
+
+	dymple_log_debug(dymple_log_category_resolution, "Resolved symbol %.*s with flags=%x and kind=%d\n", (int)name_length, name, flags, kind);
 
 	if (flags & ~macho_export_symbol_flag_reexport) {
 		dymple_log_error(dymple_log_category_resolution, "Unsupported Mach-O export symbol flag value: %u\n", flags);
@@ -312,6 +314,8 @@ ferr_t dymple_resolve_export(dymple_image_t* image, const char* name, size_t nam
 	}
 	offset += uleb_size;
 
+	dymple_log_debug(dymple_log_category_resolution, "Resolved symbol %.*s with value=%lx\n", (int)name_length, name, value);
+
 	if (kind != macho_export_symbol_kind_regular) {
 		dymple_log_error(dymple_log_category_resolution, "Unsupported Mach-O export symbol kind value: %u\n", kind);
 		status = ferr_unsupported;
@@ -332,6 +336,7 @@ ferr_t dymple_resolve_export(dymple_image_t* image, const char* name, size_t nam
 	if (!address) {
 		// *super* weird
 		status = ferr_no_such_resource;
+		dymple_log_debug(dymple_log_category_resolution, "Failed to resolve symbol address for symbol %.*s after finding export info (this shouldn't happen)\n", (int)name_length, name);
 		goto out;
 	}
 

@@ -17,6 +17,8 @@ set_target_properties(libvfs_static PROPERTIES
 	OUTPUT_NAME vfs
 )
 
+add_dependencies(libvfs_static vfsman_client)
+
 add_anillo_executable(vfsman
 	RAMDISK
 	INSTALL_PATH /sys/vfsman/vfsman

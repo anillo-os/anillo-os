@@ -18,19 +18,33 @@
 
 #include <libeve/loop.private.h>
 
-static eve_loop_t dummy_loop;
-
 static void eve_loop_destroy(eve_object_t* obj) {
 	sys_object_destroy(obj);
+};
+
+static ferr_t eve_loop_retain_noop(eve_loop_t* obj) {
+	return ferr_ok;
+};
+
+static void eve_loop_release_noop(eve_loop_t* obj) {
+	// do nothing
 };
 
 const eve_object_class_t eve_loop_class = {
 	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
 	.destroy = eve_loop_destroy,
+	.retain = eve_loop_retain_noop,
+	.release = eve_loop_release_noop,
 };
 
 const eve_object_class_t* eve_object_class_loop(void) {
 	return &eve_loop_class;
+};
+
+static eve_loop_t dummy_loop = {
+	.reference_count = 1,
+	.object_class = &eve_loop_class,
+	.flags = 0,
 };
 
 eve_loop_t* eve_loop_get_main(void) {

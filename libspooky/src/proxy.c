@@ -91,9 +91,13 @@ static void spooky_incoming_proxy_destroy(spooky_object_t* obj) {
 	spooky_incoming_proxy_object_t* incoming_proxy = (void*)obj;
 
 	if (incoming_proxy->channel) {
-		LIBSPOOKY_WUR_IGNORE(eve_loop_remove_item(eve_loop_get_current(), incoming_proxy->channel));
+		LIBSPOOKY_WUR_IGNORE(eve_loop_remove_item(incoming_proxy->loop, incoming_proxy->channel));
 
 		eve_release(incoming_proxy->channel);
+	}
+
+	if (incoming_proxy->loop) {
+		eve_release(incoming_proxy->loop);
 	}
 
 	spooky_proxy_destroy(obj);
@@ -167,10 +171,19 @@ ferr_t spooky_proxy_create_incoming(sys_channel_t* sys_channel, eve_loop_t* loop
 	ferr_t status = ferr_ok;
 	spooky_incoming_proxy_object_t* incoming_proxy = NULL;
 
-	status = sys_object_new(&incoming_proxy_class, sizeof(*incoming_proxy) - sizeof(incoming_proxy->base.object), (void*)&incoming_proxy);
+	status = eve_retain(loop);
 	if (status != ferr_ok) {
 		goto out;
 	}
+
+	status = sys_object_new(&incoming_proxy_class, sizeof(*incoming_proxy) - sizeof(incoming_proxy->base.object), (void*)&incoming_proxy);
+	if (status != ferr_ok) {
+		eve_release(loop);
+		goto out;
+	}
+
+	incoming_proxy->loop = loop;
+	incoming_proxy->channel = NULL;
 
 	status = eve_channel_create(sys_channel, NULL, &incoming_proxy->channel);
 	if (status != ferr_ok) {
@@ -190,7 +203,7 @@ ferr_t spooky_proxy_create_incoming(sys_channel_t* sys_channel, eve_loop_t* loop
 	// we do, however, need to know if/when our peer dies (so we can remove it from the loop)
 	eve_channel_set_peer_close_handler(incoming_proxy->channel, incoming_proxy_peer_close_handler);
 
-	status = eve_loop_add_item(loop, incoming_proxy->channel);
+	status = eve_loop_add_item(incoming_proxy->loop, incoming_proxy->channel);
 	if (status != ferr_ok) {
 		goto out;
 	}
