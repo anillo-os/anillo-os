@@ -74,11 +74,11 @@ void eve_loop_run_one(eve_loop_t* loop) {
 };
 
 void eve_mutex_lock(sys_mutex_t* mutex) {
-	eve_mutex_lock(mutex);
+	sys_mutex_lock(mutex);
 };
 
 void eve_semaphore_down(sys_semaphore_t* semaphore) {
-	eve_semaphore_down(semaphore);
+	sys_semaphore_down(semaphore);
 };
 
 void eve_event_wait(sys_event_t* event) {

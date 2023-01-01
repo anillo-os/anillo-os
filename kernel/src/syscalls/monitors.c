@@ -530,7 +530,9 @@ static ferr_t fsyscall_monitor_item_enable(fsyscall_monitor_item_t* item) {
 			// see futex_wait.c for why we check the value and add ourselves while holding the waitq lock
 			fwaitq_lock(&futex_item->futex->waitq);
 			curr_val = __atomic_load_n((uint64_t*)futex_item->futex->address, __ATOMIC_RELAXED);
-			fwaitq_add_locked(&futex_item->futex->waitq, &futex_item->waiter);
+			if (curr_val == futex_item->expected_value) {
+				fwaitq_add_locked(&futex_item->futex->waitq, &futex_item->waiter);
+			}
 			fwaitq_unlock(&futex_item->futex->waitq);
 
 			if (curr_val != futex_item->expected_value) {
@@ -1252,6 +1254,10 @@ ferr_t fsyscall_handler_monitor_poll(uint64_t monitor_handle, fsyscall_monitor_p
 		for (size_t i = monitor->item_count; i < monitor->items_array_size; ++i) {
 			if (processed_events >= event_array_size) {
 				// can't process any more
+
+				// there may still be more events left that we didn't process;
+				// re-increment the semaphore so someone else will check them
+				flock_semaphore_up(&monitor->triggered_items_semaphore);
 				break;
 			}
 			if (fsyscall_monitor_item_poll(monitor->items[i], &out_events[processed_events]) == ferr_ok) {
@@ -1279,6 +1285,10 @@ ferr_t fsyscall_handler_monitor_poll(uint64_t monitor_handle, fsyscall_monitor_p
 			fsyscall_monitor_item_t* item = monitor->items[i];
 			if (processed_events >= event_array_size) {
 				// can't process any more
+
+				// there may still be more events left that we didn't process;
+				// re-increment the semaphore so someone else will check them
+				flock_semaphore_up(&monitor->triggered_items_semaphore);
 				break;
 			}
 			if (fsyscall_monitor_item_poll(item, &out_events[processed_events]) == ferr_ok) {
