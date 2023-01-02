@@ -112,7 +112,7 @@ BASIC_TYPE_TAG_TO_NATIVE_TYPE = {
 	BasicTypeTag.bool  : 'bool',
 	BasicTypeTag.f32   : 'float',
 	BasicTypeTag.f64   : 'double',
-	BasicTypeTag.data  : 'spooky_data_t*',
+	BasicTypeTag.data  : 'sys_data_t*',
 	BasicTypeTag.proxy : 'spooky_proxy_t*',
 	BasicTypeTag.channel : 'sys_channel_t*',
 }

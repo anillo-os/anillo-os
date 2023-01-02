@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2022 Anillo OS Developers
+ * Copyright (C) 2023 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,21 +16,21 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBSPOOKY_DATA_PRIVATE_H_
-#define _LIBSPOOKY_DATA_PRIVATE_H_
+#ifndef _LIBSYS_DATA_PRIVATE_H_
+#define _LIBSYS_DATA_PRIVATE_H_
 
-#include <libspooky/data.h>
-#include <libspooky/objects.private.h>
+#include <libsys/data.h>
+#include <libsys/objects.private.h>
 
-LIBSPOOKY_DECLARATIONS_BEGIN;
+LIBSYS_DECLARATIONS_BEGIN;
 
-LIBSPOOKY_STRUCT(spooky_data_object) {
-	spooky_object_t object;
+LIBSYS_STRUCT(sys_data_object) {
+	sys_object_t object;
 	size_t length;
 	void* contents;
 	bool owns_contents;
 };
 
-LIBSPOOKY_DECLARATIONS_END;
+LIBSYS_DECLARATIONS_END;
 
-#endif // _LIBSPOOKY_DATA_PRIVATE_H_
+#endif // _LIBSYS_DATA_PRIVATE_H_

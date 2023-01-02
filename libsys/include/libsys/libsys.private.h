@@ -24,6 +24,7 @@
 #include <libsys/channels.private.h>
 #include <libsys/console.private.h>
 #include <libsys/counters.private.h>
+#include <libsys/data.private.h>
 #include <libsys/format.private.h>
 #include <libsys/general.private.h>
 #include <libsys/handoff.private.h>

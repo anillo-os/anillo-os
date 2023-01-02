@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2022 Anillo OS Developers
+ * Copyright (C) 2023 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,16 +16,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBSPOOKY_LIBSPOOKY_H_
-#define _LIBSPOOKY_LIBSPOOKY_H_
+#ifndef _LIBSYS_DATA_H_
+#define _LIBSYS_DATA_H_
 
-#include <libspooky/base.h>
+#include <stddef.h>
 
-#include <libspooky/function.h>
-#include <libspooky/interface.h>
-#include <libspooky/invocation.h>
-#include <libspooky/objects.h>
-#include <libspooky/structure.h>
-#include <libspooky/types.h>
+#include <libsys/base.h>
+#include <libsys/objects.h>
 
-#endif // _LIBSPOOKY_LIBSPOOKY_H_
+LIBSYS_DECLARATIONS_BEGIN;
+
+LIBSYS_OBJECT_CLASS(data);
+
+LIBSYS_WUR ferr_t sys_data_create(const void* data, size_t length, sys_data_t** out_data);
+LIBSYS_WUR ferr_t sys_data_create_nocopy(void* data, size_t length, sys_data_t** out_data);
+LIBSYS_WUR ferr_t sys_data_create_transfer(void* data, size_t length, sys_data_t** out_data);
+LIBSYS_WUR ferr_t sys_data_copy(sys_data_t* data, sys_data_t** out_data);
+void* sys_data_contents(sys_data_t* data);
+size_t sys_data_length(sys_data_t* data);
+
+LIBSYS_DECLARATIONS_END;
+
+#endif // _LIBSYS_DATA_H_

@@ -1,7 +1,6 @@
 project(libspooky C)
 
 set(libspooky_sources
-	src/data.c
 	src/deserializer.c
 	src/function.c
 	src/interface.c

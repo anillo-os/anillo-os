@@ -26,6 +26,7 @@
 #include <libsys/config.h>
 #include <libsys/console.h>
 #include <libsys/counters.h>
+#include <libsys/data.h>
 #include <libsys/files.h>
 #include <libsys/format.h>
 #include <libsys/general.h>

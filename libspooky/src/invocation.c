@@ -54,14 +54,14 @@ static ferr_t spooky_invocation_serialize_object(spooky_invocation_object_t* inv
 	}
 
 	if (type_obj == spooky_type_data()) {
-		spooky_data_t* data = *(spooky_data_t**)object;
+		sys_data_t* data = *(sys_data_t**)object;
 		size_t offset = UINT64_MAX;
-		size_t length = spooky_data_length(data);
+		size_t length = sys_data_length(data);
 		ferr_t status = spooky_serializer_encode_integer(serializer, offset, NULL, &length, sizeof(length), NULL, false);
 		if (status != ferr_ok) {
 			return status;
 		}
-		return spooky_serializer_encode_data(serializer, offset, &offset, length, spooky_data_contents(data));
+		return spooky_serializer_encode_data(serializer, offset, &offset, length, sys_data_contents(data));
 	}
 
 	if (type_obj == spooky_type_proxy()) {
@@ -144,7 +144,7 @@ static ferr_t spooky_invocation_deserialize_object(spooky_invocation_object_t* i
 	}
 
 	if (type_obj == spooky_type_data()) {
-		spooky_data_t* data = NULL;
+		sys_data_t* data = NULL;
 		size_t offset = UINT64_MAX;
 		size_t length = 0;
 		ferr_t status = spooky_deserializer_decode_integer(deserializer, offset, NULL, &length, sizeof(length), NULL, false);
@@ -155,11 +155,11 @@ static ferr_t spooky_invocation_deserialize_object(spooky_invocation_object_t* i
 		if (status != ferr_ok) {
 			return status;
 		}
-		status = spooky_data_create(&deserializer->data[offset], length, &data);
+		status = sys_data_create(&deserializer->data[offset], length, &data);
 		if (status != ferr_ok) {
 			return status;
 		}
-		*(spooky_data_t**)object = data;
+		*(sys_data_t**)object = data;
 		return status;
 	}
 
@@ -1190,12 +1190,12 @@ SPOOKY_INVOCATION_BASIC_ACCESSOR_DEF(double, f64);
 
 SPOOKY_INVOCATION_BASIC_ACCESSOR_DEF(bool, bool);
 
-ferr_t spooky_invocation_get_data(spooky_invocation_t* obj, size_t index, bool retain, spooky_data_t** out_data) {
+ferr_t spooky_invocation_get_data(spooky_invocation_t* obj, size_t index, bool retain, sys_data_t** out_data) {
 	ferr_t status = ferr_ok;
 	spooky_invocation_object_t* invocation = (void*)obj;
 	spooky_function_object_t* func = (void*)invocation->function_type;
 	bool is_incoming = false;
-	spooky_data_t* data = NULL;
+	sys_data_t* data = NULL;
 
 	if (index >= func->parameter_count) {
 		status = ferr_invalid_argument;
@@ -1217,10 +1217,10 @@ ferr_t spooky_invocation_get_data(spooky_invocation_t* obj, size_t index, bool r
 		}
 	}
 
-	data = *(spooky_data_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
+	data = *(sys_data_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
 
 	if (retain) {
-		status = spooky_retain(data);
+		status = sys_retain(data);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -1232,13 +1232,13 @@ out:
 	return status;
 };
 
-ferr_t spooky_invocation_set_data(spooky_invocation_t* obj, size_t index, spooky_data_t* data) {
+ferr_t spooky_invocation_set_data(spooky_invocation_t* obj, size_t index, sys_data_t* data) {
 	ferr_t status = ferr_ok;
 	spooky_invocation_object_t* invocation = (void*)obj;
 	spooky_function_object_t* func = (void*)invocation->function_type;
 	bool is_incoming = false;
-	spooky_data_t** data_ptr = NULL;
-	spooky_data_t* old_data = NULL;
+	sys_data_t** data_ptr = NULL;
+	sys_data_t* old_data = NULL;
 
 	if (index >= func->parameter_count) {
 		status = ferr_invalid_argument;
@@ -1260,17 +1260,17 @@ ferr_t spooky_invocation_set_data(spooky_invocation_t* obj, size_t index, spooky
 		}
 	}
 
-	if (spooky_retain(data) != ferr_ok) {
+	if (sys_retain(data) != ferr_ok) {
 		status = ferr_permanent_outage;
 		goto out;
 	}
 
-	data_ptr = (spooky_data_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
+	data_ptr = (sys_data_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
 	old_data = *data_ptr;
 	*data_ptr = data;
 
 	if (old_data) {
-		spooky_release(old_data);
+		sys_release(old_data);
 	}
 
 out:

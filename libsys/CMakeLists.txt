@@ -18,6 +18,7 @@ set(libsys_core_sources
 	src/core/channels.c
 	src/core/monitors.c
 	src/core/counters.c
+	src/core/data.c
 
 	src/core/${ANILLO_ARCH}/threads.S
 	src/core/${ANILLO_ARCH}/threads.c

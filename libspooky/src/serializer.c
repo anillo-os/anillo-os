@@ -19,7 +19,6 @@
 #include <libspooky/serializer.private.h>
 #include <libspooky/types.private.h>
 #include <libspooky/function.private.h>
-#include <libspooky/data.h>
 #include <libspooky/structure.private.h>
 #include <ferro/bits.h>
 #include <libspooky/proxy.h>

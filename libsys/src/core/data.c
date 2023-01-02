@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2022 Anillo OS Developers
+ * Copyright (C) 2023 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,39 +16,30 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <libspooky/data.private.h>
-#include <libspooky/types.private.h>
+#include <libsys/data.private.h>
+#include <libsys/mempool.h>
+#include <libsimple/libsimple.h>
 
-static void spooky_data_destroy(spooky_object_t* obj) {
-	spooky_data_object_t* data = (void*)obj;
+static void sys_data_destroy(sys_object_t* obj) {
+	sys_data_object_t* data = (void*)obj;
 
 	if (data->owns_contents) {
-		LIBSPOOKY_WUR_IGNORE(sys_mempool_free(data->contents));
+		LIBSYS_WUR_IGNORE(sys_mempool_free(data->contents));
 	}
 };
 
-static const spooky_object_class_t data_class = {
+static const sys_object_class_t data_class = {
 	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
-	.destroy = spooky_data_destroy,
+	.destroy = sys_data_destroy,
 };
 
-static spooky_type_object_t data_type = {
-	.object = {
-		.object_class = &spooky_direct_object_class_type,
-		.reference_count = 0,
-		.flags = 0,
-	},
-	.byte_size = sizeof(spooky_data_t*),
-	.global = true,
-};
-
-const spooky_object_class_t* spooky_object_class_data(void) {
+const sys_object_class_t* sys_object_class_data(void) {
 	return &data_class;
 };
 
-ferr_t spooky_data_create(const void* contents, size_t length, spooky_data_t** out_data) {
+ferr_t sys_data_create(const void* contents, size_t length, sys_data_t** out_data) {
 	ferr_t status = ferr_ok;
-	spooky_data_object_t* data = NULL;
+	sys_data_object_t* data = NULL;
 	void* contents_ptr = NULL;
 
 	status = sys_mempool_allocate(length, NULL, &contents_ptr);
@@ -72,18 +63,18 @@ out:
 	if (status == ferr_ok) {
 		*out_data = (void*)data;
 	} else if (data) {
-		spooky_release((void*)data);
+		sys_release((void*)data);
 	} else {
 		if (contents_ptr) {
-			LIBSPOOKY_WUR_IGNORE(sys_mempool_free(contents_ptr));
+			LIBSYS_WUR_IGNORE(sys_mempool_free(contents_ptr));
 		}
 	}
 	return status;
 };
 
-ferr_t spooky_data_create_nocopy(void* contents, size_t length, spooky_data_t** out_data) {
+ferr_t sys_data_create_nocopy(void* contents, size_t length, sys_data_t** out_data) {
 	ferr_t status = ferr_ok;
-	spooky_data_object_t* data = NULL;
+	sys_data_object_t* data = NULL;
 
 	status = sys_object_new(&data_class, sizeof(*data) - sizeof(data->object), (void*)&data);
 	if (status != ferr_ok) {
@@ -98,14 +89,14 @@ out:
 	if (status == ferr_ok) {
 		*out_data = (void*)data;
 	} else if (data) {
-		spooky_release((void*)data);
+		sys_release((void*)data);
 	}
 	return status;
 };
 
-ferr_t spooky_data_create_transfer(void* contents, size_t length, spooky_data_t** out_data) {
+ferr_t sys_data_create_transfer(void* contents, size_t length, sys_data_t** out_data) {
 	ferr_t status = ferr_ok;
-	spooky_data_object_t* data = NULL;
+	sys_data_object_t* data = NULL;
 
 	status = sys_object_new(&data_class, sizeof(*data) - sizeof(data->object), (void*)&data);
 	if (status != ferr_ok) {
@@ -120,26 +111,22 @@ out:
 	if (status == ferr_ok) {
 		*out_data = (void*)data;
 	} else if (data) {
-		spooky_release((void*)data);
+		sys_release((void*)data);
 	}
 	return status;
 };
 
-ferr_t spooky_data_copy(spooky_data_t* obj, spooky_data_t** out_data) {
-	spooky_data_object_t* other = (void*)obj;
-	return spooky_data_create(other->contents, other->length, out_data);
+ferr_t sys_data_copy(sys_data_t* obj, sys_data_t** out_data) {
+	sys_data_object_t* other = (void*)obj;
+	return sys_data_create(other->contents, other->length, out_data);
 };
 
-void* spooky_data_contents(spooky_data_t* obj) {
-	spooky_data_object_t* data = (void*)obj;
+void* sys_data_contents(sys_data_t* obj) {
+	sys_data_object_t* data = (void*)obj;
 	return data->contents;
 };
 
-size_t spooky_data_length(spooky_data_t* obj) {
-	spooky_data_object_t* data = (void*)obj;
+size_t sys_data_length(sys_data_t* obj) {
+	sys_data_object_t* data = (void*)obj;
 	return data->length;
-};
-
-spooky_type_t* spooky_type_data(void) {
-	return (void*)&data_type;
 };

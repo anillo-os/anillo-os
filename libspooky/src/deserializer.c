@@ -19,7 +19,6 @@
 #include <libspooky/deserializer.private.h>
 #include <ferro/bits.h>
 #include <libspooky/types.private.h>
-#include <libspooky/data.h>
 #include <libspooky/structure.h>
 #include <libspooky/function.h>
 #include <libspooky/proxy.h>

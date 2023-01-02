@@ -17,7 +17,6 @@
  */
 
 #include <libspooky/types.private.h>
-#include <libspooky/data.h>
 #include <libspooky/proxy.h>
 #include <libspooky/structure.private.h>
 
@@ -77,13 +76,14 @@ SPOOKY_TYPE_DEF(float, f32);
 SPOOKY_TYPE_DEF(double, f64);
 
 SPOOKY_TYPE_DEF(sys_channel_t*, channel);
+SPOOKY_TYPE_DEF(sys_data_t*, data);
 
 ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type, bool for_storage) {
 	if (type == spooky_type_data()) {
-		spooky_data_t* data = *(spooky_data_t* const*)object;
+		sys_data_t* data = *(sys_data_t* const*)object;
 
 		if (data) {
-			return spooky_retain(data);
+			return sys_retain(data);
 		}
 	} else if (type == spooky_type_proxy()) {
 		spooky_proxy_t* proxy = *(spooky_proxy_t* const*)object;
@@ -119,10 +119,10 @@ ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type, b
 
 void spooky_release_object_with_type(const void* object, spooky_type_t* type, bool for_storage) {
 	if (type == spooky_type_data()) {
-		spooky_data_t* data = *(spooky_data_t* const*)object;
+		sys_data_t* data = *(sys_data_t* const*)object;
 
 		if (data) {
-			spooky_release(data);
+			sys_release(data);
 		}
 	} else if (type == spooky_type_proxy()) {
 		spooky_proxy_t* proxy = *(spooky_proxy_t* const*)object;

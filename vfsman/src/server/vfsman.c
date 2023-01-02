@@ -527,7 +527,7 @@ ferr_t vfsman_write(vfsman_descriptor_t* obj, size_t offset, const void* buffer,
 
 static const vfsman_file_proxy_info_t vfsman_file_proxy_info_base;
 
-static ferr_t vfsman_file_read_impl(void* _context, uint64_t offset, uint64_t size, spooky_data_t** out_buffer, ferr_t* out_status) {
+static ferr_t vfsman_file_read_impl(void* _context, uint64_t offset, uint64_t size, sys_data_t** out_buffer, ferr_t* out_status) {
 	vfsman_descriptor_t* descriptor = _context;
 	void* data = NULL;
 	ferr_t status = ferr_ok;
@@ -547,7 +547,7 @@ static ferr_t vfsman_file_read_impl(void* _context, uint64_t offset, uint64_t si
 	// try to shrink it (but ignore failure)
 	LIBVFS_WUR_IGNORE(sys_mempool_reallocate(data, read_count, NULL, &data));
 
-	status = spooky_data_create_transfer(data, read_count, out_buffer);
+	status = sys_data_create_transfer(data, read_count, out_buffer);
 	data = NULL;
 
 out:
@@ -561,12 +561,12 @@ out:
 	return ferr_ok;
 };
 
-static ferr_t vfsman_file_write_impl(void* _context, uint64_t offset, spooky_data_t* buffer, uint64_t* out_written_count, ferr_t* out_status) {
+static ferr_t vfsman_file_write_impl(void* _context, uint64_t offset, sys_data_t* buffer, uint64_t* out_written_count, ferr_t* out_status) {
 	vfsman_descriptor_t* descriptor = _context;
 	ferr_t status = ferr_ok;
 	size_t written_count = 0;
 
-	status = vfsman_write(descriptor, offset, spooky_data_contents(buffer), spooky_data_length(buffer), &written_count);
+	status = vfsman_write(descriptor, offset, sys_data_contents(buffer), sys_data_length(buffer), &written_count);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -578,7 +578,7 @@ out:
 	return ferr_ok;
 };
 
-static ferr_t vfsman_file_get_path_impl(void* _context, spooky_data_t** out_path, ferr_t* out_status) {
+static ferr_t vfsman_file_get_path_impl(void* _context, sys_data_t** out_path, ferr_t* out_status) {
 	vfsman_descriptor_t* descriptor = _context;
 	ferr_t status = ferr_ok;
 	size_t buffer_size = 128;
@@ -609,7 +609,7 @@ static ferr_t vfsman_file_get_path_impl(void* _context, spooky_data_t** out_path
 	// try to shrink it
 	LIBVFS_WUR_IGNORE(sys_mempool_reallocate(buffer, actual_length, NULL, &buffer));
 
-	status = spooky_data_create_transfer(buffer, actual_length, out_path);
+	status = sys_data_create_transfer(buffer, actual_length, out_path);
 
 out:
 	if (status != ferr_ok) {
@@ -642,12 +642,12 @@ static const vfsman_file_proxy_info_t vfsman_file_proxy_info_base = {
 	.duplicate_raw = vfsman_file_duplicate_raw_impl,
 };
 
-ferr_t vfsman_open_impl(void* _context, spooky_data_t* path, spooky_proxy_t** out_file, ferr_t* out_status) {
+ferr_t vfsman_open_impl(void* _context, sys_data_t* path, spooky_proxy_t** out_file, ferr_t* out_status) {
 	ferr_t status = ferr_ok;
 	vfsman_descriptor_t* desc = NULL;
 	vfsman_file_proxy_info_t proxy_info;
 
-	status = vfsman_open_n(spooky_data_contents(path), spooky_data_length(path), 0, &desc);
+	status = vfsman_open_n(sys_data_contents(path), sys_data_length(path), 0, &desc);
 	if (status != ferr_ok) {
 		goto out;
 	}

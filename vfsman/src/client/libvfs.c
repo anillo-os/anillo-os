@@ -62,7 +62,7 @@ ferr_t vfs_open(const char* path, vfs_file_t** out_file) {
 
 ferr_t vfs_open_n(const char* path, size_t length, vfs_file_t** out_file) {
 	ferr_t status = ferr_ok;
-	spooky_data_t* path_data = NULL;
+	sys_data_t* path_data = NULL;
 	vfs_file_object_t* file = NULL;
 	ferr_t open_status = ferr_ok;
 
@@ -73,9 +73,9 @@ ferr_t vfs_open_n(const char* path, size_t length, vfs_file_t** out_file) {
 
 	simple_memset((char*)file + sizeof(file->object), 0, sizeof(*file) - sizeof(file->object));
 
-	// yes, spooky_data_create_nocopy takes a non-const pointer, but it's fine.
+	// yes, sys_data_create_nocopy takes a non-const pointer, but it's fine.
 	// it doesn't modify the data on its own and none of the functions we call with the data modify it either.
-	status = spooky_data_create_nocopy((void*)path, length, &path_data);
+	status = sys_data_create_nocopy((void*)path, length, &path_data);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -108,7 +108,7 @@ out:
 ferr_t vfs_file_read(vfs_file_t* obj, size_t offset, size_t size, void* buffer, size_t* out_read_size) {
 	ferr_t status = ferr_ok;
 	vfs_file_object_t* file = (void*)obj;
-	spooky_data_t* buffer_data = NULL;
+	sys_data_t* buffer_data = NULL;
 	ferr_t read_status = ferr_ok;
 
 	status = vfsman_file_read(file->proxy, offset, size, &buffer_data, &read_status);
@@ -121,10 +121,10 @@ ferr_t vfs_file_read(vfs_file_t* obj, size_t offset, size_t size, void* buffer, 
 		goto out;
 	}
 
-	simple_memcpy(buffer, spooky_data_contents(buffer_data), spooky_data_length(buffer_data));
+	simple_memcpy(buffer, sys_data_contents(buffer_data), sys_data_length(buffer_data));
 
 	if (out_read_size) {
-		*out_read_size = spooky_data_length(buffer_data);
+		*out_read_size = sys_data_length(buffer_data);
 	}
 
 out:
@@ -140,12 +140,12 @@ out:
 ferr_t vfs_file_write(vfs_file_t* obj, size_t offset, size_t size, const void* buffer, size_t* out_written_size) {
 	ferr_t status = ferr_ok;
 	vfs_file_object_t* file = (void*)obj;
-	spooky_data_t* buffer_data = NULL;
+	sys_data_t* buffer_data = NULL;
 	ferr_t write_status = ferr_ok;
 	uint64_t written_count = 0;
 
 	// like in vfs_open_n(), casting the const away here is safe; we never modify the data in this buffer
-	status = spooky_data_create_nocopy((void*)buffer, size, &buffer_data);
+	status = sys_data_create_nocopy((void*)buffer, size, &buffer_data);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -177,7 +177,7 @@ out:
 ferr_t vfs_file_copy_path(vfs_file_t* obj, char* buffer, size_t size, size_t* out_actual_size) {
 	ferr_t status = ferr_ok;
 	vfs_file_object_t* file = (void*)obj;
-	spooky_data_t* buffer_data = NULL;
+	sys_data_t* buffer_data = NULL;
 	ferr_t copy_status = ferr_ok;
 
 	status = vfsman_file_get_path(file->proxy, &buffer_data, &copy_status);
@@ -191,13 +191,13 @@ ferr_t vfs_file_copy_path(vfs_file_t* obj, char* buffer, size_t size, size_t* ou
 	}
 
 	if (out_actual_size) {
-		*out_actual_size = spooky_data_length(buffer_data);
+		*out_actual_size = sys_data_length(buffer_data);
 	}
 
-	if (spooky_data_length(buffer_data) > size) {
+	if (sys_data_length(buffer_data) > size) {
 		status = ferr_too_big;
 	} else {
-		simple_memcpy(buffer, spooky_data_contents(buffer_data), spooky_data_length(buffer_data));
+		simple_memcpy(buffer, sys_data_contents(buffer_data), sys_data_length(buffer_data));
 	}
 
 out:

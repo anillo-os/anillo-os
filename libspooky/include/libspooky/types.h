@@ -44,6 +44,7 @@ spooky_type_t* spooky_type_f32(void);
 spooky_type_t* spooky_type_f64(void);
 
 spooky_type_t* spooky_type_channel(void);
+spooky_type_t* spooky_type_data(void);
 
 FERRO_WUR ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type, bool for_storage);
 void spooky_release_object_with_type(const void* object, spooky_type_t* type, bool for_storage);
