@@ -126,6 +126,11 @@ ferr_t sys_file_read(sys_file_t* obj, uint64_t offset, size_t buffer_size, void*
 	return vfs_file_read(file->file, offset, buffer_size, out_buffer, out_read_count);
 };
 
+ferr_t sys_file_read_data(sys_file_t* obj, uint64_t offset, size_t size, sys_data_t** out_data) {
+	sys_file_object_t* file = (void*)obj;
+	return vfs_file_read_data(file->file, offset, size, out_data);
+};
+
 #define OUTAGE_LIMIT 5
 
 ferr_t sys_file_read_retry(sys_file_t* file, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count) {

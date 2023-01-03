@@ -146,6 +146,48 @@ out:
 	return status;
 };
 
+ferr_t sys_data_create_from_shared_memory(sys_shared_memory_t* shared_memory, size_t offset, size_t length, sys_data_t** out_data) {
+	ferr_t status = ferr_ok;
+	sys_data_object_t* data = NULL;
+
+	status = sys_retain(shared_memory);
+	if (status != ferr_ok) {
+		shared_memory = NULL;
+		goto out;
+	}
+
+	if (offset != 0) {
+		// TODO: support non-zero offsets
+		status = ferr_unsupported;
+		goto out;
+	}
+
+	status = sys_object_new(&data_class, sizeof(*data) - sizeof(data->object), (void*)&data);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	data->length = length;
+	data->contents = NULL;
+	data->owns_contents = true;
+	data->shared_memory = shared_memory;
+
+	status = sys_shared_memory_map(shared_memory, sys_page_round_up_count(length), 0, &data->contents);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	if (status == ferr_ok) {
+		*out_data = (void*)data;
+	} else if (data) {
+		sys_release((void*)data);
+	} else if (shared_memory) {
+		sys_release(shared_memory);
+	}
+	return status;
+};
+
 ferr_t sys_data_copy(sys_data_t* obj, sys_data_t** out_data) {
 	sys_data_object_t* other = (void*)obj;
 	return sys_data_create(other->contents, other->length, 0, out_data);
@@ -159,4 +201,18 @@ void* sys_data_contents(sys_data_t* obj) {
 size_t sys_data_length(sys_data_t* obj) {
 	sys_data_object_t* data = (void*)obj;
 	return data->length;
+};
+
+ferr_t sys_data_shared_memory(sys_data_t* obj, sys_shared_memory_t** out_shared_memory) {
+	sys_data_object_t* data = (void*)obj;
+	ferr_t status = ferr_invalid_argument;
+
+	if (data->shared_memory) {
+		status = sys_retain(data->shared_memory);
+		if (status == ferr_ok) {
+			*out_shared_memory = data->shared_memory;
+		}
+	}
+
+	return status;
 };

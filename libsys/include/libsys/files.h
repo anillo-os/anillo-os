@@ -25,6 +25,7 @@
 #include <libsys/base.h>
 #include <ferro/error.h>
 #include <libsys/objects.h>
+#include <libsys/data.h>
 
 LIBSYS_DECLARATIONS_BEGIN;
 
@@ -40,6 +41,7 @@ LIBSYS_WUR ferr_t sys_file_open(const char* path, sys_file_t** out_file);
 LIBSYS_WUR ferr_t sys_file_open_n(const char* path, size_t path_length, sys_file_t** out_file);
 
 LIBSYS_WUR ferr_t sys_file_read(sys_file_t* file, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count);
+LIBSYS_WUR ferr_t sys_file_read_data(sys_file_t* file, uint64_t offset, size_t size, sys_data_t** out_data);
 
 LIBSYS_WUR ferr_t sys_file_read_retry(sys_file_t* file, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count);
 

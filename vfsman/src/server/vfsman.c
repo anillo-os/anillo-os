@@ -532,27 +532,48 @@ static ferr_t vfsman_file_read_impl(void* _context, uint64_t offset, uint64_t si
 	void* data = NULL;
 	ferr_t status = ferr_ok;
 	size_t read_count = 0;
+	sys_shared_memory_t* shmem = NULL;
+	void* mapping = NULL;
 
 	// TODO: limit `size` to something reasonable (e.g. under 32KiB)
-	status = sys_mempool_allocate(size, NULL, &data);
+
+	// it's faster to copy small buffers than to setup shared memory for them
+	if (size < 1024) {
+		status = sys_mempool_allocate(size, NULL, &data);
+	} else {
+		status = sys_shared_memory_allocate(sys_page_round_up_count(size), 0, &shmem);
+		if (status != ferr_ok) {
+			goto out;
+		}
+
+		status = sys_shared_memory_map(shmem, sys_page_round_up_count(size), 0, &mapping);
+	}
+
 	if (status != ferr_ok) {
 		goto out;
 	}
 
-	status = vfsman_read(descriptor, offset, data, size, &read_count);
+	status = vfsman_read(descriptor, offset, mapping ? mapping : data, size, &read_count);
 	if (status != ferr_ok) {
 		goto out;
 	}
 
-	// try to shrink it (but ignore failure)
-	LIBVFS_WUR_IGNORE(sys_mempool_reallocate(data, read_count, NULL, &data));
-
-	status = sys_data_create_transfer(data, read_count, out_buffer);
-	data = NULL;
+	if (mapping) {
+		status = sys_data_create_from_shared_memory(shmem, 0, read_count, out_buffer);
+	} else {
+		status = sys_data_create_transfer(data, read_count, out_buffer);
+		data = NULL;
+	}
 
 out:
 	if (status != ferr_ok) {
 		*out_buffer = NULL;
+	}
+	if (mapping) {
+		LIBVFS_WUR_IGNORE(sys_page_free(mapping));
+	}
+	if (shmem) {
+		sys_release(shmem);
 	}
 	if (data) {
 		LIBVFS_WUR_IGNORE(sys_mempool_free(data));

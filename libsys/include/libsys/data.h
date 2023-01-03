@@ -24,6 +24,7 @@
 
 #include <libsys/base.h>
 #include <libsys/objects.h>
+#include <libsys/pages.h>
 
 LIBSYS_DECLARATIONS_BEGIN;
 
@@ -45,9 +46,11 @@ LIBSYS_ENUM(uint64_t, sys_data_create_flags) {
 LIBSYS_WUR ferr_t sys_data_create(const void* data, size_t length, sys_data_create_flags_t flags, sys_data_t** out_data);
 LIBSYS_WUR ferr_t sys_data_create_nocopy(void* data, size_t length, sys_data_t** out_data);
 LIBSYS_WUR ferr_t sys_data_create_transfer(void* data, size_t length, sys_data_t** out_data);
+LIBSYS_WUR ferr_t sys_data_create_from_shared_memory(sys_shared_memory_t* shared_memory, size_t offset, size_t length, sys_data_t** out_data);
 LIBSYS_WUR ferr_t sys_data_copy(sys_data_t* data, sys_data_t** out_data);
 void* sys_data_contents(sys_data_t* data);
 size_t sys_data_length(sys_data_t* data);
+LIBSYS_WUR ferr_t sys_data_shared_memory(sys_data_t* data, sys_shared_memory_t** out_shared_memory);
 
 LIBSYS_DECLARATIONS_END;
 

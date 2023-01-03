@@ -137,6 +137,36 @@ out:
 	return status;
 };
 
+ferr_t vfs_file_read_data(vfs_file_t* obj, size_t offset, size_t size, sys_data_t** out_data) {
+	ferr_t status = ferr_ok;
+	vfs_file_object_t* file = (void*)obj;
+	sys_data_t* buffer_data = NULL;
+	ferr_t read_status = ferr_ok;
+
+	status = vfsman_file_read(file->proxy, offset, size, &buffer_data, &read_status);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = read_status;
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	*out_data = buffer_data;
+
+out:
+	if (status != ferr_ok) {
+		if (buffer_data) {
+			spooky_release(buffer_data);
+		}
+	}
+	if (status == ferr_aborted) {
+		status = ferr_should_restart;
+	}
+	return status;
+};
+
 ferr_t vfs_file_write(vfs_file_t* obj, size_t offset, size_t size, const void* buffer, size_t* out_written_size) {
 	ferr_t status = ferr_ok;
 	vfs_file_object_t* file = (void*)obj;
