@@ -3608,7 +3608,7 @@ ferr_t fpage_space_move_into_mapping(fpage_space_t* space, void* address, size_t
 			}
 		}
 
-		status = fpage_mapping_bind(mapping, page_offset + i, portion_page_count, (void*)phys, 0);
+		status = fpage_mapping_bind(mapping, page_offset + i, portion_page_count, (void*)phys, fpage_mapping_bind_flag_transfer);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -3754,7 +3754,7 @@ static ferr_t fpage_mapping_bind_locked(fpage_mapping_t* mapping, size_t page_of
 	new_portion->virtual_page_offset = page_offset;
 	frefcount32_init(&new_portion->refcount);
 
-	if (free_addr_on_fail) {
+	if (free_addr_on_fail || (!free_addr_on_fail && (flags & fpage_mapping_bind_flag_transfer) != 0)) {
 		new_portion->flags |= fpage_mapping_portion_flag_allocated;
 	}
 

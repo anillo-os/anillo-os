@@ -414,7 +414,12 @@ FERRO_OPTIONS(uint64_t, fpage_mapping_flags) {
 };
 
 FERRO_OPTIONS(uint64_t, fpage_mapping_bind_flags) {
-	fpage_mapping_bind_flag_xxx_reserved = 1 << 0,
+	/**
+	 * When binding an allocated frame to the mapping, this flag indicates
+	 * that the mapping should acquire ownership of the frame and free it
+	 * when it no longer needs it.
+	 */
+	fpage_mapping_bind_flag_transfer = 1 << 0,
 };
 
 FERRO_WUR ferr_t fpage_mapping_retain(fpage_mapping_t* mapping);
