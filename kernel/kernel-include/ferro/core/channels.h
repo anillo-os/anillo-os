@@ -32,6 +32,10 @@ FERRO_DECLARATIONS_BEGIN;
 FERRO_STRUCT_FWD(fchannel);
 FERRO_STRUCT_FWD(fpage_mapping);
 
+FERRO_ENUM(uint64_t, fchannel_message_attachment_data_flags) {
+	fchannel_message_attachment_data_flag_shared = 1 << 0,
+};
+
 FERRO_STRUCT(fchannel_message_attachment_header) {
 	uint64_t next_offset;
 	uint64_t length;
@@ -50,6 +54,16 @@ FERRO_STRUCT(fchannel_message_attachment_null) {
 FERRO_STRUCT(fchannel_message_attachment_mapping) {
 	fchannel_message_attachment_header_t header;
 	fpage_mapping_t* mapping;
+};
+
+FERRO_STRUCT(fchannel_message_attachment_data) {
+	fchannel_message_attachment_header_t header;
+	fchannel_message_attachment_data_flags_t flags;
+	uint64_t length;
+	union {
+		fpage_mapping_t* shared_data;
+		void* copied_data;
+	};
 };
 
 FERRO_STRUCT(fchannel_message) {

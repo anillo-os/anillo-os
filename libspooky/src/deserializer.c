@@ -308,6 +308,33 @@ out:
 	return status;
 };
 
+ferr_t spooky_deserializer_decode_data_object(spooky_deserializer_t* deserializer, size_t offset, size_t* out_offset, size_t* out_length, sys_data_t** out_data) {
+	sys_channel_message_attachment_index_t index = sys_channel_message_attachment_index_invalid;
+	ferr_t status = spooky_deserializer_skip(deserializer, offset, &offset, sizeof(index));
+
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	simple_memcpy(&index, deserializer->data + offset, sizeof(index));
+
+	status = sys_channel_message_detach_data(deserializer->message, index, out_data);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (out_offset) {
+		*out_offset = offset;
+	}
+
+	if (out_length) {
+		*out_length = sizeof(index);
+	}
+
+out:
+	return status;
+};
+
 ferr_t spooky_deserializer_decode_channel(spooky_deserializer_t* deserializer, size_t offset, size_t* out_offset, size_t* out_length, sys_channel_t** out_channel) {
 	sys_channel_message_attachment_index_t index = sys_channel_message_attachment_index_invalid;
 	ferr_t status = spooky_deserializer_skip(deserializer, offset, &offset, sizeof(index));

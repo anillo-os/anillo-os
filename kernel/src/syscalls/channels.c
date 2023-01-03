@@ -247,6 +247,10 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 				kernel_attachments_length += sizeof(fchannel_message_attachment_mapping_t);
 			} break;
 
+			case fchannel_message_attachment_type_data: {
+				kernel_attachments_length += sizeof(fchannel_message_attachment_data_t);
+			} break;
+
 			default:
 				status = ferr_invalid_argument;
 				goto out;
@@ -337,6 +341,46 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 					mapping_attachment->header.length = sizeof(*mapping_attachment);
 				} break;
 
+				case fchannel_message_attachment_type_data: {
+					const fsyscall_channel_message_attachment_data_t* syscall_data_attachment = (const void*)header;
+					fchannel_message_attachment_data_t* data_attachment = (void*)kernel_attachment_header;
+					fpage_mapping_t* shared_data = NULL;
+					void* copied_data;
+
+					if (syscall_data_attachment->flags & fsyscall_channel_message_attachment_data_flag_shared) {
+						const fproc_descriptor_class_t* desc_class = NULL;
+
+						status = fproc_lookup_descriptor(fproc_current(), syscall_data_attachment->target, true, (void*)&shared_data, &desc_class);
+						if (status != ferr_ok) {
+							status = ferr_invalid_argument;
+							goto out;
+						}
+
+						if (desc_class != &fsyscall_shared_page_class) {
+							desc_class->release(shared_data);
+							status = ferr_invalid_argument;
+							goto out;
+						}
+
+						data_attachment->shared_data = shared_data;
+						data_attachment->flags |= fchannel_message_attachment_data_flag_shared;
+					} else {
+						status = fmempool_allocate(syscall_data_attachment->length, NULL, &copied_data);
+						if (status != ferr_ok) {
+							status = ferr_temporary_outage;
+							goto out;
+						}
+
+						simple_memcpy(copied_data, (void*)syscall_data_attachment->target, syscall_data_attachment->length);
+
+						data_attachment->copied_data = copied_data;
+					}
+
+					data_attachment->length = syscall_data_attachment->length;
+					data_attachment->header.type = fchannel_message_attachment_type_data;
+					data_attachment->header.length = sizeof(*data_attachment);
+				} break;
+
 				case fchannel_message_attachment_type_null: {
 					const fsyscall_channel_message_attachment_null_t* syscall_null_attachment = (const void*)header;
 					fchannel_message_attachment_null_t* null_attachment = (void*)kernel_attachment_header;
@@ -372,6 +416,9 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 				// mappings don't need to uninstall the mapping descriptor,
 				// since it's perfectly valid for the mapping to be shared
 				// (that's actually the primary reason for passing around mappings)
+			case fchannel_message_attachment_type_data:
+				// ditto for this; userspace is allowed to hold on to the
+				// shared mapping or original data
 			case fchannel_message_attachment_type_null:
 				break;
 
@@ -407,6 +454,16 @@ out:
 						fchannel_message_attachment_mapping_t* mapping_attachment = (void*)header;
 
 						fpage_mapping_release(mapping_attachment->mapping);
+					} break;
+
+					case fchannel_message_attachment_type_data: {
+						fchannel_message_attachment_data_t* data_attachment = (void*)header;
+
+						if (data_attachment->flags & fchannel_message_attachment_data_flag_shared) {
+							fpage_mapping_release(data_attachment->shared_data);
+						} else {
+							FERRO_WUR_IGNORE(fmempool_free(data_attachment->copied_data));
+						}
 					} break;
 
 					case fchannel_message_attachment_type_null:
@@ -489,6 +546,10 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 				required_attachments_size += sizeof(fsyscall_channel_message_attachment_mapping_t);
 			} break;
 
+			case fchannel_message_attachment_type_data: {
+				required_attachments_size += sizeof(fsyscall_channel_message_attachment_data_t);
+			} break;
+
 			case fchannel_message_attachment_type_null: {
 				required_attachments_size += sizeof(fsyscall_channel_message_attachment_null_t);
 			} break;
@@ -501,8 +562,6 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 	}
 
 	// now let's try to convert the message attachments to userspace format
-
-	simple_memset((void*)in_out_message->attachments_address, 0, required_attachments_size);
 
 	{
 		fsyscall_channel_message_attachment_header_t* syscall_attachment_header = NULL;
@@ -518,6 +577,8 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 				case fchannel_message_attachment_type_channel: {
 					fchannel_message_attachment_channel_t* kernel_channel_attachment = (void*)kernel_attachment_header;
 					fsyscall_channel_message_attachment_channel_t* syscall_channel_attachment = (void*)syscall_attachment_header;
+
+					simple_memset(syscall_channel_attachment, 0, sizeof(*syscall_channel_attachment));
 
 					if (pre_receive_peek) {
 						syscall_channel_attachment->channel_id = FPROC_DID_MAX;
@@ -536,6 +597,8 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 					fchannel_message_attachment_mapping_t* kernel_mapping_attachment = (void*)kernel_attachment_header;
 					fsyscall_channel_message_attachment_mapping_t* syscall_mapping_attachment = (void*)syscall_attachment_header;
 
+					simple_memset(syscall_mapping_attachment, 0, sizeof(*syscall_mapping_attachment));
+
 					if (pre_receive_peek) {
 						syscall_mapping_attachment->mapping_id = FPROC_DID_MAX;
 					} else {
@@ -549,9 +612,50 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 					syscall_mapping_attachment->header.length = sizeof(*syscall_mapping_attachment);
 				} break;
 
+				case fchannel_message_attachment_type_data: {
+					fchannel_message_attachment_data_t* kernel_data_attachment = (void*)kernel_attachment_header;
+					fsyscall_channel_message_attachment_data_t* syscall_data_attachment = (void*)syscall_attachment_header;
+
+					if (kernel_data_attachment->flags & fchannel_message_attachment_data_flag_shared) {
+						simple_memset(syscall_data_attachment, 0, sizeof(*syscall_data_attachment));
+
+						if (pre_receive_peek) {
+							syscall_data_attachment->target = FPROC_DID_MAX;
+						} else {
+							status = fproc_install_descriptor(fproc_current(), kernel_data_attachment->shared_data, &fsyscall_shared_page_class, &syscall_data_attachment->target);
+							if (status != ferr_ok) {
+								goto out;
+							}
+						}
+					} else {
+						if (pre_receive_peek) {
+							simple_memset(syscall_data_attachment, 0, sizeof(*syscall_data_attachment));
+						} else {
+							syscall_data_attachment->header.next_offset = 0;
+
+							if (syscall_data_attachment->length < kernel_data_attachment->length) {
+								status = ferr_too_big;
+								goto out;
+							}
+
+							simple_memcpy((void*)syscall_data_attachment->target, kernel_data_attachment->copied_data, kernel_data_attachment->length);
+						}
+					}
+
+					syscall_data_attachment->length = kernel_data_attachment->length;
+					syscall_data_attachment->flags = 0;
+					if (kernel_data_attachment->flags & fchannel_message_attachment_data_flag_shared) {
+						syscall_data_attachment->flags |= fsyscall_channel_message_attachment_data_flag_shared;
+					}
+					syscall_data_attachment->header.type = fchannel_message_attachment_type_data;
+					syscall_data_attachment->header.length = sizeof(*syscall_data_attachment);
+				} break;
+
 				case fchannel_message_attachment_type_null: {
 					fchannel_message_attachment_null_t* kernel_null_attachment = (void*)kernel_attachment_header;
 					fsyscall_channel_message_attachment_null_t* syscall_null_attachment = (void*)syscall_attachment_header;
+
+					simple_memset(syscall_null_attachment, 0, sizeof(*syscall_null_attachment));
 
 					syscall_null_attachment->header.type = fchannel_message_attachment_type_null;
 					syscall_null_attachment->header.length = sizeof(*syscall_null_attachment);
@@ -592,6 +696,18 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 					fpage_mapping_release(kernel_mapping_attachment->mapping);
 				} break;
 
+				case fchannel_message_attachment_type_data: {
+					fchannel_message_attachment_data_t* kernel_data_attachment = (void*)kernel_attachment_header;
+
+					if (kernel_data_attachment->flags & fchannel_message_attachment_data_flag_shared) {
+						// the process retains the mapping in the descriptor, so we don't need this reference anymore
+						fpage_mapping_release(kernel_data_attachment->shared_data);
+					} else {
+						// the data was copied into the process-provided buffer, so we don't need this anymore
+						FERRO_WUR_IGNORE(fmempool_free(kernel_data_attachment->copied_data));
+					}
+				} break;
+
 				case fchannel_message_attachment_type_null:
 				default:
 					// nothing to clean up here
@@ -629,6 +745,16 @@ out:
 					fsyscall_channel_message_attachment_mapping_t* syscall_mapping_attachment = (void*)syscall_attachment_header;
 
 					FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), syscall_mapping_attachment->mapping_id));
+				} break;
+
+				case fchannel_message_attachment_type_data: {
+					fsyscall_channel_message_attachment_data_t* syscall_data_attachment = (void*)syscall_attachment_header;
+
+					if (syscall_data_attachment->flags & fsyscall_channel_message_attachment_data_flag_shared) {
+						FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), syscall_data_attachment->target));
+					} else {
+						// the data was just copied into a user-provided buffer, so there's nothing to clean up here
+					}
 				} break;
 
 				case fchannel_message_attachment_type_null:

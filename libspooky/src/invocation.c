@@ -56,12 +56,7 @@ static ferr_t spooky_invocation_serialize_object(spooky_invocation_object_t* inv
 	if (type_obj == spooky_type_data()) {
 		sys_data_t* data = *(sys_data_t**)object;
 		size_t offset = UINT64_MAX;
-		size_t length = sys_data_length(data);
-		ferr_t status = spooky_serializer_encode_integer(serializer, offset, NULL, &length, sizeof(length), NULL, false);
-		if (status != ferr_ok) {
-			return status;
-		}
-		return spooky_serializer_encode_data(serializer, offset, &offset, length, sys_data_contents(data));
+		return spooky_serializer_encode_data_object(serializer, offset, &offset, NULL, data);
 	}
 
 	if (type_obj == spooky_type_proxy()) {
@@ -146,16 +141,7 @@ static ferr_t spooky_invocation_deserialize_object(spooky_invocation_object_t* i
 	if (type_obj == spooky_type_data()) {
 		sys_data_t* data = NULL;
 		size_t offset = UINT64_MAX;
-		size_t length = 0;
-		ferr_t status = spooky_deserializer_decode_integer(deserializer, offset, NULL, &length, sizeof(length), NULL, false);
-		if (status != ferr_ok) {
-			return status;
-		}
-		status = spooky_deserializer_skip(deserializer, offset, &offset, length);
-		if (status != ferr_ok) {
-			return status;
-		}
-		status = sys_data_create(&deserializer->data[offset], length, &data);
+		ferr_t status = spooky_deserializer_decode_data_object(deserializer, offset, &offset, NULL, &data);
 		if (status != ferr_ok) {
 			return status;
 		}

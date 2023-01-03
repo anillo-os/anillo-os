@@ -114,6 +114,9 @@ enums.extend([
 	Enum('process_create_flags', 'u64', prefix='process_create_flag', values=[
 		('use_default_stack', '1 << 0'),
 	]),
+	Enum('channel_message_attachment_data_flags', 'u64', prefix='channel_message_attachment_data_flag', values=[
+		('shared', '1 << 0'),
+	]),
 ])
 
 structures.extend([
@@ -132,6 +135,13 @@ structures.extend([
 	Structure('channel_message_attachment_mapping', [
 		('header', 's:channel_message_attachment_header'),
 		('mapping_id', 'u64'),
+	]),
+	Structure('channel_message_attachment_data', [
+		('header', 's:channel_message_attachment_header'),
+		('flags', 'e:channel_message_attachment_data_flags'),
+		('length', 'u64'),
+		# descriptor (for shared data) or pointer (for non-shared data)
+		('target', 'u64'),
 	]),
 	Structure('channel_message', [
 		('conversation_id', '!fchannel_conversation_id_t'),

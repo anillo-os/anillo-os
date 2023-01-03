@@ -21,6 +21,7 @@
 
 #include <libsys/data.h>
 #include <libsys/objects.private.h>
+#include <libsys/pages.h>
 
 LIBSYS_DECLARATIONS_BEGIN;
 
@@ -29,6 +30,7 @@ LIBSYS_STRUCT(sys_data_object) {
 	size_t length;
 	void* contents;
 	bool owns_contents;
+	sys_shared_memory_t* shared_memory;
 };
 
 LIBSYS_DECLARATIONS_END;

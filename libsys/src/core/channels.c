@@ -22,6 +22,7 @@
 #include <gen/libsyscall/syscall-wrappers.h>
 #include <libsys/abort.h>
 #include <libsys/pages.private.h>
+#include <libsys/data.private.h>
 
 static void channel_destroy(sys_object_t* object) {
 	sys_channel_object_t* channel = (void*)object;
@@ -556,6 +557,8 @@ static sys_channel_message_attachment_type_t sys_channel_object_class_to_attachm
 		return sys_channel_message_attachment_type_channel;
 	} else if (object_class == sys_object_class_shared_memory()) {
 		return sys_channel_message_attachment_type_shared_memory;
+	} else if (object_class == sys_object_class_data()) {
+		return sys_channel_message_attachment_type_data;
 	} else {
 		return sys_channel_message_attachment_type_invalid;
 	}
@@ -635,6 +638,48 @@ out:
 	} else {
 		if (shared_memory) {
 			sys_release((void*)shared_memory);
+		}
+	}
+
+	return status;
+};
+
+ferr_t sys_channel_message_attach_data(sys_channel_message_t* object, sys_data_t* data, bool copy, sys_channel_message_attachment_index_t* out_attachment_index) {
+	sys_channel_message_object_t* message = (void*)object;
+	ferr_t status = ferr_ok;
+	sys_channel_message_attachment_index_t index = UINT64_MAX;
+
+	if (copy) {
+		status = sys_data_copy(data, &data);
+		if (status != ferr_ok) {
+			data = NULL;
+			goto out;
+		}
+	} else if (sys_retain(data) != ferr_ok) {
+		data = NULL;
+		status = ferr_permanent_outage;
+		goto out;
+	}
+
+	status = sys_mempool_reallocate(message->attachments, sizeof(*message->attachments) * (message->attachment_count + 1), NULL, (void*)&message->attachments);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	index = message->attachment_count;
+
+	message->attachments[index] = data;
+
+	++message->attachment_count;
+
+out:
+	if (status == ferr_ok) {
+		if (out_attachment_index) {
+			*out_attachment_index = index;
+		}
+	} else {
+		if (data) {
+			sys_release((void*)data);
 		}
 	}
 
@@ -735,6 +780,34 @@ out:
 	return status;
 };
 
+ferr_t sys_channel_message_detach_data(sys_channel_message_t* object, sys_channel_message_attachment_index_t attachment_index, sys_data_t** out_data) {
+	sys_channel_message_object_t* message = (void*)object;
+	ferr_t status = ferr_ok;
+	sys_shared_memory_object_t* attachment = NULL;
+
+	if (attachment_index >= message->attachment_count) {
+		status = ferr_no_such_resource;
+		goto out;
+	}
+
+	if (sys_channel_message_attachment_type(object, attachment_index) != sys_channel_message_attachment_type_data) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	attachment = (void*)message->attachments[attachment_index];
+	message->attachments[attachment_index] = NULL;
+
+	if (out_data) {
+		*out_data = (void*)attachment;
+	} else {
+		sys_release((void*)attachment);
+	}
+
+out:
+	return status;
+};
+
 sys_channel_conversation_id_t sys_channel_message_get_conversation_id(sys_channel_message_t* object) {
 	sys_channel_message_object_t* message = (void*)object;
 	return message->conversation_id;
@@ -780,6 +853,10 @@ ferr_t sys_channel_message_serialize(sys_channel_message_t* object, libsyscall_c
 
 				case sys_channel_message_attachment_type_shared_memory:
 					out_syscall_message->attachments_length += sizeof(libsyscall_channel_message_attachment_mapping_t);
+					break;
+
+				case sys_channel_message_attachment_type_data:
+					out_syscall_message->attachments_length += sizeof(libsyscall_channel_message_attachment_data_t);
 					break;
 
 				default:
@@ -831,6 +908,22 @@ ferr_t sys_channel_message_serialize(sys_channel_message_t* object, libsyscall_c
 					mapping_attachment->mapping_id = shared_memory_object->did;
 				} break;
 
+				case sys_channel_message_attachment_type_data: {
+					libsyscall_channel_message_attachment_data_t* data_attachment = (void*)current_header;
+					sys_data_object_t* data_object = (void*)attachment;
+
+					data_attachment->header.type = fchannel_message_attachment_type_data;
+					data_attachment->header.length = sizeof(*data_attachment);
+					data_attachment->length = data_object->length;
+					if (data_object->shared_memory) {
+						data_attachment->flags = libsyscall_channel_message_attachment_data_flag_shared;
+						data_attachment->target = ((sys_shared_memory_object_t*)data_object->shared_memory)->did;
+					} else {
+						data_attachment->flags = 0;
+						data_attachment->target = (uintptr_t)data_object->contents;
+					}
+				} break;
+
 				default:
 					// bad attachment type
 					sys_abort();
@@ -880,6 +973,12 @@ void sys_channel_message_consumed(sys_channel_message_t* object, libsyscall_chan
 				case sys_channel_message_attachment_type_shared_memory:
 					// the mapping was simply retained by the kernel;
 					// our mapping descriptor is still perfectly valid
+					break;
+
+				case sys_channel_message_attachment_type_data:
+					// the data was either copied (for non-shared data)
+					// or retained (for shared data) by the kernel;
+					// our data object is still perfectly valid
 					break;
 
 				default:
@@ -1030,6 +1129,56 @@ ferr_t sys_channel_message_deserialize_prepare(sys_channel_message_deserializati
 					++message->attachment_count;
 				} break;
 
+				case fchannel_message_attachment_type_data: {
+					sys_data_object_t* attachment_object = NULL;
+					libsyscall_channel_message_attachment_data_t* kernel_attachment = (void*)header;
+
+					if (kernel_attachment->flags & libsyscall_channel_message_attachment_data_flag_shared) {
+						sys_shared_memory_object_t* shmem_object = NULL;
+
+						status = sys_object_new(sys_object_class_shared_memory(), sizeof(*shmem_object) - sizeof(shmem_object->object), (void*)&shmem_object);
+						if (status != ferr_ok) {
+							goto out;
+						}
+
+						shmem_object->did = UINT64_MAX;
+
+						status = sys_object_new(sys_object_class_data(), sizeof(*attachment_object) - sizeof(attachment_object->object), (void*)&attachment_object);
+						if (status != ferr_ok) {
+							goto out;
+						}
+
+						attachment_object->length = kernel_attachment->length;
+						attachment_object->contents = NULL;
+						attachment_object->shared_memory = (void*)shmem_object;
+
+						attachment_object->owns_contents = true;
+					} else {
+						// add some padding so the data is aligned to 16 bytes (sufficient for most use cases)
+						size_t padded_size = ((sizeof(*attachment_object) + 15ull) & (~15ull));
+						size_t total_size = padded_size + kernel_attachment->length;
+
+						status = sys_object_new(sys_object_class_data(), total_size - sizeof(attachment_object->object), (void*)&attachment_object);
+						if (status != ferr_ok) {
+							goto out;
+						}
+
+						attachment_object->length = kernel_attachment->length;
+						attachment_object->contents = (void*)((char*)attachment_object + padded_size);
+						attachment_object->shared_memory = NULL;
+
+						// the object *does* own the contents, but it doesn't need to use `sys_mempool_free`
+						// to release them; they'll be released along with the object's memory when it's destroyed
+						// via `sys_object_destroy`.
+						attachment_object->owns_contents = false;
+
+						kernel_attachment->target = (uintptr_t)attachment_object->contents;
+					}
+
+					message->attachments[message->attachment_count] = (void*)attachment_object;
+					++message->attachment_count;
+				} break;
+
 				case fchannel_message_attachment_type_null: {
 					// leave the entry in the attachment array as `NULL`
 					++message->attachment_count;
@@ -1091,6 +1240,25 @@ void sys_channel_message_deserialize_finalize(sys_channel_message_deserializatio
 				sys_shared_memory_object_t* attachment_object = (void*)message->attachments[attachment_index];
 
 				attachment_object->did = syscall_attachment->mapping_id;
+
+				++attachment_index;
+			} break;
+
+			case fchannel_message_attachment_type_data: {
+				libsyscall_channel_message_attachment_data_t* syscall_attachment = (void*)header;
+				sys_data_object_t* attachment_object = (void*)message->attachments[attachment_index];
+
+				if (syscall_attachment->flags & libsyscall_channel_message_attachment_data_flag_shared) {
+					sys_shared_memory_object_t* shmem_object = (void*)attachment_object->shared_memory;
+
+					shmem_object->did = syscall_attachment->target;
+
+					// this should not fail
+					sys_abort_status(sys_shared_memory_map((void*)shmem_object, sys_page_round_up_count(attachment_object->length), 0, &attachment_object->contents));
+				} else {
+					// the kernel already took care of everything;
+					// all we were missing was filling-in the data, which the kernel did for us.
+				}
 
 				++attachment_index;
 			} break;

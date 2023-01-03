@@ -19,13 +19,21 @@
 #include <libsys/data.private.h>
 #include <libsys/mempool.h>
 #include <libsimple/libsimple.h>
+#include <gen/libsyscall/syscall-wrappers.h>
 
 static void sys_data_destroy(sys_object_t* obj) {
 	sys_data_object_t* data = (void*)obj;
 
-	if (data->owns_contents) {
+	if (data->shared_memory) {
+		if (data->contents) {
+			LIBSYS_WUR_IGNORE(sys_page_free(data->contents));
+		}
+		sys_release(data->shared_memory);
+	} else if (data->owns_contents && data->contents) {
 		LIBSYS_WUR_IGNORE(sys_mempool_free(data->contents));
 	}
+
+	sys_object_destroy(obj);
 };
 
 static const sys_object_class_t data_class = {
@@ -37,14 +45,22 @@ const sys_object_class_t* sys_object_class_data(void) {
 	return &data_class;
 };
 
-ferr_t sys_data_create(const void* contents, size_t length, sys_data_t** out_data) {
+ferr_t sys_data_create(const void* contents, size_t length, sys_data_create_flags_t flags, sys_data_t** out_data) {
 	ferr_t status = ferr_ok;
 	sys_data_object_t* data = NULL;
 	void* contents_ptr = NULL;
+	sys_shared_memory_t* shmem = NULL;
 
-	status = sys_mempool_allocate(length, NULL, &contents_ptr);
-	if (status != ferr_ok) {
-		goto out;
+	if (flags & sys_data_create_flag_shared) {
+		status = sys_shared_memory_allocate(sys_page_round_up_count(length), 0, &shmem);
+		if (status != ferr_ok) {
+			goto out;
+		}
+	} else {
+		status = sys_mempool_allocate(length, NULL, &contents_ptr);
+		if (status != ferr_ok) {
+			goto out;
+		}
 	}
 
 	status = sys_object_new(&data_class, sizeof(*data) - sizeof(data->object), (void*)&data);
@@ -55,6 +71,15 @@ ferr_t sys_data_create(const void* contents, size_t length, sys_data_t** out_dat
 	data->length = length;
 	data->contents = contents_ptr;
 	data->owns_contents = true;
+	data->shared_memory = shmem;
+
+	if (shmem) {
+		status = sys_shared_memory_map(shmem, sys_page_round_up_count(length), 0, &data->contents);
+		if (status != ferr_ok) {
+			goto out;
+		}
+	}
+
 	if (contents) {
 		simple_memcpy(data->contents, contents, length);
 	}
@@ -67,6 +92,9 @@ out:
 	} else {
 		if (contents_ptr) {
 			LIBSYS_WUR_IGNORE(sys_mempool_free(contents_ptr));
+		}
+		if (shmem) {
+			sys_release(shmem);
 		}
 	}
 	return status;
@@ -84,6 +112,7 @@ ferr_t sys_data_create_nocopy(void* contents, size_t length, sys_data_t** out_da
 	data->length = length;
 	data->contents = contents;
 	data->owns_contents = false;
+	data->shared_memory = NULL;
 
 out:
 	if (status == ferr_ok) {
@@ -106,6 +135,7 @@ ferr_t sys_data_create_transfer(void* contents, size_t length, sys_data_t** out_
 	data->length = length;
 	data->contents = contents;
 	data->owns_contents = true;
+	data->shared_memory = NULL;
 
 out:
 	if (status == ferr_ok) {
@@ -118,7 +148,7 @@ out:
 
 ferr_t sys_data_copy(sys_data_t* obj, sys_data_t** out_data) {
 	sys_data_object_t* other = (void*)obj;
-	return sys_data_create(other->contents, other->length, out_data);
+	return sys_data_create(other->contents, other->length, 0, out_data);
 };
 
 void* sys_data_contents(sys_data_t* obj) {

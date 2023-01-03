@@ -1084,6 +1084,20 @@ void fchannel_message_destroy(fchannel_message_t* message) {
 					}
 				} break;
 
+				case fchannel_message_attachment_type_data: {
+					const fchannel_message_attachment_data_t* data_attachment = (const void*)header;
+
+					if (data_attachment->flags & fchannel_message_attachment_data_flag_shared) {
+						if (data_attachment->shared_data) {
+							fpage_mapping_release(data_attachment->shared_data);
+						}
+					} else {
+						if (data_attachment->copied_data) {
+							fpanic_status(fmempool_free(data_attachment->copied_data));
+						}
+					}
+				} break;
+
 				case fchannel_message_attachment_type_null:
 				default:
 					// no special processing for this attachment type

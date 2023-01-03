@@ -20,6 +20,7 @@
 #define _LIBSYS_DATA_H_
 
 #include <stddef.h>
+#include <stdint.h>
 
 #include <libsys/base.h>
 #include <libsys/objects.h>
@@ -28,7 +29,20 @@ LIBSYS_DECLARATIONS_BEGIN;
 
 LIBSYS_OBJECT_CLASS(data);
 
-LIBSYS_WUR ferr_t sys_data_create(const void* data, size_t length, sys_data_t** out_data);
+LIBSYS_ENUM(uint64_t, sys_data_create_flags) {
+	/**
+	 * Create the data in shareable memory.
+	 *
+	 * This can be used e.g. to avoid data being copied when sent in a channel message.
+	 *
+	 * However, sometimes it's faster to copy small buffers than it is to
+	 * setup shared memory, so don't optimize prematurely.
+	 * TODO: I know this is true, but I'm not sure what the limit is.
+	 */
+	sys_data_create_flag_shared = 1 << 0,
+};
+
+LIBSYS_WUR ferr_t sys_data_create(const void* data, size_t length, sys_data_create_flags_t flags, sys_data_t** out_data);
 LIBSYS_WUR ferr_t sys_data_create_nocopy(void* data, size_t length, sys_data_t** out_data);
 LIBSYS_WUR ferr_t sys_data_create_transfer(void* data, size_t length, sys_data_t** out_data);
 LIBSYS_WUR ferr_t sys_data_copy(sys_data_t* data, sys_data_t** out_data);
