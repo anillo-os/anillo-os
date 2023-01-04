@@ -42,9 +42,9 @@
 
 /**
  * How many nanoseconds to let a thread to run before preempting it.
- * The current value is `500us` in nanoseconds.
+ * The current value is `35ms` in nanoseconds.
  */
-#define SLICE_NS 500000ULL
+#define SLICE_NS 35000000ULL
 
 #define IDLE_THREAD_STACK_SIZE (4ULL * 1024)
 
