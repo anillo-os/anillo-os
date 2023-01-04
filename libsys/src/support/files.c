@@ -180,6 +180,11 @@ ferr_t sys_file_read_retry(sys_file_t* file, uint64_t offset, size_t buffer_size
 	return status;
 };
 
+ferr_t sys_file_read_into_shared_data(sys_file_t* obj, uint64_t read_offset, uint64_t shared_data_offset, size_t size, sys_data_t* shared_data, size_t* out_read_count) {
+	sys_file_object_t* file = (void*)obj;
+	return vfs_file_read_into_shared_data(file->file, read_offset, size, shared_data, shared_data_offset, out_read_count);
+};
+
 ferr_t sys_file_write(sys_file_t* obj, uint64_t offset, size_t buffer_size, const void* buffer, size_t* out_written_count) {
 	sys_file_object_t* file = (void*)obj;
 	return vfs_file_write(file->file, offset, buffer_size, buffer, out_written_count);

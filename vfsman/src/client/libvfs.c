@@ -167,6 +167,33 @@ out:
 	return status;
 };
 
+ferr_t vfs_file_read_into_shared_data(vfs_file_t* obj, size_t read_offset, size_t size, sys_data_t* shared_data, size_t shared_data_offset, size_t* out_read_size) {
+	ferr_t status = ferr_ok;
+	vfs_file_object_t* file = (void*)obj;
+	uint64_t read_count = 0;
+	ferr_t read_status = ferr_ok;
+
+	status = vfsman_file_read_shared(file->proxy, read_offset, size, shared_data, shared_data_offset, &read_count, &read_status);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = read_status;
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (out_read_size) {
+		*out_read_size = read_count;
+	}
+
+out:
+	if (status == ferr_aborted) {
+		status = ferr_should_restart;
+	}
+	return status;
+};
+
 ferr_t vfs_file_write(vfs_file_t* obj, size_t offset, size_t size, const void* buffer, size_t* out_written_size) {
 	ferr_t status = ferr_ok;
 	vfs_file_object_t* file = (void*)obj;

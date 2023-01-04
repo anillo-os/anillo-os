@@ -208,9 +208,12 @@ ferr_t sys_data_shared_memory(sys_data_t* obj, sys_shared_memory_t** out_shared_
 	ferr_t status = ferr_invalid_argument;
 
 	if (data->shared_memory) {
-		status = sys_retain(data->shared_memory);
-		if (status == ferr_ok) {
-			*out_shared_memory = data->shared_memory;
+		status = ferr_ok;
+		if (out_shared_memory) {
+			status = sys_retain(data->shared_memory);
+			if (status == ferr_ok) {
+				*out_shared_memory = data->shared_memory;
+			}
 		}
 	}
 

@@ -582,6 +582,26 @@ out:
 	return ferr_ok;
 };
 
+ferr_t vfsman_file_read_shared_impl(void* _context, uint64_t offset, uint64_t size, sys_data_t* shared_buffer, uint64_t buffer_offset, uint64_t* out_read_count, int32_t* out_status) {
+	vfsman_descriptor_t* descriptor = _context;
+	ferr_t status = ferr_ok;
+	size_t read_count = 0;
+
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = vfsman_read(descriptor, offset, (char*)sys_data_contents(shared_buffer) + buffer_offset, size, &read_count);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	*out_read_count = read_count;
+	*out_status = status;
+	return ferr_ok;
+};
+
 static ferr_t vfsman_file_write_impl(void* _context, uint64_t offset, sys_data_t* buffer, uint64_t* out_written_count, ferr_t* out_status) {
 	vfsman_descriptor_t* descriptor = _context;
 	ferr_t status = ferr_ok;
@@ -658,6 +678,7 @@ static const vfsman_file_proxy_info_t vfsman_file_proxy_info_base = {
 	.context = NULL,
 	.destructor = (void*)vfsman_release,
 	.read = vfsman_file_read_impl,
+	.read_shared = vfsman_file_read_shared_impl,
 	.write = vfsman_file_write_impl,
 	.get_path = vfsman_file_get_path_impl,
 	.duplicate_raw = vfsman_file_duplicate_raw_impl,

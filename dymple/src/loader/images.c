@@ -140,6 +140,8 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 	bool destroy_undefined_symbol_table_on_fail = false;
 	bool destroy_exports_table_on_fail = false;
 	bool destroy_imports_table_on_fail = false;
+	sys_shared_memory_t* shmem = NULL;
+	sys_data_t* shared_data = NULL;
 
 	macho_load_command_t load_command = {0};
 	size_t file_offset = 0;
@@ -230,7 +232,17 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 
 	image->size = (uint64_t)(file_load_top - image->file_load_base);
 
-	status = sys_page_allocate(sys_page_round_up_count(image->size), 0, &image->base);
+	status = sys_shared_memory_allocate(sys_page_round_up_count(image->size), 0, &shmem);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = sys_shared_memory_map(shmem, sys_page_round_up_count(image->size), 0, &image->base);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = sys_data_create_from_shared_memory(shmem, 0, image->size, &shared_data);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -272,17 +284,25 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 				// XXX: this is wrong
 				image->segments[segment_index].address = NULL;
 			} else {
-				void* this_load_base = (char*)image->base + (segment_64_load_command.memory_address - (uintptr_t)image->file_load_base);
+				size_t shmem_offset = segment_64_load_command.memory_address - (uintptr_t)image->file_load_base;
+				void* this_load_base = (char*)image->base + shmem_offset;
+				size_t read_count = 0;
 
 				dymple_log_debug(dymple_log_category_image_loading, "Loading %llu bytes at %p (with a target size of %llu bytes; zeroing rest)\n", segment_64_load_command.file_size, this_load_base, segment_64_load_command.memory_size);
 
-				status = dymple_read_exact(file, segment_64_load_command.file_offset, this_load_base, segment_64_load_command.file_size);
+				status = sys_file_read_into_shared_data(file, segment_64_load_command.file_offset, shmem_offset, segment_64_load_command.file_size, shared_data, &read_count);
 				if (status != ferr_ok) {
 					goto out;
 				}
 
-				// zero out unused memory
-				simple_memset((char*)this_load_base + segment_64_load_command.file_size, 0, segment_64_load_command.memory_size - segment_64_load_command.file_size);
+				if (read_count != segment_64_load_command.file_size) {
+					status = ferr_unknown;
+					goto out;
+				}
+
+				// ~~zero out unused memory~~
+				// we don't need to zero out unused memory since the kernel zeroes allocated pages before giving them to us
+				//simple_memset((char*)this_load_base + segment_64_load_command.file_size, 0, segment_64_load_command.memory_size - segment_64_load_command.file_size);
 
 				image->segments[segment_index].address = this_load_base;
 			}
@@ -629,6 +649,12 @@ out:
 	}
 	if (relocation_info.weak_bind_instructions) {
 		sys_abort_status(sys_mempool_free(relocation_info.weak_bind_instructions));
+	}
+	if (shmem) {
+		sys_release(shmem);
+	}
+	if (shared_data) {
+		sys_release(shared_data);
 	}
 	if (status == ferr_ok) {
 		if (out_image) {

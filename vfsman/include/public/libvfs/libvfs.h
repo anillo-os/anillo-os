@@ -40,6 +40,7 @@ LIBVFS_WUR ferr_t vfs_open_n(const char* path, size_t length, vfs_file_t** out_f
 
 LIBVFS_WUR ferr_t vfs_file_read(vfs_file_t* file, size_t offset, size_t size, void* buffer, size_t* out_read_size);
 LIBVFS_WUR ferr_t vfs_file_read_data(vfs_file_t* file, size_t offset, size_t size, sys_data_t** out_data);
+LIBVFS_WUR ferr_t vfs_file_read_into_shared_data(vfs_file_t* file, size_t read_offset, size_t size, sys_data_t* shared_data, size_t shared_data_offset, size_t* out_read_size);
 LIBVFS_WUR ferr_t vfs_file_write(vfs_file_t* file, size_t offset, size_t size, const void* buffer, size_t* out_written_size);
 LIBVFS_WUR ferr_t vfs_file_copy_path(vfs_file_t* file, char* buffer, size_t size, size_t* out_actual_size);
 
