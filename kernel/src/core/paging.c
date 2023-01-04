@@ -1528,6 +1528,10 @@ static bool space_free_virtual(fpage_space_t* space, void* virtual, size_t page_
 
 	// the parent region's lock is held here
 
+	// mark this block as free since we might not be able to do so later
+	// (if we merge with a buddy)
+	space_set_virtual_block_is_in_use(space, space_parent_region, space_block, false);
+
 	// find buddies to merge with
 	for (; order < FPAGE_MAX_ORDER; ++order) {
 		fpage_free_block_t* buddy = space_find_virtual_buddy(space, space_parent_region, space_block, page_count_of_order(order));
