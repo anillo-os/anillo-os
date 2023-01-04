@@ -132,9 +132,12 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 
 	macho_header_t* header_to_load = &header;
 	sys_file_t* file_to_load = file;
+	sys_data_t* cmd_data = NULL;
+	char* cmd_data_ptr = NULL;
 
-	macho_load_command_t load_command = {0};
+	macho_load_command_t* load_command = NULL;
 	size_t file_offset = 0;
+	size_t cmd_offset = 0;
 
 	void* entry_address = NULL;
 
@@ -160,52 +163,51 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 		goto out;
 	}
 
+	// read all the load commands
+	status = sys_file_read_data(file, sizeof(header), header.total_command_size, &cmd_data);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (sys_data_length(cmd_data) != header.total_command_size) {
+		status = ferr_unknown;
+		goto out;
+	}
+
+	cmd_data_ptr = sys_data_contents(cmd_data);
+
 	if ((header.flags & macho_header_flag_dynamically_linked) != 0) {
 		// this is a dynamically linked executable, meaning we'll need to load the dynamic linker instead
 		// (and it will, in turn, load the executable)
 
-		char dynamic_linker_path[256];
+		char* dynamic_linker_path = NULL;
 		size_t dynamic_linker_path_length = SIZE_MAX;
+		sys_data_t* old_cmd_data = NULL;
 
 		// let's look for the dynamic linker command
-		file_offset = sizeof(header);
-		for (size_t i = 0; i < header.command_count; (++i), (file_offset += load_command.size)) {
-			uint32_t name_offset = 0;
+		cmd_offset = 0;
+		for (size_t i = 0; i < header.command_count; (++i), (cmd_offset += load_command->size)) {
+			macho_load_command_dynamic_linker_t* dynamic_linker_load_command = NULL;
 			size_t name_length = 0;
 
-			status = sys_file_read_retry(file, file_offset, sizeof(load_command), &load_command, NULL);
-			if (status != ferr_ok) {
-				goto out;
-			}
+			load_command = (void*)(cmd_data_ptr + cmd_offset);
 
-			if (load_command.type != macho_load_command_type_load_dynamic_linker) {
+			if (load_command->type != macho_load_command_type_load_dynamic_linker) {
 				continue;
 			}
 
-			status = sys_file_read_retry(file, file_offset + sizeof(load_command), sizeof(name_offset), &name_offset, NULL);
-			if (status != ferr_ok) {
-				goto out;
-			}
+			dynamic_linker_load_command = (void*)load_command;
 
-			name_length = load_command.size - name_offset;
-			if (name_length > sizeof(dynamic_linker_path)) {
-				status = ferr_invalid_argument;
-				goto out;
-			}
+			name_length = load_command->size - dynamic_linker_load_command->name_offset;
 
-			status = sys_file_read_retry(file, file_offset + name_offset, name_length, &dynamic_linker_path[0], NULL);
-			if (status != ferr_ok) {
-				goto out;
-			}
+			dynamic_linker_path = (void*)((char*)dynamic_linker_load_command + dynamic_linker_load_command->name_offset);
 
 			// the name can include zero padding at the end, so find the real length
-			name_length = simple_strnlen(dynamic_linker_path, name_length);
-
-			dynamic_linker_path_length = name_length;
+			dynamic_linker_path_length = simple_strnlen(dynamic_linker_path, name_length);
 			break;
 		}
 
-		if (dynamic_linker_path_length == SIZE_MAX) {
+		if (!dynamic_linker_path) {
 			// if we didn't find a dynamic linker path, this is not a valid dynamic executable
 			status = ferr_invalid_argument;
 			goto out;
@@ -234,21 +236,38 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 			goto out;
 		}
 
-		header_to_load = &dynamic_linker_header;
-		file_to_load = dynamic_linker_descriptor;
-	}
+		old_cmd_data = cmd_data;
 
-	// determine how many loadable segments we have and what the entry address is
-	file_offset = sizeof(*header_to_load);
-	for (size_t i = 0; i < header_to_load->command_count; (++i), (file_offset += load_command.size)) {
-		status = sys_file_read_retry(file_to_load, file_offset, sizeof(load_command), &load_command, NULL);
+		// read all the load commands
+		status = sys_file_read_data(dynamic_linker_descriptor, sizeof(dynamic_linker_header), dynamic_linker_header.total_command_size, &cmd_data);
 		if (status != ferr_ok) {
 			goto out;
 		}
 
-		if (load_command.type == macho_load_command_type_segment_64) {
+		if (sys_data_length(cmd_data) != dynamic_linker_header.total_command_size) {
+			status = ferr_unknown;
+			goto out;
+		}
+
+		cmd_data_ptr = sys_data_contents(cmd_data);
+
+		header_to_load = &dynamic_linker_header;
+		file_to_load = dynamic_linker_descriptor;
+
+		sys_release(old_cmd_data);
+		old_cmd_data = NULL;
+	}
+
+	// determine how many loadable segments we have and what the entry address is
+	cmd_offset = 0;
+	for (size_t i = 0; i < header_to_load->command_count; (++i), (cmd_offset += load_command->size)) {
+		load_command = (void*)(cmd_data_ptr + cmd_offset);
+
+		if (load_command->type == macho_load_command_type_segment_64) {
 			++loadable_segment_count;
-		} else if (load_command.type == macho_load_command_type_unix_thread) {
+		} else if (load_command->type == macho_load_command_type_unix_thread) {
+			void** entry_addr_ptr;
+
 			// dynamically linked executables are supposed to use the "main" load command rather than "unix thread".
 			// besides, how did we even get here? dynamic executables are supposed to load their dynamic linker instead.
 			if (file_to_load == file && (header_to_load->flags & macho_header_flag_dynamically_linked) != 0) {
@@ -259,15 +278,14 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 			// 4 * sizeof(uint32_t) for the command type, command size, flavor, and count fields
 			// 16 * sizeof(uint64_t) because `rip` is the 16th entry in the array
-			status = sys_file_read_retry(file_to_load, file_offset + (4 * sizeof(uint32_t)) + (16 * sizeof(uint64_t)), sizeof(entry_address), &entry_address, NULL);
+			entry_addr_ptr = (void*)(cmd_data_ptr + cmd_offset + (4 * sizeof(uint32_t)) + (16 * sizeof(uint64_t)));
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
-			status = sys_file_read_retry(file_to_load, file_offset + (4 * sizeof(uint32_t)) + (32 * sizeof(uint64_t)), sizeof(entry_address), &entry_address, NULL);
+			entry_addr_ptr = (void*)(cmd_data_ptr + cmd_offset + (4 * sizeof(uint32_t)) + (32 * sizeof(uint64_t)));
 #else
 			#error Unimplemented on this architecture
 #endif
-			if (status != ferr_ok) {
-				goto out;
-			}
+
+			entry_address = *entry_addr_ptr;
 		}
 	}
 
@@ -286,69 +304,66 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 	info->loaded_segment_count = 0;
 
 	// load the segments
-	file_offset = sizeof(*header_to_load);
-	for (size_t i = 0; i < header_to_load->command_count; (++i), (file_offset += load_command.size)) {
-		macho_load_command_segment_64_t segment_64_load_command = {0};
+	cmd_offset = 0;
+	for (size_t i = 0; i < header_to_load->command_count; (++i), (cmd_offset += load_command->size)) {
+		macho_load_command_segment_64_t* segment_64_load_command = NULL;
 		uintptr_t page_start = 0;
 		void* load_addr = NULL;
 		void* load_start_addr = NULL;
 
-		status = sys_file_read_retry(file_to_load, file_offset, sizeof(load_command), &load_command, NULL);
-		if (status != ferr_ok) {
-			goto out;
-		}
+		load_command = (void*)(cmd_data_ptr + cmd_offset);
 
-		if (load_command.type != macho_load_command_type_segment_64) {
+		if (load_command->type != macho_load_command_type_segment_64) {
 			continue;
 		}
 
-		status = sys_file_read_retry(file_to_load, file_offset, sizeof(segment_64_load_command), &segment_64_load_command, NULL);
-		if (status != ferr_ok) {
-			goto out;
-		}
+		segment_64_load_command = (void*)load_command;
 
-		if (segment_64_load_command.initial_memory_protection == 0 && segment_64_load_command.maximum_memory_protection == 0) {
+		if (segment_64_load_command->initial_memory_protection == 0 && segment_64_load_command->maximum_memory_protection == 0) {
 			// this is a reserved-as-invalid segment, most likely __PAGEZERO.
 			// just skip it.
 			// XXX: this is wrong; we should actually reserve it in the memory manager so no memory is ever allocated in this region.
 			continue;
 		}
 
-		page_start = sys_page_round_down_multiple(segment_64_load_command.memory_address);
+		page_start = sys_page_round_down_multiple(segment_64_load_command->memory_address);
 
 		// allocate space for the segment
 		// TODO: only mark it as executable if the segment is executable
-		if (sys_page_allocate(sys_page_round_up_count((segment_64_load_command.memory_address + segment_64_load_command.memory_size) - page_start), 0, &load_addr) != ferr_ok) {
+		if (sys_page_allocate(sys_page_round_up_count((segment_64_load_command->memory_address + segment_64_load_command->memory_size) - page_start), 0, &load_addr) != ferr_ok) {
 			status = ferr_temporary_outage;
 			goto out;
 		}
 
-		load_start_addr = (char*)load_addr + (segment_64_load_command.memory_address - page_start);
+		load_start_addr = (char*)load_addr + (segment_64_load_command->memory_address - page_start);
 
 		// mark the segment as loaded already (for the purpose of tracking which ones have been allocated, in case of failure)
 		++info->loaded_segment_count;
-		info->loaded_segments[info->loaded_segment_count - 1].target_address = (void*)segment_64_load_command.memory_address;
+		info->loaded_segments[info->loaded_segment_count - 1].target_address = (void*)segment_64_load_command->memory_address;
 		info->loaded_segments[info->loaded_segment_count - 1].aligned_target_address = (void*)page_start;
 		info->loaded_segments[info->loaded_segment_count - 1].load_address = load_addr;
-		info->loaded_segments[info->loaded_segment_count - 1].flags = (segment_64_load_command.initial_memory_protection & macho_memory_protection_flag_execute) ? sys_uloader_loaded_segment_flag_executable : 0;
-		info->loaded_segments[info->loaded_segment_count - 1].size = segment_64_load_command.memory_size;
-		info->loaded_segments[info->loaded_segment_count - 1].aligned_size = sys_page_round_up_multiple((segment_64_load_command.memory_address + segment_64_load_command.memory_size) - page_start);
+		info->loaded_segments[info->loaded_segment_count - 1].flags = (segment_64_load_command->initial_memory_protection & macho_memory_protection_flag_execute) ? sys_uloader_loaded_segment_flag_executable : 0;
+		info->loaded_segments[info->loaded_segment_count - 1].size = segment_64_load_command->memory_size;
+		info->loaded_segments[info->loaded_segment_count - 1].aligned_size = sys_page_round_up_multiple((segment_64_load_command->memory_address + segment_64_load_command->memory_size) - page_start);
 
 		if (file_to_load == dynamic_linker_descriptor) {
 			info->loaded_segments[info->loaded_segment_count - 1].flags |= sys_uloader_loaded_segment_flag_interpreter;
 		}
 
 		// read it in from the file
-		status = sys_file_read_retry(file_to_load, segment_64_load_command.file_offset, segment_64_load_command.file_size, load_start_addr, NULL);
+		status = sys_file_read_retry(file_to_load, segment_64_load_command->file_offset, segment_64_load_command->file_size, load_start_addr, NULL);
 		if (status != ferr_ok) {
 			goto out;
 		}
 
 		// zero out uninitialized memory
-		simple_memset((char*)load_start_addr + segment_64_load_command.file_size, 0, segment_64_load_command.memory_size - segment_64_load_command.file_size);
+		simple_memset((char*)load_start_addr + segment_64_load_command->file_size, 0, segment_64_load_command->memory_size - segment_64_load_command->file_size);
 	}
 
 out:
+	if (cmd_data) {
+		sys_release(cmd_data);
+	}
 	if (status == ferr_ok) {
 		*out_info = info;
 	} else {

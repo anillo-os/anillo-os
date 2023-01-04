@@ -142,11 +142,16 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 	bool destroy_imports_table_on_fail = false;
 	sys_shared_memory_t* shmem = NULL;
 	sys_data_t* shared_data = NULL;
+	sys_data_t* cmd_data = NULL;
+	sys_data_t* string_table_data = NULL;
+	sys_data_t* symbol_table_data = NULL;
 
-	macho_load_command_t load_command = {0};
+	macho_load_command_t* load_command = NULL;
 	size_t file_offset = 0;
 	size_t section_index = 0;
 	size_t segment_index = 0;
+	size_t cmd_offset = 0;
+	char* cmd_data_ptr = NULL;
 
 	size_t entry_point_file_offset = SIZE_MAX;
 	dymple_relocation_info_t relocation_info = {0};
@@ -190,30 +195,37 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 
 	image->file = file;
 
+	// read all the load commands
+	status = sys_file_read_data(file, sizeof(header), header.total_command_size, &cmd_data);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (sys_data_length(cmd_data) != header.total_command_size) {
+		status = ferr_unknown;
+		goto out;
+	}
+
+	cmd_data_ptr = sys_data_contents(cmd_data);
+
 	// determine how big our block of memory needs to be.
 	// at the same time, determine how many sections we have.
-	file_offset = sizeof(header);
-	for (size_t i = 0; i < header.command_count; (++i), (file_offset += load_command.size)) {
-		macho_load_command_segment_64_t segment_64_load_command = {0};
+	cmd_offset = 0;
+	for (size_t i = 0; i < header.command_count; (++i), (cmd_offset += load_command->size)) {
+		macho_load_command_segment_64_t* segment_64_load_command = NULL;
 
-		status = dymple_read_exact(file, file_offset, &load_command, sizeof(load_command));
-		if (status != ferr_ok) {
-			goto out;
-		}
+		load_command = (void*)(cmd_data_ptr + cmd_offset);
 
-		if (load_command.type != macho_load_command_type_segment_64) {
+		if (load_command->type != macho_load_command_type_segment_64) {
 			continue;
 		}
 
-		status = dymple_read_exact(file, file_offset, &segment_64_load_command, sizeof(segment_64_load_command));
-		if (status != ferr_ok) {
-			goto out;
-		}
+		segment_64_load_command = (void*)load_command;
 
-		image->section_count += segment_64_load_command.section_count;
+		image->section_count += segment_64_load_command->section_count;
 		++image->segment_count;
 
-		if (segment_64_load_command.initial_memory_protection == 0 && segment_64_load_command.maximum_memory_protection == 0) {
+		if (segment_64_load_command->initial_memory_protection == 0 && segment_64_load_command->maximum_memory_protection == 0) {
 			// if the memory protection is set to 0, this is a reserve-as-invalid segment.
 			// in that case, we don't consider it for the memory allocation size.
 			// this is most likely the __PAGEZERO segment.
@@ -221,12 +233,12 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 			continue;
 		}
 
-		if (segment_64_load_command.memory_address < (uintptr_t)image->file_load_base) {
-			image->file_load_base = (void*)segment_64_load_command.memory_address;
+		if (segment_64_load_command->memory_address < (uintptr_t)image->file_load_base) {
+			image->file_load_base = (void*)segment_64_load_command->memory_address;
 		}
 
-		if (segment_64_load_command.memory_address + segment_64_load_command.memory_size > (uintptr_t)file_load_top) {
-			file_load_top = (void*)(segment_64_load_command.memory_address + segment_64_load_command.memory_size);
+		if (segment_64_load_command->memory_address + segment_64_load_command->memory_size > (uintptr_t)file_load_top) {
+			file_load_top = (void*)(segment_64_load_command->memory_address + segment_64_load_command->memory_size);
 		}
 	}
 
@@ -264,143 +276,120 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 	// now load the segments.
 	// also determine the entry offset.
 	// also load the relocation info.
-	file_offset = sizeof(header);
-	for (size_t i = 0; i < header.command_count; (++i), (file_offset += load_command.size)) {
-		status = dymple_read_exact(file, file_offset, &load_command, sizeof(load_command));
-		if (status != ferr_ok) {
-			goto out;
-		}
+	cmd_offset = 0;
+	for (size_t i = 0; i < header.command_count; (++i), (cmd_offset += load_command->size)) {
+		load_command = (void*)(cmd_data_ptr + cmd_offset);
 
-		if (load_command.type == macho_load_command_type_segment_64) {
-			macho_load_command_segment_64_t segment_64_load_command = {0};
+		if (load_command->type == macho_load_command_type_segment_64) {
+			macho_load_command_segment_64_t* segment_64_load_command = (void*)load_command;
 
-			status = dymple_read_exact(file, file_offset, &segment_64_load_command, sizeof(segment_64_load_command));
-			if (status != ferr_ok) {
-				goto out;
-			}
-
-			if (segment_64_load_command.initial_memory_protection == 0 && segment_64_load_command.maximum_memory_protection == 0) {
+			if (segment_64_load_command->initial_memory_protection == 0 && segment_64_load_command->maximum_memory_protection == 0) {
 				// skip loading reserved-as-invalid segments
 				// XXX: this is wrong
 				image->segments[segment_index].address = NULL;
 			} else {
-				size_t shmem_offset = segment_64_load_command.memory_address - (uintptr_t)image->file_load_base;
+				size_t shmem_offset = segment_64_load_command->memory_address - (uintptr_t)image->file_load_base;
 				void* this_load_base = (char*)image->base + shmem_offset;
 				size_t read_count = 0;
 
-				dymple_log_debug(dymple_log_category_image_loading, "Loading %llu bytes at %p (with a target size of %llu bytes; zeroing rest)\n", segment_64_load_command.file_size, this_load_base, segment_64_load_command.memory_size);
+				dymple_log_debug(dymple_log_category_image_loading, "Loading %llu bytes at %p (with a target size of %llu bytes; zeroing rest)\n", segment_64_load_command->file_size, this_load_base, segment_64_load_command->memory_size);
 
-				status = sys_file_read_into_shared_data(file, segment_64_load_command.file_offset, shmem_offset, segment_64_load_command.file_size, shared_data, &read_count);
+				status = sys_file_read_into_shared_data(file, segment_64_load_command->file_offset, shmem_offset, segment_64_load_command->file_size, shared_data, &read_count);
 				if (status != ferr_ok) {
 					goto out;
 				}
 
-				if (read_count != segment_64_load_command.file_size) {
+				if (read_count != segment_64_load_command->file_size) {
 					status = ferr_unknown;
 					goto out;
 				}
 
 				// ~~zero out unused memory~~
 				// we don't need to zero out unused memory since the kernel zeroes allocated pages before giving them to us
-				//simple_memset((char*)this_load_base + segment_64_load_command.file_size, 0, segment_64_load_command.memory_size - segment_64_load_command.file_size);
+				//simple_memset((char*)this_load_base + segment_64_load_command->file_size, 0, segment_64_load_command->memory_size - segment_64_load_command->file_size);
 
 				image->segments[segment_index].address = this_load_base;
 			}
 
-			image->segments[segment_index].size = segment_64_load_command.memory_size;
-			simple_memcpy(image->segments[segment_index].name, segment_64_load_command.segment_name, simple_min(sizeof(image->segments[segment_index].name), sizeof(segment_64_load_command.segment_name)));
+			image->segments[segment_index].size = segment_64_load_command->memory_size;
+			simple_memcpy(image->segments[segment_index].name, segment_64_load_command->segment_name, simple_min(sizeof(image->segments[segment_index].name), sizeof(segment_64_load_command->segment_name)));
 			++segment_index;
 
 			// now load section information
-			for (size_t j = 0; j < segment_64_load_command.section_count; ++j) {
-				macho_section_64_t section_64 = {0};
+			for (size_t j = 0; j < segment_64_load_command->section_count; ++j) {
+				macho_section_64_t* section_64 = (void*)(cmd_data_ptr + cmd_offset + sizeof(*segment_64_load_command) + (sizeof(*section_64) * j));
 
-				status = dymple_read_exact(file, file_offset + sizeof(segment_64_load_command) + (sizeof(section_64) * j), &section_64, sizeof(section_64));
-				if (status != ferr_ok) {
-					goto out;
-				}
-
-				if (segment_64_load_command.initial_memory_protection == 0 && segment_64_load_command.maximum_memory_protection == 0) {
+				if (segment_64_load_command->initial_memory_protection == 0 && segment_64_load_command->maximum_memory_protection == 0) {
 					image->sections[section_index].address = NULL;
 				} else {
-					image->sections[section_index].address = (char*)image->base + (section_64.memory_address - (uintptr_t)image->file_load_base);
+					image->sections[section_index].address = (char*)image->base + (section_64->memory_address - (uintptr_t)image->file_load_base);
 				}
-				image->sections[section_index].size = section_64.size;
-				simple_memcpy(image->sections[section_index].section_name, section_64.section_name, simple_min(sizeof(image->sections[section_index].section_name), sizeof(section_64.section_name)));
-				simple_memcpy(image->sections[section_index].segment_name, section_64.segment_name, simple_min(sizeof(image->sections[section_index].segment_name), sizeof(section_64.segment_name)));
-				image->sections[section_index].file_offset = section_64.file_offset;
+				image->sections[section_index].size = section_64->size;
+				simple_memcpy(image->sections[section_index].section_name, section_64->section_name, simple_min(sizeof(image->sections[section_index].section_name), sizeof(section_64->section_name)));
+				simple_memcpy(image->sections[section_index].segment_name, section_64->segment_name, simple_min(sizeof(image->sections[section_index].segment_name), sizeof(section_64->segment_name)));
+				image->sections[section_index].file_offset = section_64->file_offset;
 
 				++section_index;
 			}
-		} else if (load_command.type == macho_load_command_type_entry_point) {
-			macho_load_command_entry_point_t entry_point_load_command = {0};
+		} else if (load_command->type == macho_load_command_type_entry_point) {
+			macho_load_command_entry_point_t* entry_point_load_command = (void*)load_command;
 
-			status = dymple_read_exact(file, file_offset, &entry_point_load_command, sizeof(entry_point_load_command));
-			if (status != ferr_ok) {
-				goto out;
-			}
+			entry_point_file_offset = entry_point_load_command->entry_offset;
+		} else if (load_command->type == macho_load_command_type_compressed_dynamic_linker_info_only) {
+			macho_load_command_compressed_dynamic_linker_info_t* compressed_dynamic_linker_info_load_command = (void*)load_command;
 
-			entry_point_file_offset = entry_point_load_command.entry_offset;
-		} else if (load_command.type == macho_load_command_type_compressed_dynamic_linker_info_only) {
-			macho_load_command_compressed_dynamic_linker_info_t compressed_dynamic_linker_info_load_command = {0};
+			relocation_info.rebase_instructions_size = compressed_dynamic_linker_info_load_command->rebase_info_size;
+			relocation_info.bind_instructions_size = compressed_dynamic_linker_info_load_command->bind_info_size;
+			relocation_info.weak_bind_instructions_size = compressed_dynamic_linker_info_load_command->weak_bind_info_size;
+			image->lazy_bind_instructions_size = compressed_dynamic_linker_info_load_command->lazy_bind_info_size;
+			image->export_trie_size = compressed_dynamic_linker_info_load_command->export_info_size;
 
-			status = dymple_read_exact(file, file_offset, &compressed_dynamic_linker_info_load_command, sizeof(compressed_dynamic_linker_info_load_command));
-			if (status != ferr_ok) {
-				goto out;
-			}
-
-			relocation_info.rebase_instructions_size = compressed_dynamic_linker_info_load_command.rebase_info_size;
-			relocation_info.bind_instructions_size = compressed_dynamic_linker_info_load_command.bind_info_size;
-			relocation_info.weak_bind_instructions_size = compressed_dynamic_linker_info_load_command.weak_bind_info_size;
-			image->lazy_bind_instructions_size = compressed_dynamic_linker_info_load_command.lazy_bind_info_size;
-			image->export_trie_size = compressed_dynamic_linker_info_load_command.export_info_size;
-
-			if (sys_mempool_allocate(compressed_dynamic_linker_info_load_command.rebase_info_size, NULL, &relocation_info.rebase_instructions) != ferr_ok) {
+			if (sys_mempool_allocate(compressed_dynamic_linker_info_load_command->rebase_info_size, NULL, &relocation_info.rebase_instructions) != ferr_ok) {
 				status = ferr_temporary_outage;
 				goto out;
 			}
 
-			if (sys_mempool_allocate(compressed_dynamic_linker_info_load_command.bind_info_size, NULL, &relocation_info.bind_instructions) != ferr_ok) {
+			if (sys_mempool_allocate(compressed_dynamic_linker_info_load_command->bind_info_size, NULL, &relocation_info.bind_instructions) != ferr_ok) {
 				status = ferr_temporary_outage;
 				goto out;
 			}
 
-			if (sys_mempool_allocate(compressed_dynamic_linker_info_load_command.weak_bind_info_size, NULL, &relocation_info.weak_bind_instructions) != ferr_ok) {
+			if (sys_mempool_allocate(compressed_dynamic_linker_info_load_command->weak_bind_info_size, NULL, &relocation_info.weak_bind_instructions) != ferr_ok) {
 				status = ferr_temporary_outage;
 				goto out;
 			}
 
-			if (sys_mempool_allocate(compressed_dynamic_linker_info_load_command.lazy_bind_info_size, NULL, &image->lazy_bind_instructions) != ferr_ok) {
+			if (sys_mempool_allocate(compressed_dynamic_linker_info_load_command->lazy_bind_info_size, NULL, &image->lazy_bind_instructions) != ferr_ok) {
 				status = ferr_temporary_outage;
 				goto out;
 			}
 
-			if (sys_mempool_allocate(compressed_dynamic_linker_info_load_command.export_info_size, NULL, &image->export_trie) != ferr_ok) {
+			if (sys_mempool_allocate(compressed_dynamic_linker_info_load_command->export_info_size, NULL, &image->export_trie) != ferr_ok) {
 				status = ferr_temporary_outage;
 				goto out;
 			}
 
-			status = dymple_read_exact(file, compressed_dynamic_linker_info_load_command.rebase_info_offset, relocation_info.rebase_instructions, relocation_info.rebase_instructions_size);
+			status = dymple_read_exact(file, compressed_dynamic_linker_info_load_command->rebase_info_offset, relocation_info.rebase_instructions, relocation_info.rebase_instructions_size);
 			if (status != ferr_ok) {
 				goto out;
 			}
 
-			status = dymple_read_exact(file, compressed_dynamic_linker_info_load_command.bind_info_offset, relocation_info.bind_instructions, relocation_info.bind_instructions_size);
+			status = dymple_read_exact(file, compressed_dynamic_linker_info_load_command->bind_info_offset, relocation_info.bind_instructions, relocation_info.bind_instructions_size);
 			if (status != ferr_ok) {
 				goto out;
 			}
 
-			status = dymple_read_exact(file, compressed_dynamic_linker_info_load_command.weak_bind_info_offset, relocation_info.weak_bind_instructions, relocation_info.weak_bind_instructions_size);
+			status = dymple_read_exact(file, compressed_dynamic_linker_info_load_command->weak_bind_info_offset, relocation_info.weak_bind_instructions, relocation_info.weak_bind_instructions_size);
 			if (status != ferr_ok) {
 				goto out;
 			}
 
-			status = dymple_read_exact(file, compressed_dynamic_linker_info_load_command.lazy_bind_info_offset, image->lazy_bind_instructions, image->lazy_bind_instructions_size);
+			status = dymple_read_exact(file, compressed_dynamic_linker_info_load_command->lazy_bind_info_offset, image->lazy_bind_instructions, image->lazy_bind_instructions_size);
 			if (status != ferr_ok) {
 				goto out;
 			}
 
-			status = dymple_read_exact(file, compressed_dynamic_linker_info_load_command.export_info_offset, image->export_trie, image->export_trie_size);
+			status = dymple_read_exact(file, compressed_dynamic_linker_info_load_command->export_info_offset, image->export_trie, image->export_trie_size);
 			if (status != ferr_ok) {
 				goto out;
 			}
@@ -412,48 +401,31 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 	dymple_log_debug(dymple_log_category_image_loading, "Image loaded into memory; looking for dependencies...\n");
 
 	// now look for dylib loading commands
-	file_offset = sizeof(header);
-	for (size_t i = 0; i < header.command_count; (++i), (file_offset += load_command.size)) {
-		macho_load_command_dylib_t dylib_load_command = {0};
+	cmd_offset = 0;
+	for (size_t i = 0; i < header.command_count; (++i), (cmd_offset += load_command->size)) {
+		macho_load_command_dylib_t* dylib_load_command = NULL;
 		void* this_load_base = NULL;
 		char* load_path = NULL;
 		size_t load_path_length = 0;
 		sys_file_t* dep_file = NULL;
 		dymple_image_t* dep_image = NULL;
 
-		status = dymple_read_exact(file, file_offset, &load_command, sizeof(load_command));
-		if (status != ferr_ok) {
-			goto out;
-		}
+		load_command = (void*)(cmd_data_ptr + cmd_offset);
 
-		if (load_command.type != macho_load_command_type_load_dylib && load_command.type != macho_load_command_type_reexport_dylib) {
+		if (load_command->type != macho_load_command_type_load_dylib && load_command->type != macho_load_command_type_reexport_dylib) {
 			continue;
 		}
 
-		status = dymple_read_exact(file, file_offset, &dylib_load_command, sizeof(dylib_load_command));
-		if (status != ferr_ok) {
-			goto out;
-		}
+		dylib_load_command = (void*)load_command;
 
-		load_path_length = load_command.size - dylib_load_command.name_offset;
+		load_path_length = load_command->size - dylib_load_command->name_offset;
 
-		if (sys_mempool_allocate(load_path_length, NULL, (void*)&load_path) != ferr_ok) {
-			status = ferr_temporary_outage;
-			goto out;
-		}
-
-		status = dymple_read_exact(file, file_offset + dylib_load_command.name_offset, load_path, load_path_length);
-		if (status != ferr_ok) {
-			dymple_abort_status(sys_mempool_free(load_path));
-			goto out;
-		}
+		load_path = (void*)(cmd_data_ptr + cmd_offset + dylib_load_command->name_offset);
 
 		// the name can include zero padding at the end, so find the real length
 		load_path_length = simple_strnlen(load_path, load_path_length);
 
 		status = dymple_load_image_by_name_n_internal(load_path, load_path_length, &dep_image);
-
-		dymple_abort_status(sys_mempool_free(load_path));
 
 		if (status != ferr_ok) {
 			goto out;
@@ -478,7 +450,7 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 		++dep_image->dependent_count;
 
 		// if this is a reexport, register it as one
-		if (load_command.type == macho_load_command_type_reexport_dylib) {
+		if (load_command->type == macho_load_command_type_reexport_dylib) {
 			if (sys_mempool_reallocate(image->reexports, sizeof(*image->reexports) * (image->reexport_count + 1), NULL, (void*)&image->reexports) != ferr_ok) {
 				status = ferr_temporary_outage;
 				goto out;
@@ -519,66 +491,69 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 	destroy_imports_table_on_fail = true;
 #endif
 
+#if 0
 	// now let's fill up the symbol table
-	file_offset = sizeof(header);
-	for (size_t i = 0; i < header.command_count; (++i), (file_offset += load_command.size)) {
-		macho_load_command_symbol_table_info_t symbol_table_info_load_command = {0};
-		char* string_table = NULL;
+	cmd_offset = 0;
+	for (size_t i = 0; i < header.command_count; (++i), (cmd_offset += load_command->size)) {
+		macho_load_command_symbol_table_info_t* symbol_table_info_load_command = NULL;
+		size_t symbol_table_size;
+		macho_symbol_table_entry_t* symbol_table_entries = NULL;
 
-		status = dymple_read_exact(file, file_offset, &load_command, sizeof(load_command));
-		if (status != ferr_ok) {
-			goto out;
-		}
+		load_command = (void*)(cmd_data_ptr + cmd_offset);
 
-		if (load_command.type != macho_load_command_type_symbol_table_info) {
+		if (load_command->type != macho_load_command_type_symbol_table_info) {
 			continue;
 		}
 
-		status = dymple_read_exact(file, file_offset, &symbol_table_info_load_command, sizeof(symbol_table_info_load_command));
-		if (status != ferr_ok) {
-			goto out;
-		}
+		symbol_table_info_load_command = (void*)load_command;
 
-		dymple_log_debug(dymple_log_category_image_loading, "Image contains %u symbols (with a string table of size %u)\n", symbol_table_info_load_command.symbol_table_entry_count, symbol_table_info_load_command.string_table_size);
+		dymple_log_debug(dymple_log_category_image_loading, "Image contains %u symbols (with a string table of size %u)\n", symbol_table_info_load_command->symbol_table_entry_count, symbol_table_info_load_command->string_table_size);
 
 		// TODO: we *really* need the ability to memory-map files
-		if (sys_mempool_allocate(symbol_table_info_load_command.string_table_size, NULL, (void*)&string_table) != ferr_ok) {
-			status = ferr_temporary_outage;
+		status = sys_file_read_data(file, symbol_table_info_load_command->string_table_offset, symbol_table_info_load_command->string_table_size, &string_table_data);
+		if (status != ferr_ok) {
 			goto out;
 		}
 
-		dymple_log_debug(dymple_log_category_image_loading, "Allocated image string table\n");
-
-		status = dymple_read_exact(file, symbol_table_info_load_command.string_table_offset, string_table, symbol_table_info_load_command.string_table_size);
-		if (status != ferr_ok) {
+		if (sys_data_length(string_table_data) != symbol_table_info_load_command->string_table_size) {
+			status = ferr_unknown;
 			goto out;
 		}
 
 		dymple_log_debug(dymple_log_category_image_loading, "Loaded image string table\n");
 
-		for (size_t j = 0; j < symbol_table_info_load_command.symbol_table_entry_count; ++j) {
-			macho_symbol_table_entry_t entry = {0};
+		symbol_table_size = symbol_table_info_load_command->symbol_table_entry_count * sizeof(macho_symbol_table_entry_t);
+		status = sys_file_read_data(file, symbol_table_info_load_command->symbol_table_offset, symbol_table_size, &symbol_table_data);
+		if (status != ferr_ok) {
+			goto out;
+		}
+
+		if (sys_data_length(symbol_table_data) != symbol_table_size) {
+			status = ferr_unknown;
+			goto out;
+		}
+
+		dymple_log_debug(dymple_log_category_image_loading, "Loaded image symbol table\n");
+
+		symbol_table_entries = sys_data_contents(symbol_table_data);
+
+		for (size_t j = 0; j < symbol_table_info_load_command->symbol_table_entry_count; ++j) {
+			macho_symbol_table_entry_t* entry = &symbol_table_entries[j];
 			bool created = false;
 			dymple_symbol_t* symbol = NULL;
 
-			status = dymple_read_exact(file, symbol_table_info_load_command.symbol_table_offset + (sizeof(macho_symbol_table_entry_t) * j), &entry, sizeof(entry));
-			if (status != ferr_ok) {
-				dymple_abort_status(sys_mempool_free(string_table));
-				goto out;
-			}
-
 #if 0
-			switch (macho_symbol_table_entry_get_type(entry.type)) {
+			switch (macho_symbol_table_entry_get_type(entry->type)) {
 				case macho_symbol_table_entry_type_section: {
-					if (!macho_symbol_table_entry_is_external(entry.type)) {
+					if (!macho_symbol_table_entry_is_external(entry->type)) {
 						continue;
 					}
 
-					if (macho_symbol_table_entry_is_private_extern(entry.type)) {
+					if (macho_symbol_table_entry_is_private_extern(entry->type)) {
 						continue;
 					}
 
-					if (simple_ghmap_lookup(&image->defined_symbol_table, &string_table[entry.string_table_name_offset], SIZE_MAX, true, sizeof(dymple_symbol_t), &created, (void*)&symbol, NULL) != ferr_ok) {
+					if (simple_ghmap_lookup(&image->defined_symbol_table, &string_table[entry->string_table_name_offset], SIZE_MAX, true, sizeof(dymple_symbol_t), &created, (void*)&symbol, NULL) != ferr_ok) {
 						status = ferr_temporary_outage;
 						goto out;
 					}
@@ -587,14 +562,14 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 						continue;
 					}
 
-					symbol->address = image->sections[entry.section].address + entry.value;
+					symbol->address = image->sections[entry->section].address + entry->value;
 					symbol->image = image;
 				} break;
 
 				case macho_symbol_table_entry_type_undefined: {
 					uint8_t library_index = 0;
 
-					if (simple_ghmap_lookup(&image->undefined_symbol_table, &string_table[entry.string_table_name_offset], SIZE_MAX, true, sizeof(dymple_symbol_t), &created, (void*)&symbol, NULL) != ferr_ok) {
+					if (simple_ghmap_lookup(&image->undefined_symbol_table, &string_table[entry->string_table_name_offset], SIZE_MAX, true, sizeof(dymple_symbol_t), &created, (void*)&symbol, NULL) != ferr_ok) {
 						status = ferr_temporary_outage;
 						goto out;
 					}
@@ -603,7 +578,7 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 						continue;
 					}
 
-					library_index = macho_symbol_table_entry_library_index(entry.description);
+					library_index = macho_symbol_table_entry_library_index(entry->description);
 
 					symbol->address = NULL;
 
@@ -617,10 +592,15 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 #endif
 		}
 
-		dymple_abort_status(sys_mempool_free(string_table));
+		sys_release(symbol_table_data);
+		symbol_table_data = NULL;
+
+		sys_release(string_table_data);
+		string_table_data = NULL;
 
 		break;
 	}
+#endif
 
 	// determine the image's entry point address (if it has one)
 	if (entry_point_file_offset != SIZE_MAX) {
@@ -655,6 +635,15 @@ out:
 	}
 	if (shared_data) {
 		sys_release(shared_data);
+	}
+	if (cmd_data) {
+		sys_release(cmd_data);
+	}
+	if (string_table_data) {
+		sys_release(string_table_data);
+	}
+	if (symbol_table_data) {
+		sys_release(symbol_table_data);
 	}
 	if (status == ferr_ok) {
 		if (out_image) {
