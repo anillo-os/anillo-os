@@ -1,4 +1,0 @@
-Waitq subsystem
-=================
-
-.. doxygengroup:: Waitq

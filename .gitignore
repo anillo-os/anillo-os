@@ -13,3 +13,5 @@ build.release
 .DS_Store
 *.pcap
 tmp/
+target
+cmake-build

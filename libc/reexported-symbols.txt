@@ -1,4 +1,0 @@
-dyld_stub_binder
-_memset
-___stack_chk_fail
-___stack_chk_guard

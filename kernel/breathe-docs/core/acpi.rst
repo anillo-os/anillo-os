@@ -1,4 +1,0 @@
-ACPI subsystem
-==============
-
-.. doxygengroup:: ACPI

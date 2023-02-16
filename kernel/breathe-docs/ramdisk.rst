@@ -1,4 +1,0 @@
-Ramdisk
-=======
-
-.. doxygengroup:: Ramdisk

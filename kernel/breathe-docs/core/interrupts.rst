@@ -1,4 +1,0 @@
-Interrupts subsystem
-====================
-
-.. doxygengroup:: Interrupts

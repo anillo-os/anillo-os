@@ -1,4 +1,0 @@
-TSC subsystem
-=============
-
-.. doxygengroup:: TSC

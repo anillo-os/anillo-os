@@ -1,4 +1,0 @@
-Base
-====
-
-.. doxygengroup:: Base

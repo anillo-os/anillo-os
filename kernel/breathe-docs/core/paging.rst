@@ -1,4 +1,0 @@
-Paging subsystem
-================
-
-.. doxygengroup:: Paging

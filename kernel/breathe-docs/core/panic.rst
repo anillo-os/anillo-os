@@ -1,4 +1,0 @@
-Panic subsystem
-===============
-
-.. doxygengroup:: Panic

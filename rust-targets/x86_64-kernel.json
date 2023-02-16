@@ -1,0 +1,43 @@
+{
+	"llvm-target": "x86_64-apple-none-macho",
+	"data-layout": "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-f80:128-n8:16:32:64-S128",
+	"archive-format": "darwin",
+	"arch": "x86_64",
+	"os": "none",
+	"vendor": "apple",
+	"panic-strategy": "abort",
+	"target-endian": "little",
+	"target-pointer-width": "64",
+	"target-c-int-width": "32",
+	"executables": true,
+	"disable-redzone": true,
+	"features": "-mmx,-sse,+soft-float",
+	"linker-flavor": "ld64.lld",
+	"linker": "linker-wrapper.py",
+	"pre-link-args": {
+		"ld64.lld": [
+			"-platform_version",
+			"macos",
+			"10.15",
+			"10.15",
+			"-static",
+			"-pie",
+			"-dead_strip",
+			"-e",
+			"_ferro_entry",
+			"-pagezero_size",
+			"0",
+			"-image_base",
+			"0xffff800000000000",
+			"-execute",
+			"-arch",
+			"x86_64"
+		]
+	},
+	"link-env": [
+		"LD_DYLD_PATH=/sys/support/dymple"
+	],
+	"code-model": "large",
+	"is-like-osx": true,
+	"emit-debug-gdb-scripts": false
+}

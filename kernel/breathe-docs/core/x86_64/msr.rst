@@ -1,4 +1,0 @@
-MSR subsystem
-==============
-
-.. doxygengroup:: MSR

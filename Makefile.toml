@@ -1,0 +1,33 @@
+#[config]
+#default_to_workspace = false
+
+[env]
+_ANILLO_ARCH_RAW = { script = ["uname -m"] }
+ANILLO_ARCH = { source = "${_ANILLO_ARCH_RAW}", default_value = "unknown", mapping = { x86_64 = "x86_64", aarch64 = "aarch64", arm64 = "aarch64" } }
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+
+[env.development]
+CMAKE_BUILD_TYPE = "Debug"
+
+[env.production]
+CMAKE_BUILD_TYPE = "Release"
+
+[tasks.configure-uefi]
+command = "cmake"
+args = ["-B", "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/cmake-build/${ANILLO_ARCH}", "-S", "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}", "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}", "-DANILLO_ARCH=${ANILLO_ARCH}"]
+workspace = false
+
+[tasks.build-uefi]
+command = "cmake"
+args = ["--build", "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/cmake-build/${ANILLO_ARCH}"]
+dependencies = ["configure-uefi"]
+workspace = false
+
+[tasks.build]
+clear = true
+run_task = { name = "build-one", fork = true }
+dependencies = ["build-uefi"]
+
+[tasks.default]
+dependencies = ["build"]
+workspace = false

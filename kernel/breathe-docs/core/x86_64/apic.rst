@@ -1,4 +1,0 @@
-APIC subsystem
-==============
-
-.. doxygengroup:: APIC

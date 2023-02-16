@@ -1,4 +1,0 @@
-GIC subsystem
-=============
-
-.. doxygengroup:: GIC

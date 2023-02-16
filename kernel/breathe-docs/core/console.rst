@@ -1,4 +1,0 @@
-Console subsystem
-=================
-
-.. doxygengroup:: Console

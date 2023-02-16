@@ -1,0 +1,4 @@
+[tasks.build-one]
+command = "cargo"
+toolchain = "nightly"
+args = ["build", "--target", "../rust-targets/${ANILLO_ARCH}-kernel.json"]

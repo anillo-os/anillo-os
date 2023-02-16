@@ -1,4 +1,0 @@
-Locks subsystem
-===============
-
-.. doxygengroup:: Locks

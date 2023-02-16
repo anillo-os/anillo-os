@@ -1,4 +1,0 @@
-Threads subsystem
-=================
-
-.. doxygengroup:: Threads

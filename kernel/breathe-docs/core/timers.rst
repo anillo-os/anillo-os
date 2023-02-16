@@ -1,4 +1,0 @@
-Timers subsystem
-================
-
-.. doxygengroup:: Timers

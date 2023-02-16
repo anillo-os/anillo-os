@@ -1,4 +1,0 @@
-ELF
-===
-
-.. doxygengroup:: ELF
