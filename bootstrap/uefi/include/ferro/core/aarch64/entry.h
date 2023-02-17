@@ -26,7 +26,6 @@
 #define _FERRO_CORE_X86_64_ENTRY_H_
 
 #include <ferro/base.h>
-#include <ferro/core/interrupts.h>
 #include <ferro/core/entry.h>
 
 FERRO_DECLARATIONS_BEGIN;
