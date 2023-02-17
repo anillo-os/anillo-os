@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 import os
 import argparse
-from sys import stderr, stdout
-from typing import Dict, List
+from sys import stderr
+from typing import List
 import subprocess
 import re
 import io

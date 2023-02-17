@@ -1,4 +1,12 @@
 [tasks.build-one]
 command = "cargo"
 toolchain = "nightly"
-args = ["build", "--target", "../rust-targets/${ANILLO_ARCH}-kernel.json"]
+args = ["build", "--target", "../rust-targets/${ANILLO_ARCH}-anillo-ferro-macho.json"]
+
+[tasks.test-one]
+command = "cargo"
+toolchain = "nightly"
+args = ["test", "--target", "../rust-targets/${ANILLO_ARCH}-anillo-ferro-macho.json"]
+
+[tasks.ramdisk-one]
+command = "true"

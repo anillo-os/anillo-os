@@ -14,4 +14,4 @@ build.release
 *.pcap
 tmp/
 target
-cmake-build
+*-build

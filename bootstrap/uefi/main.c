@@ -262,18 +262,33 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	}
 	printf("Info: Read kernel Mach-O header\n");
 
+	bool magic_ok = kernel_header.magic == MACHO_MAGIC_64;
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	bool cpu_type_ok = kernel_header.cpu_type == macho_cpu_type_x86_64;
+	bool cpu_subtype_ok = kernel_header.cpu_subtype == macho_cpu_subtype_x86_64_all;
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	bool cpu_type_ok = kernel_header.cpu_type != macho_cpu_type_aarch64;
+	bool cpu_subtype_ok = true;
+#endif
+	bool file_type_ok = kernel_header.file_type == macho_file_type_exectuable;
+	bool flags_ok = (kernel_header.flags & macho_header_flag_no_undefined_symbols) != 0;
+
+#if 0
+	printf("Magic ok? %s\n", magic_ok ? "yes" : "no");
+	printf("CPU type ok? %s\n", cpu_type_ok ? "yes" : "no");
+	printf("CPU subtype ok? %s\n", cpu_subtype_ok ? "yes" : "no");
+	printf("File type ok? %s\n", file_type_ok ? "yes" : "no");
+	printf("Flags ok? %s\n", flags_ok ? "yes" : "no");
+#endif
+
 	// verify the kernel image
 	// TODO: support fat kernel binaries
 	if (
-		kernel_header.magic != MACHO_MAGIC_64 ||
-#if FERRO_ARCH == FERRO_ARCH_x86_64
-		kernel_header.cpu_type != macho_cpu_type_x86_64 ||
-		kernel_header.cpu_subtype != macho_cpu_subtype_x86_64_all ||
-#elif FERRO_ARCH == FERRO_ARCH_aarch64
-		kernel_header.cpu_type != macho_cpu_type_aarch64 ||
-#endif
-		kernel_header.file_type != macho_file_type_exectuable ||
-		kernel_header.flags != macho_header_flag_no_undefined_symbols
+		!magic_ok ||
+		!cpu_type_ok ||
+		!cpu_subtype_ok ||
+		!file_type_ok ||
+		!flags_ok
 	) {
 		status = errstat;
 		err = errno;

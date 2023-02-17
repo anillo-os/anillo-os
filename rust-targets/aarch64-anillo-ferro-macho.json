@@ -31,7 +31,8 @@
 			"0xffff800000000000",
 			"-execute",
 			"-arch",
-			"arm64"
+			"arm64",
+			"-Z"
 		]
 	},
 	"link-env": [

@@ -1,33 +1,86 @@
 #[config]
 #default_to_workspace = false
 
+env_scripts = [
+	'''
+	#!@duckscript
+	set_env PATH ${PATH}:${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/scripts
+	'''
+]
+
 [env]
 _ANILLO_ARCH_RAW = { script = ["uname -m"] }
 ANILLO_ARCH = { source = "${_ANILLO_ARCH_RAW}", default_value = "unknown", mapping = { x86_64 = "x86_64", aarch64 = "aarch64", arm64 = "aarch64" } }
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+ROOT_DIR = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
+BUILD_DIR = "${ROOT_DIR}/build/${ANILLO_ARCH}"
+RAMDISKSRC_DIR = "${BUILD_DIR}/ramdisksrc"
+RAMDISK_OUTPUT = "${BUILD_DIR}/ramdisk"
+IMAGE_OUTPUT = "${BUILD_DIR}/disk.img"
+UEFI_BOOTSTRAP_OUTPUT = "${BUILD_DIR}/cmake/bootstrap/uefi/ferro-bootstrap.efi"
 
 [env.development]
 CMAKE_BUILD_TYPE = "Debug"
+RUST_TARGET_PROFILE = "debug"
 
 [env.production]
 CMAKE_BUILD_TYPE = "Release"
+RUST_TARGET_PROFILE = "release"
 
 [tasks.configure-uefi]
 command = "cmake"
-args = ["-B", "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/cmake-build/${ANILLO_ARCH}", "-S", "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}", "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}", "-DANILLO_ARCH=${ANILLO_ARCH}"]
+args = ["-B", "${BUILD_DIR}/cmake", "-S", "${ROOT_DIR}", "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}", "-DANILLO_ARCH=${ANILLO_ARCH}", "-DCMAKE_EXPORT_COMPILE_COMMANDS=1"]
 workspace = false
 
 [tasks.build-uefi]
 command = "cmake"
-args = ["--build", "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/cmake-build/${ANILLO_ARCH}"]
+args = ["--build", "${BUILD_DIR}/cmake"]
 dependencies = ["configure-uefi"]
 workspace = false
 
+[tasks.clean-other]
+script = '''
+#!@duckscript
+rm -r ${BUILD_DIR}/cmake
+'''
+
+[tasks.build-members]
+run_task = { name = "build-one", fork = true }
+
+[tasks.ramdisk-members]
+run_task = { name = "ramdisk-one", fork = true }
+
+[tasks.build-ramdisk]
+workspace = false
+dependencies = ["ramdisk-members"]
+script = '''
+#!@duckscript
+mkdir ${RAMDISKSRC_DIR}
+exec --fail-on-error build-ramdisk.py ${RAMDISKSRC_DIR} ${RAMDISK_OUTPUT}
+'''
+
+[tasks.build-image]
+workspace = false
+dependencies = ["build-uefi", "build-members", "build-ramdisk"]
+script = '''
+#!@duckscript
+mkdir ${BUILD_DIR}
+exec --fail-on-error build-image.py ${ANILLO_ARCH} ${UEFI_BOOTSTRAP_OUTPUT} ${ROOT_DIR}/target/${ANILLO_ARCH}-anillo-ferro-macho/${RUST_TARGET_PROFILE}/ferro ${ROOT_DIR}/imagesrc/startup.nsh ${ROOT_DIR}/imagesrc/config.txt ${RAMDISK_OUTPUT} ${IMAGE_OUTPUT}
+'''
+
 [tasks.build]
 clear = true
-run_task = { name = "build-one", fork = true }
-dependencies = ["build-uefi"]
+workspace = false
+dependencies = ["build-image"]
+
+[tasks.test]
+clear = true
+run_task = { name = "test-one", fork = true }
+
+[tasks.clean]
+dependencies = ["clean-other"]
 
 [tasks.default]
+clear = true
 dependencies = ["build"]
 workspace = false
