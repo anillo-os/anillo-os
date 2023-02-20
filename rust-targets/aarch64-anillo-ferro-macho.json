@@ -32,7 +32,11 @@
 			"-execute",
 			"-arch",
 			"arm64",
-			"-Z"
+			"-Z",
+			"-segalign",
+			"0x4000",
+			"-read_only_relocs",
+			"suppress"
 		]
 	},
 	"link-env": [

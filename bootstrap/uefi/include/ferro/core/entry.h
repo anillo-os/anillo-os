@@ -73,7 +73,7 @@ FERRO_ENUM(int, ferro_boot_data_type) {
 	ferro_boot_data_type_ramdisk,
 
 	/**
-	 * A pointer to where our config data (a.k.a. boot params) is stored.
+	 * A pointer to where our config data (a.k.a. boot params) are stored.
 	 */
 	ferro_boot_data_type_config,
 
@@ -106,6 +106,11 @@ FERRO_ENUM(int, ferro_boot_data_type) {
 	 * A pointer to the ACPI XSDT pointer (::facpi_rsdp).
 	 */
 	ferro_boot_data_type_rsdp_pointer,
+
+	/**
+	 * A pointer to the memory region where the initial kernel page tables are stored.
+	 */
+	ferro_boot_data_type_page_tables,
 };
 
 typedef struct ferro_boot_data_info ferro_boot_data_info_t;

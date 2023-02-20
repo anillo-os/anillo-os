@@ -1,8 +1,15 @@
 #![no_std]
 #![no_main]
+#![feature(negative_impls)]
+
+mod framebuffer;
+mod sync;
 
 use core::panic::PanicInfo;
+use core::ffi::c_void;
 
+#[repr(i32)]
+#[derive(PartialEq, Clone, Copy)]
 enum BootDataType {
 	/**
 	 * Default value; not a valid value
@@ -45,14 +52,32 @@ enum BootDataType {
 	MemoryMap,
 
 	/**
-	 * A pointer to the ACPI XSDT pointer (::facpi_rsdp).
+	 * A pointer to the ACPI XSDT pointer.
 	 */
 	RSDPPointer,
 }
 
 #[repr(C)]
-struct BootDataInfo {
+pub struct BootDataInfo {
+	ty: BootDataType,
+	phys_addr: *mut c_void,
+	virt_addr: *mut c_void,
+	size: usize,
+}
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct KernelImageInfo {
+	physical_base_address: *const c_void,
+	size: usize,
+	segment_count: usize,
+	segments: *const KernelSegment,
+}
+
+struct KernelSegment {
+	size: usize,
+	physical_address: *const c_void,
+	virtual_address: *const c_void,
 }
 
 #[panic_handler]
@@ -61,6 +86,20 @@ fn panic(_info: &PanicInfo) -> ! {
 }
 
 #[no_mangle]
-pub extern "C" fn ferro_entry(initial_pool: *mut u8, initial_pool_page_count: usize, raw_boot_data: *const BootDataInfo, boot_data_count: usize) -> ! {
+pub extern "C" fn ferro_entry(_initial_pool: *mut u8, _initial_pool_page_count: usize, raw_boot_data: *const BootDataInfo, boot_data_count: usize) -> ! {
+	let boot_data = unsafe { core::slice::from_raw_parts(raw_boot_data, boot_data_count) };
+
+	for entry in boot_data {
+		match entry.ty {
+			BootDataType::FramebufferInfo => {
+				let fb_info = unsafe { &*(entry.virt_addr as *const framebuffer::Info) };
+				unsafe {
+					framebuffer::init(fb_info);
+				}
+			}
+			_ => {}
+		}
+	}
+
 	loop {}
 }

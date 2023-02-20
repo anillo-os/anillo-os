@@ -44,7 +44,8 @@ FERRO_DECLARATIONS_BEGIN;
 
 typedef struct ferro_fb_info ferro_fb_info_t;
 struct ferro_fb_info {
-	void* base;
+	void* physical_base;
+	void* virtual_base;
 	size_t width;
 	size_t height;
 	size_t scan_line_size;

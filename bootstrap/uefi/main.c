@@ -27,6 +27,7 @@
 #include <ferro/core/ramdisk.h>
 #include <ferro/core/entry.h>
 #include <ferro/bits.h>
+#include <ferro/core/paging.private.h>
 
 #include <ferro/bootstrap/uefi/wrappers.h>
 
@@ -36,7 +37,7 @@
 #define DEFAULT_RAMDISK_PATH "EFI\\anillo\\ramdisk"
 #define DEFAULT_CONFIG_PATH  "EFI\\anillo\\config.txt"
 
-#define EXTRA_MM_DESCRIPTOR_COUNT 4
+#define EXTRA_MM_DESCRIPTOR_COUNT 6
 
 #define PRINT_BASE 1
 
@@ -45,9 +46,6 @@
 		__typeof__(multiple) _multiple = (multiple); \
 		(_value + (_multiple - 1)) / _multiple; \
 	})
-
-// TODO: de-duplicate this (it's primarily defined in ferro/core/paging.h)
-#define FERRO_KERNEL_VIRTUAL_START  ((uintptr_t)0xffff800000000000)
 
 FERRO_ALWAYS_INLINE ferro_memory_region_type_t uefi_to_ferro_memory_region_type(fuefi_memory_type_t uefi) {
 	switch (uefi) {
@@ -82,8 +80,6 @@ FERRO_ALWAYS_INLINE ferro_memory_region_type_t uefi_to_ferro_memory_region_type(
 	}
 };
 
-#define ROUND_UP_PAGE(x) (((x) + 0xfff) / 0x1000)
-
 typedef struct ferro_memory_pool ferro_memory_pool_t;
 struct ferro_memory_pool {
 	void* base_address;
@@ -92,8 +88,8 @@ struct ferro_memory_pool {
 };
 
 static ferr_t ferro_memory_pool_init(ferro_memory_pool_t* pool, size_t pool_size) {
-	pool->page_count = ROUND_UP_PAGE(pool_size);
-	pool->next_address = pool->base_address = mmap(NULL, pool->page_count * 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+	pool->page_count = fpage_round_up_to_page_count(pool_size);
+	pool->next_address = pool->base_address = mmap(NULL, pool->page_count * FPAGE_PAGE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
 	return (pool->base_address == MAP_FAILED) ? ferr_temporary_outage : ferr_ok;
 };
 
@@ -126,6 +122,132 @@ static int read_at(FILE* file, size_t offset, void* buffer, size_t count) {
 	return 0;
 };
 
+FERRO_STRUCT(fpage_table_setup_context) {
+	fpage_table_t* tables;
+
+	size_t l3_count;
+	size_t l2_count;
+	size_t l1_count;
+
+	size_t l4_index;
+	size_t l3_index;
+	size_t l2_index;
+	size_t l1_index;
+
+	fpage_table_t* l4_table;
+	fpage_table_t* l3_tables;
+	fpage_table_t* l2_tables;
+	fpage_table_t* l1_tables;
+
+	fpage_table_t* l3_curr;
+	fpage_table_t* l2_curr;
+	fpage_table_t* l1_curr;
+};
+
+static size_t fpage_table_setup_init(fpage_table_setup_context_t* context, const ferro_kernel_image_info_t* kernel_image_info, size_t required_l1_entries, size_t required_l2_entries) {
+	size_t prev_table_count = 0;
+	size_t new_table_count;
+	size_t l4_table_count;
+
+retry:
+	context->l1_count = ((required_l1_entries + FPAGE_VIRT_L1(FERRO_KERNEL_VIRTUAL_START) + prev_table_count) + 511) / 512;
+	context->l2_count = ((required_l2_entries + context->l1_count + FPAGE_VIRT_L2(FERRO_KERNEL_VIRTUAL_START)) + 511) / 512;
+	// `+ 1` for the identity mapped 512GiB region
+	context->l3_count = (((context->l2_count + FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START)) + 511) / 512) + 1;
+
+	l4_table_count = ((context->l3_count + FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START)) + 511) / 512;
+	if (l4_table_count > 1) {
+		printf("Invalid L4 table count (expected only 1)\n");
+		__builtin_unreachable();
+	}
+
+	new_table_count = 1 + context->l3_count + context->l2_count + context->l1_count;
+	if (new_table_count != prev_table_count) {
+		prev_table_count = new_table_count;
+		goto retry;
+	}
+
+	context->tables = NULL;
+	context->l4_index = FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START);
+	context->l3_index = FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START);
+	context->l2_index = FPAGE_VIRT_L2(FERRO_KERNEL_VIRTUAL_START);
+	context->l1_index = FPAGE_VIRT_L1(FERRO_KERNEL_VIRTUAL_START);
+	context->l4_table = NULL;
+	context->l3_tables = NULL;
+	context->l2_tables = NULL;
+	context->l1_tables = NULL;
+	context->l3_curr = NULL;
+	context->l2_curr = NULL;
+	context->l1_curr = NULL;
+
+	return new_table_count;
+};
+
+static void fpage_table_setup_set_region(fpage_table_setup_context_t* context, fpage_table_t* region) {
+	context->tables = region;
+	context->l4_table = region;
+	context->l3_tables = region + 1;
+	context->l2_tables = context->l3_tables + context->l3_count;
+	context->l1_tables = context->l2_tables + context->l2_count;
+
+	// set up the identity mapped region
+	fpage_table_t* l3_identity_table = context->l3_tables++;
+	context->l4_table->entries[0] = fpage_table_entry((uintptr_t)l3_identity_table, true);
+	for (size_t i = 0; i < FPAGE_TABLE_ENTRY_COUNT; ++i) {
+		l3_identity_table->entries[i] = fpage_very_large_page_entry((uintptr_t)i * FPAGE_VERY_LARGE_PAGE_SIZE, true);
+	}
+};
+
+static uint64_t* fpage_table_setup_get_next_entry(fpage_table_setup_context_t* context, size_t level) {
+	if (level < 4) {
+		if (!context->l3_curr) {
+			context->l3_curr = context->l3_tables;
+			context->l4_table->entries[context->l4_index] = fpage_table_entry((uintptr_t)context->l3_curr, true);
+		} else if (context->l3_index > FPAGE_TABLE_ENTRY_MAX) {
+			++context->l3_curr;
+			context->l4_table->entries[context->l4_index++] = fpage_table_entry((uintptr_t)context->l3_curr, true);
+			context->l3_index = 0;
+		}
+	}
+
+	if (level < 3) {
+		if (!context->l2_curr) {
+			context->l2_curr = context->l2_tables;
+			context->l3_curr->entries[context->l3_index] = fpage_table_entry((uintptr_t)context->l2_curr, true);
+		} else if (context->l2_index > FPAGE_TABLE_ENTRY_MAX) {
+			++context->l2_curr;
+			context->l3_curr->entries[context->l3_index++] = fpage_table_entry((uintptr_t)context->l2_curr, true);
+			context->l2_index = 0;
+		}
+	}
+
+	if (level < 2) {
+		if (!context->l1_curr) {
+			context->l1_curr = context->l1_tables;
+			context->l2_curr->entries[context->l2_index] = fpage_table_entry((uintptr_t)context->l1_curr, true);
+		} else if (context->l1_index > FPAGE_TABLE_ENTRY_MAX) {
+			++context->l1_curr;
+			context->l2_curr->entries[context->l2_index++] = fpage_table_entry((uintptr_t)context->l1_curr, true);
+			context->l1_index = 0;
+		}
+	}
+
+	if (level == 2) {
+		return &context->l2_curr->entries[context->l2_index++];
+	} else if (level == 1) {
+		return &context->l1_curr->entries[context->l1_index++];
+	} else {
+		return NULL;
+	}
+};
+
+static uintptr_t fpage_table_setup_add(fpage_table_setup_context_t* context, uintptr_t physical_address, bool large_page) {
+	uint64_t* entry = fpage_table_setup_get_next_entry(context, large_page ? 2 : 1);
+	uintptr_t address = fpage_make_virtual_address(context->l4_index, context->l3_index, context->l2_index - (large_page ? 1 : 0), large_page ? 0 : (context->l1_index - 1), 0);
+	*entry = (large_page ? fpage_large_page_entry : fpage_page_entry)(physical_address, true);
+	return address;
+};
+
 fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_table_t* system_table) {
 	fuefi_status_t status = fuefi_status_load_error;
 	int err = 0;
@@ -141,7 +263,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 	FILE* config_file = NULL;
 	char* config_data = NULL;
-	size_t config_data_size = 0x1000; // 4 KiB; a single 4KiB page should be more than enough for our configuration file
+	size_t config_data_size = FPAGE_PAGE_SIZE; // 4 KiB; a single 4KiB page should be more than enough for our configuration file
 	size_t config_data_length = config_data_size;
 
 	FILE* kernel_file = NULL;
@@ -177,6 +299,10 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	uintptr_t entry_address = 0;
 
 	uintptr_t rsdp_pointer = 0;
+
+	// the number of pages we need to map into page tables
+	size_t required_pages = 0;
+	fpage_table_t* page_tables = NULL;
 
 	// 2MiB stack
 	size_t stack_size = 2ULL * 1024 * 1024;
@@ -365,7 +491,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	printf("Info: Kernel entry address offset: %zu\n", entry_address);
 
 	// align the end address
-	kernel_end_phys = ROUND_UP_PAGE(kernel_end_phys) * 0x1000;
+	kernel_end_phys = fpage_round_up_page(kernel_end_phys);
 
 	// reserve space for a boot data entry for the segment information table
 	++ferro_boot_data_count;
@@ -406,7 +532,8 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		}
 		printf("Info: Allocated space for Ferro framebuffer information structure.\n");
 
-		ferro_framebuffer_info->base = (void*)unsigned_sysconf(_SC_FB_BASE);
+		ferro_framebuffer_info->physical_base = (void*)unsigned_sysconf(_SC_FB_BASE);
+		ferro_framebuffer_info->virtual_base = NULL;
 		ferro_framebuffer_info->width = unsigned_sysconf(_SC_FB_WIDTH);
 		ferro_framebuffer_info->height = unsigned_sysconf(_SC_FB_HEIGHT);
 		ferro_framebuffer_info->pixel_bits = unsigned_sysconf(_SC_FB_BIT_COUNT);
@@ -414,10 +541,13 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		ferro_framebuffer_info->green_mask = unsigned_sysconf(_SC_FB_GREEN_MASK);
 		ferro_framebuffer_info->blue_mask = unsigned_sysconf(_SC_FB_BLUE_MASK);
 		ferro_framebuffer_info->other_mask = unsigned_sysconf(_SC_FB_RESERVED_MASK);
+		ferro_framebuffer_info->bytes_per_pixel = round_up_div(ferro_framebuffer_info->pixel_bits, 8U);
 
 		// note that we assume we're dealing with a sane implementation that doesn't try to squeeze the most out of it's memory by packing partial pixels into the same byte
 		// (e.g. if using 15bpp, it won't try to use *exactly* 15 bits, it'll pad to 16 instead and use 2 bytes per pixel)
-		ferro_framebuffer_info->scan_line_size = round_up_div(ferro_framebuffer_info->pixel_bits, 8U) * unsigned_sysconf(_SC_FB_PIXELS_PER_SCANLINE);
+		ferro_framebuffer_info->scan_line_size = ferro_framebuffer_info->bytes_per_pixel * unsigned_sysconf(_SC_FB_PIXELS_PER_SCANLINE);
+
+		ferro_framebuffer_info->total_byte_size = ferro_framebuffer_info->scan_line_size * ferro_framebuffer_info->height;
 
 		printf("Info: Finished determining graphics framebuffer information.\n");
 	}
@@ -497,7 +627,9 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 	// allocate the block
 	// this is a little more complicated than just allocating some pages because our kernel requires 2MiB alignment
-	// if we request almost an entire 2MiB page than what we really need, we're guaranteed to have a 2MiB boundary somewhere in there
+	// if we request almost an entire 2MiB more than what we really need, we're guaranteed to have a 2MiB boundary somewhere in there
+	//
+	// UPDATE: we now setup page tables here in the bootloader, so the 2MiB alignment requirement is probably no longer true, but let's keep it for now
 	if ((kernel_image_base = mmap(NULL, kernel_image_info->size + 0x1fffffULL, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON, -1, 0)) == MAP_FAILED) {
 		status = errstat;
 		err = errno;
@@ -505,7 +637,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		return status;
 	}
 
-	printf("Info: got region at %p; going to unmap and try getting %p\n", kernel_image_base, (void*)round_up_power_of_2((uintptr_t)kernel_image_base, 0x200000ULL));
+	printf("Info: got region at %p; going to unmap and try getting %p\n", kernel_image_base, (void*)fpage_round_up_large_page((uintptr_t)kernel_image_base));
 
 	// now unmap the region...
 	if (munmap(kernel_image_base, kernel_image_info->size + 0x1fffffULL) != 0) {
@@ -516,7 +648,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	}
 
 	// ...align the address...
-	kernel_image_base = (void*)round_up_power_of_2((uintptr_t)kernel_image_base, 0x200000ULL);
+	kernel_image_base = (void*)fpage_round_up_large_page((uintptr_t)kernel_image_base);
 
 	// ...and allocate one at the address we want with exactly the size we want
 	if ((kernel_image_base = mmap(kernel_image_base, kernel_image_info->size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0)) == MAP_FAILED) {
@@ -527,7 +659,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	}
 
 	// update the kernel entry address
-	kernel_entry = (entry_address - kernel_start_phys) + kernel_image_base;
+	kernel_entry = (void*)((entry_address - kernel_start_phys) + FERRO_KERNEL_VIRTUAL_START);
 
 	// and the kernel image info
 	kernel_image_info->physical_base_address = kernel_image_base;
@@ -606,11 +738,11 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	printf("Info: Allocated UEFI memory map\n");
 
 	// allocate a memory map for Ferro
-	// `+ 4` so we can map the memory map and initial pool as their own entries marked as "kernel reserved"
+	// `+ 6` so we can map the memory map, initial pool, and page table region as their own entries marked as "kernel reserved"
 	// and we add the kernel segment count multiplied by two so we can map them as kernel reserved as well
 	// likewise for the stack
-	ferro_map_size = ((mm_info.map_size / mm_info.descriptor_size) + 4 + (kernel_image_info->segment_count * 2)) * sizeof(ferro_memory_region_t);
-	if ((ferro_memory_map = mmap(NULL, ROUND_UP_PAGE(ferro_map_size) * 0x1000, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)) == MAP_FAILED) {
+	ferro_map_size = ((mm_info.map_size / mm_info.descriptor_size) + 6 + (kernel_image_info->segment_count * 2)) * sizeof(ferro_memory_region_t);
+	if ((ferro_memory_map = mmap(NULL, fpage_round_up_page(ferro_map_size), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)) == MAP_FAILED) {
 		status = errstat;
 		err = errno;
 		printf("Error: Failed to allocate memory to store Ferro memory map (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
@@ -618,6 +750,32 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	}
 	printf("Info: Allocated Ferro memory map\n");
 	simple_memset(ferro_memory_map, 0, ferro_map_size);
+
+	// calculate the final size required for page tables and allocate the region for them
+	required_pages += fpage_round_up_to_page_count(ferro_pool_size);
+	required_pages += fpage_round_up_to_page_count(ferro_map_size);
+	if (graphics_available) {
+		required_pages += fpage_round_up_to_page_count(ferro_framebuffer_info->total_byte_size);
+	}
+	size_t required_l1_entries = (required_pages + 511) / 512;
+	size_t l1_table_count = (required_l1_entries + 511) / 512;
+	size_t kernel_l2_entries = fpage_round_up_to_large_page_count(kernel_image_info->size);
+	// `+ 1` for the kernel stack entry
+	size_t required_l2_entries = kernel_l2_entries + 1;
+	fpage_table_setup_context_t page_table_setup_context;
+	size_t required_tables = fpage_table_setup_init(&page_table_setup_context, kernel_image_info, required_l1_entries, required_l2_entries);
+	size_t table_region_size = required_tables * FPAGE_PAGE_SIZE;
+
+	if ((page_tables = mmap(NULL, table_region_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)) == MAP_FAILED) {
+		status = errstat;
+		err = errno;
+		printf("Error: Failed to allocate memory to store page tables (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
+		return status;
+	}
+	printf("Info: Allocated page table region\n");
+	simple_memset(page_tables, 0, table_region_size);
+
+	fpage_table_setup_set_region(&page_table_setup_context, page_tables);
 
 	// can't call printf() anymore after acquiring the memory map; it might allocate more memory and mess up the memory map
 	printf("Info: Going to acquire final UEFI memory map (no more UEFI-based messages after this point, except for fatal errors)\n");
@@ -649,7 +807,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	//printf("Info: Populated Ferro memory map\n");
 
 	// override types for special addresses
-	for (size_t i = 0; i < 4; ++i) {
+	for (size_t i = 0; i < 5; ++i) {
 		uintptr_t physical_address = 0;
 		uintptr_t virtual_address = 0;
 		size_t page_count = 0;
@@ -657,17 +815,20 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 		if (i == 0) {
 			physical_address = (uintptr_t)ferro_memory_map;
-			page_count = ROUND_UP_PAGE(ferro_map_size);
+			page_count = fpage_round_up_to_page_count(ferro_map_size);
 		} else if (i == 1) {
 			physical_address = (uintptr_t)ferro_pool.base_address;
-			page_count = ROUND_UP_PAGE(ferro_pool_size);
+			page_count = fpage_round_up_to_page_count(ferro_pool_size);
 		} else if (i == 2) {
 			physical_address = (uintptr_t)kernel_image_base;
-			page_count = ROUND_UP_PAGE(kernel_image_info->size);
+			page_count = fpage_round_up_to_page_count(kernel_image_info->size);
 		} else if (i == 3) {
 			physical_address = stack_base;
-			page_count = ROUND_UP_PAGE(stack_size);
+			page_count = fpage_round_up_to_page_count(stack_size);
 			new_type = ferro_memory_region_type_kernel_stack;
+		} else if (i == 4) {
+			physical_address = (uintptr_t)page_tables;
+			page_count = fpage_round_up_to_page_count(table_region_size);
 		}
 
 		if (page_count == 0) {
@@ -677,14 +838,14 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		for (size_t j = 0; j < map_entry_count; ++j) {
 			ferro_memory_region_t* ferro_region = &ferro_memory_map[j];
 
-			if (physical_address > ferro_region->physical_start && physical_address < ferro_region->physical_start + (ferro_region->page_count * 0x1000)) {
+			if (physical_address > ferro_region->physical_start && physical_address < ferro_region->physical_start + (ferro_region->page_count * FPAGE_PAGE_SIZE)) {
 				ferro_memory_region_t* new_ferro_region = &ferro_memory_map[j + 1];
 				for (size_t k = map_entry_count; k > j; --k) {
 					simple_memcpy(&ferro_memory_map[k], &ferro_memory_map[k - 1], sizeof(ferro_memory_region_t));
 				}
 				++map_entry_count;
 				new_ferro_region->physical_start = (uintptr_t)physical_address;
-				ferro_region->page_count = ROUND_UP_PAGE(new_ferro_region->physical_start - ferro_region->physical_start);
+				ferro_region->page_count = fpage_round_up_to_page_count(new_ferro_region->physical_start - ferro_region->physical_start);
 				new_ferro_region->page_count -= ferro_region->page_count;
 				new_ferro_region->type = ferro_region->type;
 				ferro_region = new_ferro_region;
@@ -700,13 +861,13 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 					}
 					++map_entry_count;
 					new_ferro_region->page_count = ferro_region->page_count - page_count;
-					new_ferro_region->physical_start = ferro_region->physical_start + (page_count * 0x1000);
+					new_ferro_region->physical_start = ferro_region->physical_start + (page_count * FPAGE_PAGE_SIZE);
 					new_ferro_region->type = ferro_region->type;
 				}
 				ferro_region->type = new_type;
 				ferro_region->virtual_start = virtual_address;
 				ferro_region->page_count = page_count;
-			} else if (physical_address < ferro_region->physical_start && ferro_region->physical_start < physical_address + (page_count * 0x1000)) {
+			} else if (physical_address < ferro_region->physical_start && ferro_region->physical_start < physical_address + (page_count * FPAGE_PAGE_SIZE)) {
 				// this region lies within our target region.
 				// it must die.
 				ferro_region->type = ferro_memory_region_type_none;
@@ -752,9 +913,15 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 		info = &ferro_boot_data[i++];
 		info->physical_address = ferro_pool.base_address;
-		info->size = ferro_pool.page_count * 0x1000;
+		info->size = ferro_pool.page_count * FPAGE_PAGE_SIZE;
 		info->virtual_address = NULL;
 		info->type = ferro_boot_data_type_initial_pool;
+
+		info = &ferro_boot_data[i++];
+		info->physical_address = page_tables;
+		info->size = fpage_round_up_page(table_region_size);
+		info->virtual_address = NULL;
+		info->type = ferro_boot_data_type_page_tables;
 
 		if (graphics_available) {
 			info = &ferro_boot_data[i++];
@@ -824,6 +991,94 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		);
 	}
 #endif
+
+	//
+	// set up the page tables for the kernel
+	//
+
+	// set up the kernel entries (always do this first so the kernel is paged in the right place)
+	for (size_t i = 0; i < kernel_l2_entries; ++i) {
+		fpage_table_setup_add(&page_table_setup_context, (uintptr_t)kernel_image_info->physical_base_address + i * FPAGE_LARGE_PAGE_SIZE, true);
+	}
+
+	// set up the kernel stack
+	uintptr_t virt_stack_base = fpage_table_setup_add(&page_table_setup_context, stack_base, true);
+	uintptr_t virt_pool = 0;
+
+	// set up the other kernel reserved regions
+	for (size_t i = 0; i < map_entry_count; ++i) {
+		ferro_memory_region_t* region = &ferro_memory_map[i];
+
+		// we only care about kernel reserved regions
+		if (region->type != ferro_memory_region_type_kernel_reserved) {
+			continue;
+		}
+
+		if (region->physical_start == (uintptr_t)kernel_image_info->physical_base_address) {
+			// this is the kernel region; we already have it mapped
+			region->virtual_start = FERRO_KERNEL_VIRTUAL_START;
+			continue;
+		}
+
+		uintptr_t virt_start = 0;
+
+		for (size_t i = 0; i < region->page_count; ++i) {
+			uintptr_t virt = fpage_table_setup_add(&page_table_setup_context, region->physical_start, false);
+			if (i == 0) {
+				virt_start = virt;
+			}
+		}
+
+		region->virtual_start = virt_start;
+
+		if (region->physical_start == (uintptr_t)ferro_memory_map) {
+			ferro_boot_data[2].virtual_address = (void*)region->virtual_start;
+		} else if (region->physical_start == (uintptr_t)ferro_pool.base_address) {
+			ferro_boot_data[3].virtual_address = (void*)region->virtual_start;
+			virt_pool = region->virtual_start;
+		} else if (region->physical_start == (uintptr_t)page_tables) {
+			ferro_boot_data[4].virtual_address = (void*)region->virtual_start;
+		}
+	}
+
+	// set up the framebuffer (if we have one)
+	if (graphics_available) {
+		uintptr_t virt_fb = 0;
+		size_t fb_page_count = fpage_round_up_to_page_count(ferro_framebuffer_info->total_byte_size);
+
+		for (size_t i = 0; i < fb_page_count; ++i) {
+			uintptr_t virt = fpage_table_setup_add(&page_table_setup_context, (uintptr_t)ferro_framebuffer_info->physical_base + i * FPAGE_PAGE_SIZE, false);
+			if (i == 0) {
+				virt_fb = virt;
+			}
+		}
+
+		ferro_framebuffer_info->virtual_base = (void*)virt_fb;
+	}
+
+	// update boot data entries to include virtual addresses for memory from the initial pool
+	for (size_t i = 0; i < ferro_boot_data_count; ++i) {
+		ferro_boot_data_info_t* info = &ferro_boot_data[i];
+
+		if (info->virtual_address) {
+			// skip entries that already have virtual addresses
+			continue;
+		}
+
+		if (info->physical_address < ferro_pool.base_address || (uintptr_t)info->physical_address >= (uintptr_t)ferro_pool.base_address + fpage_round_up_to_page_count(ferro_pool_size)) {
+			// skip anything that's not in the pool
+			continue;
+		}
+
+		info->virtual_address = (void*)(((uintptr_t)info->physical_address - (uintptr_t)ferro_pool.base_address) + virt_pool);
+	}
+
+	// update some more pointers to point to their virtual addresses before handing them off to the kernel
+	kernel_image_info->segments = ferro_boot_data[1].virtual_address;
+	ferro_boot_data = (void*)(((uintptr_t)ferro_boot_data - (uintptr_t)ferro_pool.base_address) + virt_pool);
+	ferro_pool.base_address = (void*)virt_pool;
+
+	fpage_begin_new_mapping(page_table_setup_context.l4_table, (void*)(stack_base + stack_size), (void*)(virt_stack_base + stack_size));
 
 	// finally, jump into our kernel
 	kernel_entry(ferro_pool.base_address, ferro_pool.page_count, ferro_boot_data, ferro_boot_data_count);
