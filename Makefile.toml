@@ -5,12 +5,24 @@ env_scripts = [
 	'''
 	#!@duckscript
 	set_env PATH ${PATH}:${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/scripts
+
+	if is_empty ${ANILLO_ARCH}
+		anillo_arch_raw = exec --fail-on-error uname -m
+
+		if eq ${anillo_arch_raw.stdout} "x86_64"
+			set_env ANILLO_ARCH x86_64
+		elseif eq ${anillo_arch_raw.stdout} "aarch64"
+			set_env ANILLO_ARCH aarch64
+		elseif eq ${anillo_arch_raw.stdout} "arm64"
+			set_env ANILLO_ARCH aarch64
+		else
+			set_env ANILLO_ARCH unknown
+		end
+	end
 	'''
 ]
 
 [env]
-_ANILLO_ARCH_RAW = { script = ["uname -m"] }
-ANILLO_ARCH = { source = "${_ANILLO_ARCH_RAW}", default_value = "unknown", mapping = { x86_64 = "x86_64", aarch64 = "aarch64", arm64 = "aarch64" } }
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 ROOT_DIR = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
 BUILD_DIR = "${ROOT_DIR}/build/${ANILLO_ARCH}"
