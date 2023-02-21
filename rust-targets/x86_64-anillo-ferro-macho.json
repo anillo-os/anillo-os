@@ -44,5 +44,6 @@
 	],
 	"code-model": "large",
 	"is-like-osx": true,
-	"emit-debug-gdb-scripts": false
+	"emit-debug-gdb-scripts": false,
+	"split-debuginfo": "off"
 }

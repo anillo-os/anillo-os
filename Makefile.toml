@@ -19,17 +19,20 @@ env_scripts = [
 			set_env ANILLO_ARCH unknown
 		end
 	end
+
+	ANILLO_ARCH = get_env ANILLO_ARCH
+	BUILD_DIR = set "${ROOT_DIR}/build/${ANILLO_ARCH}"
+	set_env BUILD_DIR ${BUILD_DIR}
+	set_env RAMDISKSRC_DIR "${BUILD_DIR}/ramdisksrc"
+	set_env RAMDISK_OUTPUT "${BUILD_DIR}/ramdisk"
+	set_env IMAGE_OUTPUT "${BUILD_DIR}/disk.img"
+	set_env UEFI_BOOTSTRAP_OUTPUT "${BUILD_DIR}/cmake/bootstrap/uefi/ferro-bootstrap.efi"
 	'''
 ]
 
 [env]
 CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
 ROOT_DIR = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
-BUILD_DIR = "${ROOT_DIR}/build/${ANILLO_ARCH}"
-RAMDISKSRC_DIR = "${BUILD_DIR}/ramdisksrc"
-RAMDISK_OUTPUT = "${BUILD_DIR}/ramdisk"
-IMAGE_OUTPUT = "${BUILD_DIR}/disk.img"
-UEFI_BOOTSTRAP_OUTPUT = "${BUILD_DIR}/cmake/bootstrap/uefi/ferro-bootstrap.efi"
 
 [env.development]
 CMAKE_BUILD_TYPE = "Debug"
