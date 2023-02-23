@@ -1,6 +1,7 @@
 [build]
 # overridden at build time; this is just to get some useful rust-analyzer help while developing
 target = "../rust-targets/x86_64-anillo-ferro-macho.json"
+rustflags = ["-C", "save-temps=y"] # required for debugging to work properly
 
 [unstable]
 build-std = ["core", "compiler_builtins"]

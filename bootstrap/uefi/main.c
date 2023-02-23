@@ -202,7 +202,7 @@ static uint64_t* fpage_table_setup_get_next_entry(fpage_table_setup_context_t* c
 	if (level < 4) {
 		if (!context->l3_curr) {
 			context->l3_curr = context->l3_tables;
-			context->l4_table->entries[context->l4_index] = fpage_table_entry((uintptr_t)context->l3_curr, true);
+			context->l4_table->entries[context->l4_index++] = fpage_table_entry((uintptr_t)context->l3_curr, true);
 		} else if (context->l3_index > FPAGE_TABLE_ENTRY_MAX) {
 			++context->l3_curr;
 			context->l4_table->entries[context->l4_index++] = fpage_table_entry((uintptr_t)context->l3_curr, true);
@@ -213,7 +213,7 @@ static uint64_t* fpage_table_setup_get_next_entry(fpage_table_setup_context_t* c
 	if (level < 3) {
 		if (!context->l2_curr) {
 			context->l2_curr = context->l2_tables;
-			context->l3_curr->entries[context->l3_index] = fpage_table_entry((uintptr_t)context->l2_curr, true);
+			context->l3_curr->entries[context->l3_index++] = fpage_table_entry((uintptr_t)context->l2_curr, true);
 		} else if (context->l2_index > FPAGE_TABLE_ENTRY_MAX) {
 			++context->l2_curr;
 			context->l3_curr->entries[context->l3_index++] = fpage_table_entry((uintptr_t)context->l2_curr, true);
@@ -224,7 +224,7 @@ static uint64_t* fpage_table_setup_get_next_entry(fpage_table_setup_context_t* c
 	if (level < 2) {
 		if (!context->l1_curr) {
 			context->l1_curr = context->l1_tables;
-			context->l2_curr->entries[context->l2_index] = fpage_table_entry((uintptr_t)context->l1_curr, true);
+			context->l2_curr->entries[context->l2_index++] = fpage_table_entry((uintptr_t)context->l1_curr, true);
 		} else if (context->l1_index > FPAGE_TABLE_ENTRY_MAX) {
 			++context->l1_curr;
 			context->l2_curr->entries[context->l2_index++] = fpage_table_entry((uintptr_t)context->l1_curr, true);
@@ -243,7 +243,7 @@ static uint64_t* fpage_table_setup_get_next_entry(fpage_table_setup_context_t* c
 
 static uintptr_t fpage_table_setup_add(fpage_table_setup_context_t* context, uintptr_t physical_address, bool large_page) {
 	uint64_t* entry = fpage_table_setup_get_next_entry(context, large_page ? 2 : 1);
-	uintptr_t address = fpage_make_virtual_address(context->l4_index, context->l3_index, context->l2_index - (large_page ? 1 : 0), large_page ? 0 : (context->l1_index - 1), 0);
+	uintptr_t address = fpage_make_virtual_address(context->l4_index - 1, context->l3_index - 1, context->l2_index - 1, large_page ? 0 : (context->l1_index - 1), 0);
 	*entry = (large_page ? fpage_large_page_entry : fpage_page_entry)(physical_address, true);
 	return address;
 };
@@ -1023,7 +1023,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		uintptr_t virt_start = 0;
 
 		for (size_t i = 0; i < region->page_count; ++i) {
-			uintptr_t virt = fpage_table_setup_add(&page_table_setup_context, region->physical_start, false);
+			uintptr_t virt = fpage_table_setup_add(&page_table_setup_context, region->physical_start + i * FPAGE_PAGE_SIZE, false);
 			if (i == 0) {
 				virt_start = virt;
 			}
@@ -1065,7 +1065,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 			continue;
 		}
 
-		if (info->physical_address < ferro_pool.base_address || (uintptr_t)info->physical_address >= (uintptr_t)ferro_pool.base_address + fpage_round_up_to_page_count(ferro_pool_size)) {
+		if (info->physical_address < ferro_pool.base_address || (uintptr_t)info->physical_address >= (uintptr_t)ferro_pool.base_address + fpage_round_up_page(ferro_pool_size)) {
 			// skip anything that's not in the pool
 			continue;
 		}

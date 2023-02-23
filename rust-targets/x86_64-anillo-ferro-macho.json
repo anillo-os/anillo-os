@@ -22,7 +22,6 @@
 			"10.15",
 			"-static",
 			"-pie",
-			"-dead_strip",
 			"-e",
 			"_ferro_entry",
 			"-pagezero_size",
@@ -44,6 +43,5 @@
 	],
 	"code-model": "large",
 	"is-like-osx": true,
-	"emit-debug-gdb-scripts": false,
-	"split-debuginfo": "off"
+	"emit-debug-gdb-scripts": false
 }

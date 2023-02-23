@@ -18,6 +18,8 @@ for index, arg in enumerate(args):
 		continue
 	elif arg == '--eh-frame-hdr':
 		continue
+	elif arg == '-dead_strip':
+		continue
 	elif skip_next:
 		skip_next = False
 		continue
