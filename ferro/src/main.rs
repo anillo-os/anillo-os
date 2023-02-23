@@ -4,6 +4,7 @@
 
 mod framebuffer;
 mod sync;
+mod console;
 
 use core::panic::PanicInfo;
 use core::ffi::c_void;
