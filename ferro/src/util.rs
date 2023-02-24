@@ -39,3 +39,15 @@ pub const fn decode_utf8_and_length(bytes: &[u8]) -> Result<(char, u8), ()> {
 pub const fn decode_utf8(bytes: &[u8]) -> Result<char, ()> {
 	decode_utf8_and_length(bytes).map(|x| x.0)
 }
+
+pub const fn slices_are_equal<T: PartialEq>(a: &[T], b: &[T]) -> bool {
+	if a.len() != b.len() {
+		return false;
+	}
+	for i in 0..a.len() {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
+}
