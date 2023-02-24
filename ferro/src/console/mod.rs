@@ -1,20 +1,8 @@
+mod font;
+
 use core::fmt::{Arguments, Result, write, Write, Error};
 
 use crate::sync::{SpinLock, Lock};
-
-const FONT_DATA: &[u8] = include_bytes!("../resources/ter-u16n.psf");
-
-#[repr(packed)]
-struct ConsoleFont {
-	magic: u32,
-	version: u32,
-	header_size: u32,
-	flags: u32,
-	glyph_count: u32,
-	glyph_size: u32,
-	glyph_height: u32,
-	glyph_width: u32,
-}
 
 struct Console {
 
