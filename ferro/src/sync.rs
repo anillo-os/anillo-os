@@ -55,7 +55,7 @@ unsafe impl<'a, T: ?Sized + Sync> Sync for SpinLockGuard<'a, T> {}
 impl<'a, T: ?Sized + Sync> SyncLockGuard<'a, T> for SpinLockGuard<'a, T> {}
 
 impl<T> SpinLock<T> {
-	pub fn new(data: T) -> Self {
+	pub const fn new(data: T) -> Self {
 		Self {
 			data: UnsafeCell::new(data),
 			state: AtomicBool::new(false),

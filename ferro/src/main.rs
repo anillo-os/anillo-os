@@ -1,9 +1,11 @@
 #![no_std]
 #![no_main]
-#![feature(negative_impls)]
+#![feature(negative_impls, format_args_nl)]
 
 mod framebuffer;
 mod sync;
+
+#[macro_use]
 mod console;
 
 use core::panic::PanicInfo;
@@ -101,6 +103,8 @@ pub extern "C" fn ferro_entry(_initial_pool: *mut u8, _initial_pool_page_count: 
 			_ => {}
 		}
 	}
+
+	kprintln!("Test!");
 
 	loop {}
 }
