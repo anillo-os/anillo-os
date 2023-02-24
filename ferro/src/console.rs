@@ -16,7 +16,9 @@ struct ConsoleFont {
 	glyph_width: u32,
 }
 
-struct Console {}
+struct Console {
+
+}
 
 impl Console {
 	const fn new() -> Self {

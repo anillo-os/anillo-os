@@ -1,12 +1,13 @@
 #![no_std]
 #![no_main]
-#![feature(negative_impls, format_args_nl)]
+#![feature(negative_impls, format_args_nl, const_for)]
 
 mod framebuffer;
 mod sync;
 
 #[macro_use]
 mod console;
+mod util;
 
 use core::panic::PanicInfo;
 use core::ffi::c_void;
