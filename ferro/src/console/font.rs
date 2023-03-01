@@ -1,4 +1,4 @@
-use crate::util::slices_are_equal;
+use crate::util::{slices_are_equal, decode_utf8_and_length};
 
 use bitflags::bitflags;
 
@@ -24,6 +24,8 @@ struct PSF1Header {
 }
 
 impl PSF1Header {
+	pub const BYTE_SIZE: usize = 4;
+
 	pub const fn new(bytes: &[u8]) -> Self {
 		Self {
 			magic: bytes[0..2],
@@ -45,6 +47,8 @@ struct PSF2Header {
 }
 
 impl PSF2Header {
+	pub const BYTE_SIZE: usize = 32;
+
 	pub const fn new(bytes: &[u8]) -> Self {
 		Self {
 			magic: bytes[0..4],
@@ -66,13 +70,15 @@ impl PSF2Header {
 const PSF1_MAGIC: &[u8] = &[0x36, 0x04];
 const PSF2_MAGIC: &[u8] = &[0x72, 0xb5, 0x4a, 0x86];
 
-const fn process_font(file_bytes: &[u8]) -> (&[u8], &[u8]) {
+const HEADER_PAD: usize = PSF2Header::BYTE_SIZE - PSF1Header::BYTE_SIZE;
+
+const fn process_font<const N: usize>(file_bytes: [u8; N]) -> ([u8; N + HEADER_PAD], [u16; 0xffff]) {
 	let is_psf1: bool = file_bytes.len() > PSF1_MAGIC.len() && slices_are_equal(&file_bytes[0..2], PSF1_MAGIC);
 	let is_psf2: bool = file_bytes.len() > PSF2_MAGIC.len() && slices_are_equal(&file_bytes[0..4], PSF2_MAGIC);
 	assert!(is_psf1 || is_psf2);
 
 	let psf2_header = if is_psf1 {
-		let psf1_header = PSF1Header::new(file_bytes);
+		let psf1_header = PSF1Header::new(&file_bytes);
 		PSF2Header {
 			magic: PSF2_MAGIC,
 			version: 0,
@@ -84,12 +90,55 @@ const fn process_font(file_bytes: &[u8]) -> (&[u8], &[u8]) {
 			glyph_width: 8,
 		}
 	} else if is_psf2 {
-		PSF2Header::new(file_bytes);
+		PSF2Header::new(&file_bytes);
 	};
 
 	let table_offset = psf2_header.header_size + (psf2_header.glyph_size * psf2_header.glyph_count);
 
-	let font_data = &[..psf2_header.as_bytes(), ..file_bytes[table_offset..]];
+	let mut font_data: [u8; N + HEADER_PAD] = [0; N + HEADER_PAD];
+	font_data[..PSF2Header::BYTE_SIZE].copy_from_slice(&psf2_header.as_bytes());
+	font_data[PSF2Header::BYTE_SIZE..file_bytes.len() - table_offset].copy_from_slice(&file_bytes[table_offset..]);
 
-	
+	let mut unicode_table: [u16; 0xffff] = [0; 0xffff];
+
+	if psf2_header.flags & PSF2Flags::UNICODE {
+		let table = &file_bytes[table_offset..];
+
+		if is_psf1 {
+
+		} else if is_psf2 {
+			let mut table_index: usize = 0;
+			let mut glyph_index: usize = 0;
+
+			while table_index < table.len() {
+				let mut curr = table[table_index];
+
+				if curr == 0xff {
+					// terminator
+					table_index += 1;
+					glyph_index += 1;
+				} else if curr == 0xfe {
+					// combining symbol; we skip it
+					while curr != 0xff {
+						if curr == 0xfe {
+							table_index += 1;
+							curr = table[table_index];
+						} else {
+							let (_, len) = decode_utf8_and_length(&table[table_index..]).unwrap();
+							table_index += len;
+							curr = table[table_index];
+						}
+					}
+
+					// consume the terminator
+					table_index += 1;
+					glyph_index += 1;
+				} else {
+					// TODO
+				}
+			}
+		}
+	}
+
+	(font_data, unicode_table)
 }

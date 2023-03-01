@@ -1,6 +1,6 @@
 #![no_std]
 #![no_main]
-#![feature(negative_impls, format_args_nl, const_for)]
+#![feature(negative_impls, format_args_nl, const_for, generic_const_exprs)]
 
 mod framebuffer;
 mod sync;
