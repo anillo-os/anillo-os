@@ -1,6 +1,7 @@
 #![no_std]
 #![no_main]
-#![feature(negative_impls, format_args_nl, const_for, generic_const_exprs)]
+#![feature(negative_impls, format_args_nl, const_for, const_trait_impl, const_slice_index, const_mut_refs, const_option, const_intoiterator_identity, maybe_uninit_uninit_array, const_refs_to_cell, generic_const_exprs)]
+#![allow(dead_code, incomplete_features)]
 
 mod framebuffer;
 mod sync;
