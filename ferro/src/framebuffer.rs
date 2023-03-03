@@ -1,5 +1,6 @@
 use core::ffi::c_void;
 use crate::sync::Lock;
+use crate::geometry::{Point, Rect};
 
 use super::sync::SpinLock;
 
@@ -35,90 +36,6 @@ struct PixelMask {
 	r: u32,
 	g: u32,
 	b: u32,
-}
-
-#[derive(Default, Clone, Copy)]
-pub struct Point {
-	pub x: usize,
-	pub y: usize,
-}
-
-impl Point {
-	pub fn new(x: usize, y: usize) -> Self {
-		Self { x, y }
-	}
-
-	pub fn is_within_rect(&self, rect: &Rect) -> bool {
-		self.x >= rect.origin.x &&
-		self.y >= rect.origin.y &&
-		self.x < rect.origin.x + rect.size.width &&
-		self.y < rect.origin.y + rect.size.height
-	}
-}
-
-impl From<(usize, usize)> for Point {
-	fn from(value: (usize, usize)) -> Self {
-		Self::new(value.0, value.1)
-	}
-}
-
-#[derive(Default, Clone, Copy)]
-pub struct Size2D {
-	pub width: usize,
-	pub height: usize,
-}
-
-impl Size2D {
-	pub fn new(width: usize, height: usize) -> Self {
-		Self { width, height }
-	}
-}
-
-impl From<(usize, usize)> for Size2D {
-	fn from(value: (usize, usize)) -> Self {
-		Self::new(value.0, value.1)
-	}
-}
-
-#[derive(Default, Clone, Copy)]
-pub struct Rect {
-	/// top-left corner
-	pub origin: Point,
-	pub size: Size2D,
-}
-
-impl Rect {
-	pub fn new(origin: Point, size: Size2D) -> Self {
-		Self { origin, size }
-	}
-
-	pub fn new_from_points(first: Point, second: Point) -> Self {
-		let width = (if first.x < second.x { second.x - first.x } else { first.x - second.x }) + 1;
-		let height = (if first.y < second.y { second.y - first.y } else { first.y - second.y }) + 1;
-		let x = if first.x < second.x { first.x } else { second.x };
-		let y = if first.y < second.y { first.y } else { second.y };
-		Self::new(Point::new(x, y), Size2D::new(width, height))
-	}
-
-	pub fn top_left(&self) -> Point {
-		self.origin
-	}
-
-	pub fn top_right(&self) -> Point {
-		Point::new(self.origin.x + self.size.width - 1, self.origin.y)
-	}
-
-	pub fn bottom_left(&self) -> Point {
-		Point::new(self.origin.x, self.origin.y + self.size.height - 1)
-	}
-
-	pub fn bottom_right(&self) -> Point {
-		Point::new(self.origin.x + self.size.width - 1, self.origin.y + self.size.height - 1)
-	}
-
-	pub fn is_within_rect(&self, containing_rect: &Self) -> bool {
-		self.top_left().is_within_rect(containing_rect) && self.bottom_right().is_within_rect(containing_rect)
-	}
 }
 
 #[derive(Default, Clone, Copy)]

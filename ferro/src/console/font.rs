@@ -1,4 +1,6 @@
-use crate::util::{slices_are_equal, decode_utf8_and_length, ConstSlice, ConstSizedSlice};
+use core::iter::FusedIterator;
+
+use crate::{util::{slices_are_equal, decode_utf8_and_length, ConstSlice, ConstSizedSlice}, geometry::Point};
 
 use bitflags::bitflags;
 
@@ -184,3 +186,96 @@ const PROCESSED_DATA: ([u8; RAW_FONT_DATA.len()], [u16; 0xffff], PSF2Header, usi
 const FONT_DATA: [u8; PROCESSED_DATA.3] = PROCESSED_DATA.0[..PROCESSED_DATA.3].const_unroll();
 const UNICODE_TABLE: [u16; 0xffff] = PROCESSED_DATA.1;
 const FONT_HEADER: PSF2Header = PROCESSED_DATA.2;
+
+#[derive(Clone, Copy)]
+pub struct Glyph {
+	data: &'static [u8],
+	font_header: &'static PSF2Header,
+}
+
+/// Iterates over the pixels in a glyph from left to right, top to bottom.
+#[derive(Clone, Copy)]
+pub struct GlyphIter<'a>(&'a Glyph, Option<Point>, bool);
+
+#[derive(Clone, Copy)]
+pub struct GlyphPixel(Point, bool);
+
+impl Glyph {
+	const fn new(font_header: &'static PSF2Header, bytes: &'static [u8]) -> Self {
+		Self {
+			data: bytes,
+			font_header,
+		}
+	}
+
+	/// Width of the glyph in pixels (or bits)
+	pub const fn width(&self) -> usize {
+		self.font_header.glyph_width
+	}
+
+	/// Height of the glyph in pixels (or bits)
+	pub const fn height(&self) -> usize {
+		self.font_header.glyph_height
+	}
+
+	pub const fn size(&self) -> usize {
+		self.width() * self.height()
+	}
+
+	pub const fn padded_width(&self) -> usize {
+		self.byte_width() * 8
+	}
+
+	pub const fn byte_width(&self) -> usize {
+		(self.width() + 7) / 8
+	}
+
+	pub const fn byte_size(&self) -> usize {
+		self.font_header.glyph_size
+	}
+
+	pub fn pixels(&self, skip_unset_pixels: bool) -> GlyphIter {
+		GlyphIter(self, Some((0, 0)), skip_unset_pixels)
+	}
+}
+
+impl<'a> Iterator for GlyphIter<'a> {
+	type Item = GlyphPixel;
+
+	fn next(&mut self) -> Option<Self::Item> {
+		while self.1.is_some() {
+			let point = self.1.unwrap();
+			let bit_index = point.as_index(self.0.padded_width());
+	
+			let byte = self.0.data[bit_index / 8];
+			let bit = (bit_index % 8) as u8;
+			let present = (byte & (1 << bit)) != 0;
+	
+			self.1 = point.next_point(&(self.0.width(), self.0.height()));
+
+			if !present && self.2 {
+				continue
+			}
+
+			return Some(Self::Item(point, present));
+		}
+
+		None
+	}
+}
+
+impl<'a> FusedIterator for GlyphIter<'a> {}
+
+impl<'a> IntoIterator for &'a Glyph {
+	type Item = GlyphPixel;
+	type IntoIter = GlyphIter<'a>;
+
+	/// Creates an iterator that iterates over the pixels in this glyph (including unset pixels).
+	fn into_iter(self) -> Self::IntoIter {
+		self.pixels(false)
+	}
+}
+
+pub const fn glyph_for_character(character: char) -> Glyph {
+
+}

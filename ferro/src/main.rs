@@ -9,6 +9,7 @@ mod sync;
 #[macro_use]
 mod console;
 mod util;
+mod geometry;
 
 use core::panic::PanicInfo;
 use core::ffi::c_void;
