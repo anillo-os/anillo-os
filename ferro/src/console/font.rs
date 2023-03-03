@@ -82,7 +82,7 @@ const PSF2_MAGIC: [u8; 4] = [0x72, 0xb5, 0x4a, 0x86];
 
 const HEADER_PAD: usize = PSF2Header::BYTE_SIZE - PSF1Header::BYTE_SIZE;
 
-const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [u16; 0xffff], PSF2Header, usize) {
+const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option<u16>; 0xffff], PSF2Header, usize) {
 	let is_psf1: bool = file_bytes.len() > PSF1_MAGIC.len() && slices_are_equal(&file_bytes[0..2], &PSF1_MAGIC);
 	let is_psf2: bool = file_bytes.len() > PSF2_MAGIC.len() && slices_are_equal(&file_bytes[0..4], &PSF2_MAGIC);
 	assert!(is_psf1 || is_psf2);
@@ -113,7 +113,7 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [u16; 0
 	// can't use the standard library's `copy_from_slice` because it's not a const fn
 	font_data[0..font_data_len].const_copy_from_slice(&file_bytes[psf2_header.header_size as usize..]);
 
-	let mut unicode_table: [u16; 0xffff] = [0; 0xffff];
+	let mut unicode_table: [Option<u16>; 0xffff] = [None; 0xffff];
 
 	if psf2_header.flags.contains(PSF2Flags::UNICODE) {
 		let table = &file_bytes[table_offset as usize..];
@@ -140,7 +140,7 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [u16; 0
 					table_index += 2;
 					glyph_index += 1;
 				} else {
-					unicode_table[curr as usize] = glyph_index as u16;
+					unicode_table[curr as usize] = Some(glyph_index as u16);
 					table_index += 1;
 				}
 			}
@@ -172,7 +172,7 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [u16; 0
 					let (character, len) = decode_utf8_and_length(&table[table_index..]).unwrap();
 					table_index += len as usize;
 					curr = character as u32;
-					unicode_table[curr as usize] = glyph_index as u16;
+					unicode_table[curr as usize] = Some(glyph_index as u16);
 				}
 			}
 		}
@@ -184,7 +184,7 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [u16; 0
 const PROCESSED_DATA: ([u8; RAW_FONT_DATA.len()], [u16; 0xffff], PSF2Header, usize) = process_font(&RAW_FONT_DATA);
 
 const FONT_DATA: [u8; PROCESSED_DATA.3] = PROCESSED_DATA.0[..PROCESSED_DATA.3].const_unroll();
-const UNICODE_TABLE: [u16; 0xffff] = PROCESSED_DATA.1;
+const UNICODE_TABLE: [Option<u16>; 0xffff] = PROCESSED_DATA.1;
 const FONT_HEADER: PSF2Header = PROCESSED_DATA.2;
 
 #[derive(Clone, Copy)]
@@ -276,6 +276,30 @@ impl<'a> IntoIterator for &'a Glyph {
 	}
 }
 
-pub const fn glyph_for_character(character: char) -> Glyph {
+pub const fn glyph_for_character(character: char) -> Option<Glyph> {
+	let val = character as u32;
+	let index = if FONT_HEADER.flags.contains(PSF2Flags::UNICODE) {
+		if val > UNICODE_TABLE.len() {
+			None
+		} else {
+			UNICODE_TABLE[(character as u32) as usize]
+		}
+	} else {
+		if val > (u16::MAX as u32) {
+			None
+		} else {
+			Some(val as u16)
+		}
+	};
 
+	if index.is_none() {
+		return None;
+	}
+
+	let index = index.unwrap();
+
+	let glyph_size = FONT_HEADER.glyph_size as usize;
+	let byte_start = (index as usize) * glyph_size;
+
+	Some(Glyph::new(&FONT_HEADER, &FONT_DATA[byte_start..byte_start + glyph_size]))
 }
