@@ -1,6 +1,6 @@
 use core::iter::FusedIterator;
 
-use crate::{util::{slices_are_equal, decode_utf8_and_length, ConstSlice, ConstSizedSlice}, geometry::Point};
+use crate::{util::{slices_are_equal, decode_utf8_and_length, ConstSlice, ConstSizedSlice}, geometry::Point, framebuffer::{Framebuffer, Pixel}};
 
 use bitflags::bitflags;
 
@@ -181,7 +181,7 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option
 	(font_data, unicode_table, psf2_header, font_data_len)
 }
 
-const PROCESSED_DATA: ([u8; RAW_FONT_DATA.len()], [u16; 0xffff], PSF2Header, usize) = process_font(&RAW_FONT_DATA);
+const PROCESSED_DATA: ([u8; RAW_FONT_DATA.len()], [Option<u16>; 0xffff], PSF2Header, usize) = process_font(&RAW_FONT_DATA);
 
 const FONT_DATA: [u8; PROCESSED_DATA.3] = PROCESSED_DATA.0[..PROCESSED_DATA.3].const_unroll();
 const UNICODE_TABLE: [Option<u16>; 0xffff] = PROCESSED_DATA.1;
@@ -210,12 +210,12 @@ impl Glyph {
 
 	/// Width of the glyph in pixels (or bits)
 	pub const fn width(&self) -> usize {
-		self.font_header.glyph_width
+		self.font_header.glyph_width as usize
 	}
 
 	/// Height of the glyph in pixels (or bits)
 	pub const fn height(&self) -> usize {
-		self.font_header.glyph_height
+		self.font_header.glyph_height as usize
 	}
 
 	pub const fn size(&self) -> usize {
@@ -231,11 +231,26 @@ impl Glyph {
 	}
 
 	pub const fn byte_size(&self) -> usize {
-		self.font_header.glyph_size
+		self.font_header.glyph_size as usize
 	}
 
 	pub fn pixels(&self, skip_unset_pixels: bool) -> GlyphIter {
-		GlyphIter(self, Some((0, 0)), skip_unset_pixels)
+		GlyphIter(self, Some((0, 0).into()), skip_unset_pixels)
+	}
+
+	pub fn print(&self, framebuffer: &Framebuffer, foreground: &Pixel, background: Option<&Pixel>, top_left: &Point) -> Result<(), ()> {
+		if framebuffer.width() < top_left.x + self.width() || framebuffer.height() < top_left.y + self.height() {
+			return Err(())
+		}
+
+		for pixel in self.pixels(background.is_none()) {
+			let result = framebuffer.set_pixel(&(&pixel.0 + top_left), if pixel.1 { foreground } else { background.unwrap() });
+			if result.is_err() {
+				return result
+			}
+		}
+
+		Ok(())
 	}
 }
 
@@ -251,13 +266,13 @@ impl<'a> Iterator for GlyphIter<'a> {
 			let bit = (bit_index % 8) as u8;
 			let present = (byte & (1 << bit)) != 0;
 	
-			self.1 = point.next_point(&(self.0.width(), self.0.height()));
+			self.1 = point.next_point(&(self.0.width(), self.0.height()).into());
 
 			if !present && self.2 {
 				continue
 			}
 
-			return Some(Self::Item(point, present));
+			return Some(GlyphPixel(point, present));
 		}
 
 		None
@@ -279,7 +294,7 @@ impl<'a> IntoIterator for &'a Glyph {
 pub const fn glyph_for_character(character: char) -> Option<Glyph> {
 	let val = character as u32;
 	let index = if FONT_HEADER.flags.contains(PSF2Flags::UNICODE) {
-		if val > UNICODE_TABLE.len() {
+		if (val as usize) > UNICODE_TABLE.len() {
 			None
 		} else {
 			UNICODE_TABLE[(character as u32) as usize]
@@ -303,3 +318,6 @@ pub const fn glyph_for_character(character: char) -> Option<Glyph> {
 
 	Some(Glyph::new(&FONT_HEADER, &FONT_DATA[byte_start..byte_start + glyph_size]))
 }
+
+pub const GLYPH_WIDTH: usize = FONT_HEADER.glyph_width as usize;
+pub const GLYPH_HEIGHT: usize = FONT_HEADER.glyph_height as usize;

@@ -46,11 +46,11 @@ pub struct Pixel {
 }
 
 impl Pixel {
-	pub fn new(r: u8, g: u8, b: u8) -> Self {
+	pub const fn new(r: u8, g: u8, b: u8) -> Self {
 		Self { r, g, b }
 	}
 
-	fn from_value(value: u32, mask: &PixelMask) -> Self {
+	const fn from_value(value: u32, mask: &PixelMask) -> Self {
 		Self {
 			r: ((value & mask.r) >> mask.r.trailing_zeros()) as u8,
 			g: ((value & mask.g) >> mask.g.trailing_zeros()) as u8,
@@ -58,18 +58,21 @@ impl Pixel {
 		}
 	}
 
-	fn from_bytes(bytes: &[u8], mask: &PixelMask) -> Self {
+	const fn from_bytes(bytes: &[u8], mask: &PixelMask) -> Self {
 		let mut value: u32 = 0;
 
-		for byte in bytes {
+		let mut i: usize = 0;
+		while i < bytes.len() {
+			let byte = &bytes[i];
 			value <<= 8;
 			value |= *byte as u32;
+			i += 1;
 		}
 
 		Self::from_value(value, mask)
 	}
 
-	fn as_value(&self, mask: &PixelMask) -> u32 {
+	const fn as_value(&self, mask: &PixelMask) -> u32 {
 		(self.r as u32) << mask.r.trailing_zeros() |
 		(self.g as u32) << mask.g.trailing_zeros() |
 		(self.b as u32) << mask.b.trailing_zeros()
@@ -85,10 +88,23 @@ impl Pixel {
 	}
 }
 
-impl From<(u8, u8, u8)> for Pixel {
+impl const From<(u8, u8, u8)> for Pixel {
 	fn from(value: (u8, u8, u8)) -> Self {
 		Self::new(value.0, value.1, value.2)
 	}
+}
+
+pub mod color {
+	use super::Pixel;
+
+	pub const BLACK: Pixel = (0, 0, 0).into();
+	pub const WHITE: Pixel = (0xff, 0xff, 0xff).into();
+	pub const RED: Pixel = (0xff, 0, 0).into();
+	pub const GREEN: Pixel = (0, 0xff, 0).into();
+	pub const BLUE: Pixel = (0, 0, 0xff).into();
+	pub const CYAN: Pixel = (0, 0xff, 0xff).into();
+	pub const MAGENTA: Pixel = (0xff, 0, 0xff).into();
+	pub const YELLOW: Pixel = (0xff, 0xff, 0).into();
 }
 
 struct InnerFramebuffer<'a> {
@@ -130,7 +146,7 @@ impl<'a> Framebuffer<'a> {
 		}
 	}
 
-	fn get_pixel(&self, point: &Point) -> Result<Pixel, ()> {
+	pub fn get_pixel(&self, point: &Point) -> Result<Pixel, ()> {
 		if point.x > self.info.width || point.y > self.info.height {
 			return Err(())
 		}
@@ -147,7 +163,7 @@ impl<'a> Framebuffer<'a> {
 		Ok(pixel)
 	}
 
-	fn set_pixel(&self, point: &Point, pixel: &Pixel) -> Result<(), ()> {
+	pub fn set_pixel(&self, point: &Point, pixel: &Pixel) -> Result<(), ()> {
 		if point.x > self.info.width || point.y > self.info.height {
 			return Err(())
 		}
@@ -163,7 +179,7 @@ impl<'a> Framebuffer<'a> {
 		Ok(())
 	}
 
-	fn fill_rect(&self, rect: &Rect, pixel: &Pixel) -> Result<(), ()> {
+	pub fn fill_rect(&self, rect: &Rect, pixel: &Pixel) -> Result<(), ()> {
 		let screen_rect = Rect::new((0, 0).into(), (self.info.width, self.info.height).into());
 
 		if !rect.is_within_rect(&screen_rect) {
@@ -205,7 +221,7 @@ impl<'a> Framebuffer<'a> {
 		Ok(())
 	}
 
-	fn shift_up(&self, row_count: usize, fill_value: &Pixel) -> Result<(), ()> {
+	pub fn shift_up(&self, row_count: usize, fill_value: &Pixel) -> Result<(), ()> {
 		if row_count > self.info.height {
 			return Err(())
 		}
@@ -230,6 +246,16 @@ impl<'a> Framebuffer<'a> {
 		}
 
 		self.fill_rect(&Rect::new((0, self.info.height - row_count).into(), (self.info.width, self.info.height).into()), fill_value)
+	}
+
+	/// The width of the framebuffer, in pixels
+	pub const fn width(&self) -> usize {
+		self.info.width
+	}
+
+	/// The height of the framebuffer, in pixels
+	pub const fn height(&self) -> usize {
+		self.info.height
 	}
 }
 
