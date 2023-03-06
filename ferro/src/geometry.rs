@@ -29,7 +29,7 @@ impl Point {
 	/// greater by one, if this is the last point in a row, a point with an X-coordinate of 0 and a
 	/// Y-coordinate greater by one.
 	pub const fn next_point(&self, bounds: &Size2D) -> Option<Self> {
-		if self.y == bounds.width - 1 && self.x == bounds.height - 1 {
+		if self.x == bounds.width - 1 && self.y == bounds.height - 1 {
 			None
 		} else {
 			Some(Self::new(if self.x == bounds.width - 1 { 0 } else { self.x + 1 }, if self.x == bounds.width - 1 { self.y + 1 } else { self.y }))

@@ -94,7 +94,7 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option
 			version: 0,
 			header_size: 4,
 			flags: if psf1_header.flags.contains(PSF1Flags::UNICODE) { PSF2Flags::UNICODE } else { PSF2Flags::empty() },
-			glyph_count: 0,
+			glyph_count: if psf1_header.flags.contains(PSF1Flags::HAS_512_GLYPHS) { 512 } else { 256 },
 			glyph_size: psf1_header.glyph_size as u32,
 			glyph_height: psf1_header.glyph_size as u32,
 			glyph_width: 8,
@@ -108,10 +108,10 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option
 	let table_offset = psf2_header.header_size + (psf2_header.glyph_size * psf2_header.glyph_count);
 
 	let mut font_data: [u8; N] = [0; N];
-	let font_data_len = file_bytes.len() - (psf2_header.header_size as usize);
+	let font_data_len = (table_offset as usize) - (psf2_header.header_size as usize);
 
 	// can't use the standard library's `copy_from_slice` because it's not a const fn
-	font_data[0..font_data_len].const_copy_from_slice(&file_bytes[psf2_header.header_size as usize..]);
+	font_data[0..font_data_len].const_copy_from_slice(&file_bytes[psf2_header.header_size as usize..table_offset as usize]);
 
 	let mut unicode_table: [Option<u16>; 0xffff] = [None; 0xffff];
 
@@ -141,7 +141,7 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option
 					glyph_index += 1;
 				} else {
 					unicode_table[curr as usize] = Some(glyph_index as u16);
-					table_index += 1;
+					table_index += 2;
 				}
 			}
 		} else if is_psf2 {
@@ -186,6 +186,14 @@ const PROCESSED_DATA: ([u8; RAW_FONT_DATA.len()], [Option<u16>; 0xffff], PSF2Hea
 const FONT_DATA: [u8; PROCESSED_DATA.3] = PROCESSED_DATA.0[..PROCESSED_DATA.3].const_unroll();
 const UNICODE_TABLE: [Option<u16>; 0xffff] = PROCESSED_DATA.1;
 const FONT_HEADER: PSF2Header = PROCESSED_DATA.2;
+
+// for debugging
+#[used]
+static FONT_DATA_COPY: [u8; FONT_DATA.len()] = FONT_DATA;
+#[used]
+static FONT_HEADER_COPY: PSF2Header = FONT_HEADER;
+#[used]
+static UNICODE_TABLE_COPY: [Option<u16>; 0xffff] = UNICODE_TABLE;
 
 #[derive(Clone, Copy)]
 pub struct Glyph {
