@@ -241,10 +241,13 @@ static uint64_t* fpage_table_setup_get_next_entry(fpage_table_setup_context_t* c
 	}
 };
 
-static uintptr_t fpage_table_setup_add(fpage_table_setup_context_t* context, uintptr_t physical_address, bool large_page) {
+static uintptr_t fpage_table_setup_add(fpage_table_setup_context_t* context, uintptr_t physical_address, bool large_page, bool no_cache) {
 	uint64_t* entry = fpage_table_setup_get_next_entry(context, large_page ? 2 : 1);
 	uintptr_t address = fpage_make_virtual_address(context->l4_index - 1, context->l3_index - 1, context->l2_index - 1, large_page ? 0 : (context->l1_index - 1), 0);
 	*entry = (large_page ? fpage_large_page_entry : fpage_page_entry)(physical_address, true);
+	if (no_cache) {
+		*entry = fpage_entry_disable_caching(*entry);
+	}
 	return address;
 };
 
@@ -393,7 +396,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	bool cpu_type_ok = kernel_header.cpu_type == macho_cpu_type_x86_64;
 	bool cpu_subtype_ok = kernel_header.cpu_subtype == macho_cpu_subtype_x86_64_all;
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
-	bool cpu_type_ok = kernel_header.cpu_type != macho_cpu_type_aarch64;
+	bool cpu_type_ok = kernel_header.cpu_type == macho_cpu_type_aarch64;
 	bool cpu_subtype_ok = true;
 #endif
 	bool file_type_ok = kernel_header.file_type == macho_file_type_exectuable;
@@ -998,11 +1001,11 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 	// set up the kernel entries (always do this first so the kernel is paged in the right place)
 	for (size_t i = 0; i < kernel_l2_entries; ++i) {
-		fpage_table_setup_add(&page_table_setup_context, (uintptr_t)kernel_image_info->physical_base_address + i * FPAGE_LARGE_PAGE_SIZE, true);
+		fpage_table_setup_add(&page_table_setup_context, (uintptr_t)kernel_image_info->physical_base_address + i * FPAGE_LARGE_PAGE_SIZE, true, false);
 	}
 
 	// set up the kernel stack
-	uintptr_t virt_stack_base = fpage_table_setup_add(&page_table_setup_context, stack_base, true);
+	uintptr_t virt_stack_base = fpage_table_setup_add(&page_table_setup_context, stack_base, true, false);
 	uintptr_t virt_pool = 0;
 
 	// set up the other kernel reserved regions
@@ -1023,7 +1026,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		uintptr_t virt_start = 0;
 
 		for (size_t i = 0; i < region->page_count; ++i) {
-			uintptr_t virt = fpage_table_setup_add(&page_table_setup_context, region->physical_start + i * FPAGE_PAGE_SIZE, false);
+			uintptr_t virt = fpage_table_setup_add(&page_table_setup_context, region->physical_start + i * FPAGE_PAGE_SIZE, false, false);
 			if (i == 0) {
 				virt_start = virt;
 			}
@@ -1047,7 +1050,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		size_t fb_page_count = fpage_round_up_to_page_count(ferro_framebuffer_info->total_byte_size);
 
 		for (size_t i = 0; i < fb_page_count; ++i) {
-			uintptr_t virt = fpage_table_setup_add(&page_table_setup_context, (uintptr_t)ferro_framebuffer_info->physical_base + i * FPAGE_PAGE_SIZE, false);
+			uintptr_t virt = fpage_table_setup_add(&page_table_setup_context, (uintptr_t)ferro_framebuffer_info->physical_base + i * FPAGE_PAGE_SIZE, false, true);
 			if (i == 0) {
 				virt_fb = virt;
 			}

@@ -245,7 +245,7 @@ impl<'a> Framebuffer<'a> {
 			}
 		}
 
-		self.fill_rect(&Rect::new((0, self.info.height - row_count).into(), (self.info.width, self.info.height).into()), fill_value)
+		self.fill_rect(&Rect::new((0, self.info.height - row_count).into(), (self.info.width, row_count).into()), fill_value)
 	}
 
 	/// The width of the framebuffer, in pixels

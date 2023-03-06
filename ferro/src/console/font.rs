@@ -271,7 +271,7 @@ impl<'a> Iterator for GlyphIter<'a> {
 			let bit_index = point.as_index(self.0.padded_width());
 	
 			let byte = self.0.data[bit_index / 8];
-			let bit = (bit_index % 8) as u8;
+			let bit = 7 - ((bit_index % 8) as u8);
 			let present = (byte & (1 << bit)) != 0;
 	
 			self.1 = point.next_point(&(self.0.width(), self.0.height()).into());

@@ -107,7 +107,7 @@ pub extern "C" fn ferro_entry(_initial_pool: *mut u8, _initial_pool_page_count: 
 		}
 	}
 
-	kprintln!("Test!");
+	kprintln!("Ferro starting up...");
 
 	loop {}
 }
