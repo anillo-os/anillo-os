@@ -1,10 +1,35 @@
+/*
+ * This file is part of Anillo OS
+ * Copyright (C) 2023 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 mod font;
 
-use core::fmt::{Arguments, Result, write, Write, Error};
+use core::fmt::{write, Arguments, Error, Result, Write};
 
-use crate::{sync::{SpinLock, Lock}, framebuffer::{Pixel, color::{WHITE, BLACK}, framebuffer, Framebuffer}, geometry::Point};
-
-use self::font::{glyph_for_character, GLYPH_WIDTH, GLYPH_HEIGHT};
+use self::font::{glyph_for_character, GLYPH_HEIGHT, GLYPH_WIDTH};
+use crate::{
+	framebuffer::{
+		color::{BLACK, WHITE},
+		framebuffer, Framebuffer, Pixel,
+	},
+	geometry::Point,
+	sync::{Lock, SpinLock},
+	util::ConstInto,
+};
 
 struct Console {
 	foreground: Pixel,
@@ -19,7 +44,7 @@ impl Console {
 		Self {
 			foreground: WHITE,
 			background: BLACK,
-			location: (0, 0).into(),
+			location: (0, 0).const_into(),
 			char_padding: 0,
 			line_padding: 0,
 		}
@@ -30,8 +55,11 @@ impl Console {
 		self.location.y += GLYPH_HEIGHT + self.line_padding;
 
 		if self.location.y + GLYPH_HEIGHT >= fb.height() {
-			if fb.shift_up(GLYPH_HEIGHT + self.line_padding, &self.background).is_err() {
-				return Err(Error)
+			if fb
+				.shift_up(GLYPH_HEIGHT + self.line_padding, &self.background)
+				.is_err()
+			{
+				return Err(Error);
 			}
 			self.location.y -= GLYPH_HEIGHT + self.line_padding;
 		}
@@ -63,8 +91,11 @@ impl Write for Console {
 				None => return Ok(()),
 			};
 
-			if glyph.print(fb, &self.foreground, Some(&self.background), &self.location).is_err() {
-				return Err(Error)
+			if glyph
+				.print(fb, &self.foreground, Some(&self.background), &self.location)
+				.is_err()
+			{
+				return Err(Error);
 			}
 
 			self.location.x += glyph.width() + self.char_padding;

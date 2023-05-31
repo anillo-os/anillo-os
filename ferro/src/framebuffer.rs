@@ -1,12 +1,31 @@
+/*
+ * This file is part of Anillo OS
+ * Copyright (C) 2023 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 use core::ffi::c_void;
-use crate::sync::Lock;
-use crate::geometry::{Point, Rect};
 
 use super::sync::SpinLock;
+use crate::const_from_impl;
+use crate::geometry::{Point, Rect};
+use crate::sync::Lock;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct Info {
+pub(crate) struct Info {
 	physical_base: *mut c_void,
 	virtual_base: *mut c_void,
 	width: usize,
@@ -73,9 +92,9 @@ impl Pixel {
 	}
 
 	const fn as_value(&self, mask: &PixelMask) -> u32 {
-		(self.r as u32) << mask.r.trailing_zeros() |
-		(self.g as u32) << mask.g.trailing_zeros() |
-		(self.b as u32) << mask.b.trailing_zeros()
+		(self.r as u32) << mask.r.trailing_zeros()
+			| (self.g as u32) << mask.g.trailing_zeros()
+			| (self.b as u32) << mask.b.trailing_zeros()
 	}
 
 	fn copy_to_bytes(&self, bytes: &mut [u8], mask: &PixelMask) -> () {
@@ -88,23 +107,22 @@ impl Pixel {
 	}
 }
 
-impl const From<(u8, u8, u8)> for Pixel {
-	fn from(value: (u8, u8, u8)) -> Self {
-		Self::new(value.0, value.1, value.2)
-	}
-}
+const_from_impl! { value: (u8, u8, u8) => Pixel {
+	Self::new(value.0, value.1, value.2)
+}}
 
 pub mod color {
 	use super::Pixel;
+	use crate::util::ConstInto;
 
-	pub const BLACK: Pixel = (0, 0, 0).into();
-	pub const WHITE: Pixel = (0xff, 0xff, 0xff).into();
-	pub const RED: Pixel = (0xff, 0, 0).into();
-	pub const GREEN: Pixel = (0, 0xff, 0).into();
-	pub const BLUE: Pixel = (0, 0, 0xff).into();
-	pub const CYAN: Pixel = (0, 0xff, 0xff).into();
-	pub const MAGENTA: Pixel = (0xff, 0, 0xff).into();
-	pub const YELLOW: Pixel = (0xff, 0xff, 0).into();
+	pub const BLACK: Pixel = (0, 0, 0).const_into();
+	pub const WHITE: Pixel = (0xff, 0xff, 0xff).const_into();
+	pub const RED: Pixel = (0xff, 0, 0).const_into();
+	pub const GREEN: Pixel = (0, 0xff, 0).const_into();
+	pub const BLUE: Pixel = (0, 0, 0xff).const_into();
+	pub const CYAN: Pixel = (0, 0xff, 0xff).const_into();
+	pub const MAGENTA: Pixel = (0xff, 0, 0xff).const_into();
+	pub const YELLOW: Pixel = (0xff, 0xff, 0).const_into();
 }
 
 struct InnerFramebuffer<'a> {
@@ -118,11 +136,11 @@ unsafe impl<'a> Send for InnerFramebuffer<'a> {}
 
 pub struct Framebuffer<'a> {
 	info: BasicInfo,
-	inner: SpinLock<InnerFramebuffer<'a>>
+	inner: SpinLock<InnerFramebuffer<'a>>,
 }
 
 impl<'a> Framebuffer<'a> {
-	pub fn new(info: &Info) -> Self {
+	pub(crate) fn new(info: &Info) -> Self {
 		Framebuffer {
 			info: BasicInfo {
 				width: info.width,
@@ -141,14 +159,19 @@ impl<'a> Framebuffer<'a> {
 			inner: SpinLock::new(InnerFramebuffer {
 				physical_base: info.physical_base,
 				virtual_base: info.virtual_base,
-				front_buffer: unsafe { core::slice::from_raw_parts_mut::<'a>(info.virtual_base as *mut u8, info.total_byte_size) },
-			})
+				front_buffer: unsafe {
+					core::slice::from_raw_parts_mut::<'a>(
+						info.virtual_base as *mut u8,
+						info.total_byte_size,
+					)
+				},
+			}),
 		}
 	}
 
 	pub fn get_pixel(&self, point: &Point) -> Result<Pixel, ()> {
 		if point.x > self.info.width || point.y > self.info.height {
-			return Err(())
+			return Err(());
 		}
 
 		let bpp = self.info.bytes_per_pixel as usize;
@@ -157,7 +180,10 @@ impl<'a> Framebuffer<'a> {
 
 		{
 			let mut inner = self.inner.lock();
-			pixel = Pixel::from_bytes(&mut inner.front_buffer[base_index..base_index + bpp], &self.info.masks);
+			pixel = Pixel::from_bytes(
+				&mut inner.front_buffer[base_index..base_index + bpp],
+				&self.info.masks,
+			);
 		}
 
 		Ok(pixel)
@@ -165,7 +191,7 @@ impl<'a> Framebuffer<'a> {
 
 	pub fn set_pixel(&self, point: &Point, pixel: &Pixel) -> Result<(), ()> {
 		if point.x > self.info.width || point.y > self.info.height {
-			return Err(())
+			return Err(());
 		}
 
 		let bpp = self.info.bytes_per_pixel as usize;
@@ -173,7 +199,10 @@ impl<'a> Framebuffer<'a> {
 
 		{
 			let mut inner = self.inner.lock();
-			pixel.copy_to_bytes(&mut inner.front_buffer[base_index..base_index + bpp], &self.info.masks);
+			pixel.copy_to_bytes(
+				&mut inner.front_buffer[base_index..base_index + bpp],
+				&self.info.masks,
+			);
 		}
 
 		Ok(())
@@ -183,11 +212,11 @@ impl<'a> Framebuffer<'a> {
 		let screen_rect = Rect::new((0, 0).into(), (self.info.width, self.info.height).into());
 
 		if !rect.is_within_rect(&screen_rect) {
-			return Err(())
+			return Err(());
 		}
 
 		if rect.size.width == 0 || rect.size.height == 0 {
-			return Ok(())
+			return Ok(());
 		}
 
 		let bpp = self.info.bytes_per_pixel as usize;
@@ -197,14 +226,21 @@ impl<'a> Framebuffer<'a> {
 			let mut inner = self.inner.lock();
 
 			// do the first row, which we'll use as a basis to copy to other rows
-			pixel.copy_to_bytes(&mut inner.front_buffer[base_index..base_index + bpp], &self.info.masks);
+			pixel.copy_to_bytes(
+				&mut inner.front_buffer[base_index..base_index + bpp],
+				&self.info.masks,
+			);
 
 			// TODO: we could speed this up by copying in the biggest units possible (i.e. u16, u32, or u64) according to the available space
 
 			for i in 1..rect.size.width {
 				let curr_index = base_index + i * bpp;
 				unsafe {
-					core::ptr::copy_nonoverlapping(inner.front_buffer[base_index..base_index + bpp].as_ptr(), inner.front_buffer[curr_index..curr_index + bpp].as_mut_ptr(), bpp);
+					core::ptr::copy_nonoverlapping(
+						inner.front_buffer[base_index..base_index + bpp].as_ptr(),
+						inner.front_buffer[curr_index..curr_index + bpp].as_mut_ptr(),
+						bpp,
+					);
 				}
 			}
 
@@ -213,7 +249,11 @@ impl<'a> Framebuffer<'a> {
 				let curr_index = base_index + (self.info.scan_line_size * i);
 				let width_in_bytes = bpp * rect.size.width;
 				unsafe {
-					core::ptr::copy_nonoverlapping(inner.front_buffer[base_index..base_index + width_in_bytes].as_ptr(), inner.front_buffer[curr_index..curr_index + width_in_bytes].as_mut_ptr(), width_in_bytes)
+					core::ptr::copy_nonoverlapping(
+						inner.front_buffer[base_index..base_index + width_in_bytes].as_ptr(),
+						inner.front_buffer[curr_index..curr_index + width_in_bytes].as_mut_ptr(),
+						width_in_bytes,
+					)
 				}
 			}
 		}
@@ -223,11 +263,11 @@ impl<'a> Framebuffer<'a> {
 
 	pub fn shift_up(&self, row_count: usize, fill_value: &Pixel) -> Result<(), ()> {
 		if row_count > self.info.height {
-			return Err(())
+			return Err(());
 		}
 
 		if row_count == 0 {
-			return Ok(())
+			return Ok(());
 		}
 
 		if row_count < self.info.height {
@@ -239,13 +279,25 @@ impl<'a> Framebuffer<'a> {
 					let orig_index = self.info.scan_line_size * (i + row_count);
 					let new_index = self.info.scan_line_size * i;
 					unsafe {
-						core::ptr::copy_nonoverlapping(inner.front_buffer[orig_index..orig_index + self.info.scan_line_size].as_ptr(), inner.front_buffer[new_index..new_index + self.info.scan_line_size].as_mut_ptr(), self.info.scan_line_size);
+						core::ptr::copy_nonoverlapping(
+							inner.front_buffer[orig_index..orig_index + self.info.scan_line_size]
+								.as_ptr(),
+							inner.front_buffer[new_index..new_index + self.info.scan_line_size]
+								.as_mut_ptr(),
+							self.info.scan_line_size,
+						);
 					}
 				}
 			}
 		}
 
-		self.fill_rect(&Rect::new((0, self.info.height - row_count).into(), (self.info.width, row_count).into()), fill_value)
+		self.fill_rect(
+			&Rect::new(
+				(0, self.info.height - row_count).into(),
+				(self.info.width, row_count).into(),
+			),
+			fill_value,
+		)
 	}
 
 	/// The width of the framebuffer, in pixels
@@ -261,14 +313,21 @@ impl<'a> Framebuffer<'a> {
 
 static mut FRAMEBUFFER: Option<Framebuffer> = None;
 
-pub unsafe fn init(info: &Info) -> () {
+pub(crate) unsafe fn init(info: &Info) -> () {
 	match FRAMEBUFFER {
 		Some(_) => panic!("cannot init framebuffer twice"),
 		None => {},
 	}
 
 	FRAMEBUFFER = Some(Framebuffer::new(info));
-	FRAMEBUFFER.as_ref().unwrap().fill_rect(&Rect::new((0, 0).into(), (info.width, info.height).into()), &(0, 0, 0).into()).expect("clearing the screen should work");
+	FRAMEBUFFER
+		.as_ref()
+		.unwrap()
+		.fill_rect(
+			&Rect::new((0, 0).into(), (info.width, info.height).into()),
+			&(0, 0, 0).into(),
+		)
+		.expect("clearing the screen should work");
 }
 
 pub fn framebuffer() -> Option<&'static Framebuffer<'static>> {

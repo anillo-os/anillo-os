@@ -1,9 +1,32 @@
-use core::iter::FusedIterator;
+/*
+ * This file is part of Anillo OS
+ * Copyright (C) 2023 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
 
-use crate::{util::{slices_are_equal, decode_utf8_and_length, ConstSlice, ConstSizedSlice}, geometry::Point, framebuffer::{Framebuffer, Pixel}};
+use core::iter::FusedIterator;
 
 use bitflags::bitflags;
 
+use crate::{
+	framebuffer::{Framebuffer, Pixel},
+	geometry::Point,
+	util::{decode_utf8_and_length, slices_are_equal, ConstSizedSlice, ConstSlice},
+};
+
+#[rustfmt::skip]
 const RAW_FONT_DATA: [u8; include_bytes!("../../resources/ter-u16n.psf").len()] = *include_bytes!("../../resources/ter-u16n.psf");
 
 bitflags! {
@@ -54,13 +77,16 @@ impl PSF2Header {
 	pub const fn new(bytes: &[u8]) -> Self {
 		Self {
 			magic: bytes.const_unroll(),
-			version: u32::from_ne_bytes(bytes[4..8].const_unroll()),
-			header_size: u32::from_ne_bytes(bytes[8..12].const_unroll()),
-			flags: PSF2Flags::from_bits(u32::from_ne_bytes(bytes[12..16].const_unroll())).unwrap(),
-			glyph_count: u32::from_ne_bytes(bytes[16..20].const_unroll()),
-			glyph_size: u32::from_ne_bytes(bytes[20..24].const_unroll()),
-			glyph_height: u32::from_ne_bytes(bytes[24..28].const_unroll()),
-			glyph_width: u32::from_ne_bytes(bytes[28..32].const_unroll()),
+			version: u32::from_ne_bytes(bytes.const_subslice(4..8).const_unroll()),
+			header_size: u32::from_ne_bytes(bytes.const_subslice(8..12).const_unroll()),
+			flags: PSF2Flags::from_bits(u32::from_ne_bytes(
+				bytes.const_subslice(12..16).const_unroll(),
+			))
+			.unwrap(),
+			glyph_count: u32::from_ne_bytes(bytes.const_subslice(16..20).const_unroll()),
+			glyph_size: u32::from_ne_bytes(bytes.const_subslice(20..24).const_unroll()),
+			glyph_height: u32::from_ne_bytes(bytes.const_subslice(24..28).const_unroll()),
+			glyph_width: u32::from_ne_bytes(bytes.const_subslice(28..32).const_unroll()),
 		}
 	}
 
@@ -82,9 +108,13 @@ const PSF2_MAGIC: [u8; 4] = [0x72, 0xb5, 0x4a, 0x86];
 
 const HEADER_PAD: usize = PSF2Header::BYTE_SIZE - PSF1Header::BYTE_SIZE;
 
-const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option<u16>; 0xffff], PSF2Header, usize) {
-	let is_psf1: bool = file_bytes.len() > PSF1_MAGIC.len() && slices_are_equal(&file_bytes[0..2], &PSF1_MAGIC);
-	let is_psf2: bool = file_bytes.len() > PSF2_MAGIC.len() && slices_are_equal(&file_bytes[0..4], &PSF2_MAGIC);
+const fn process_font<const N: usize>(
+	file_bytes: &[u8; N],
+) -> ([u8; N], [Option<u16>; 0xffff], PSF2Header, usize) {
+	#[rustfmt::skip]
+	let is_psf1: bool = file_bytes.len() > PSF1_MAGIC.len() && slices_are_equal(file_bytes.const_subslice(0..2), &PSF1_MAGIC);
+	#[rustfmt::skip]
+	let is_psf2: bool = file_bytes.len() > PSF2_MAGIC.len() && slices_are_equal(file_bytes.const_subslice(0..4), &PSF2_MAGIC);
 	assert!(is_psf1 || is_psf2);
 
 	let psf2_header = if is_psf1 {
@@ -93,8 +123,16 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option
 			magic: PSF2_MAGIC,
 			version: 0,
 			header_size: 4,
-			flags: if psf1_header.flags.contains(PSF1Flags::UNICODE) { PSF2Flags::UNICODE } else { PSF2Flags::empty() },
-			glyph_count: if psf1_header.flags.contains(PSF1Flags::HAS_512_GLYPHS) { 512 } else { 256 },
+			flags: if psf1_header.flags.contains(PSF1Flags::UNICODE) {
+				PSF2Flags::UNICODE
+			} else {
+				PSF2Flags::empty()
+			},
+			glyph_count: if psf1_header.flags.contains(PSF1Flags::HAS_512_GLYPHS) {
+				512
+			} else {
+				256
+			},
 			glyph_size: psf1_header.glyph_size as u32,
 			glyph_height: psf1_header.glyph_size as u32,
 			glyph_width: 8,
@@ -111,12 +149,16 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option
 	let font_data_len = (table_offset as usize) - (psf2_header.header_size as usize);
 
 	// can't use the standard library's `copy_from_slice` because it's not a const fn
-	font_data[0..font_data_len].const_copy_from_slice(&file_bytes[psf2_header.header_size as usize..table_offset as usize]);
+	font_data
+		.const_subslice_mut(0..font_data_len)
+		.const_copy_from_slice(
+			file_bytes.const_subslice(psf2_header.header_size as usize..table_offset as usize),
+		);
 
 	let mut unicode_table: [Option<u16>; 0xffff] = [None; 0xffff];
 
 	if psf2_header.flags.contains(PSF2Flags::UNICODE) {
-		let table = &file_bytes[table_offset as usize..];
+		let table = file_bytes.const_subslice(table_offset as usize..);
 
 		let mut table_index: usize = 0;
 		let mut glyph_index: usize = 0;
@@ -159,7 +201,9 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option
 							table_index += 1;
 							curr = table[table_index] as u32;
 						} else {
-							let (_, len) = decode_utf8_and_length(&table[table_index..]).unwrap();
+							let (_, len) =
+								decode_utf8_and_length(table.const_subslice(table_index..))
+									.unwrap();
 							table_index += len as usize;
 							curr = table[table_index] as u32;
 						}
@@ -169,7 +213,8 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option
 					table_index += 1;
 					glyph_index += 1;
 				} else {
-					let (character, len) = decode_utf8_and_length(&table[table_index..]).unwrap();
+					let (character, len) =
+						decode_utf8_and_length(table.const_subslice(table_index..)).unwrap();
 					table_index += len as usize;
 					curr = character as u32;
 					unicode_table[curr as usize] = Some(glyph_index as u16);
@@ -181,9 +226,17 @@ const fn process_font<const N: usize>(file_bytes: &[u8; N]) -> ([u8; N], [Option
 	(font_data, unicode_table, psf2_header, font_data_len)
 }
 
-const PROCESSED_DATA: ([u8; RAW_FONT_DATA.len()], [Option<u16>; 0xffff], PSF2Header, usize) = process_font(&RAW_FONT_DATA);
+const PROCESSED_DATA: (
+	[u8; RAW_FONT_DATA.len()],
+	[Option<u16>; 0xffff],
+	PSF2Header,
+	usize,
+) = process_font(&RAW_FONT_DATA);
 
-const FONT_DATA: [u8; PROCESSED_DATA.3] = PROCESSED_DATA.0[..PROCESSED_DATA.3].const_unroll();
+const FONT_DATA: [u8; PROCESSED_DATA.3] = PROCESSED_DATA
+	.0
+	.const_subslice(..PROCESSED_DATA.3)
+	.const_unroll();
 const UNICODE_TABLE: [Option<u16>; 0xffff] = PROCESSED_DATA.1;
 const FONT_HEADER: PSF2Header = PROCESSED_DATA.2;
 
@@ -246,15 +299,30 @@ impl Glyph {
 		GlyphIter(self, Some((0, 0).into()), skip_unset_pixels)
 	}
 
-	pub fn print(&self, framebuffer: &Framebuffer, foreground: &Pixel, background: Option<&Pixel>, top_left: &Point) -> Result<(), ()> {
-		if framebuffer.width() < top_left.x + self.width() || framebuffer.height() < top_left.y + self.height() {
-			return Err(())
+	pub fn print(
+		&self,
+		framebuffer: &Framebuffer,
+		foreground: &Pixel,
+		background: Option<&Pixel>,
+		top_left: &Point,
+	) -> Result<(), ()> {
+		if framebuffer.width() < top_left.x + self.width()
+			|| framebuffer.height() < top_left.y + self.height()
+		{
+			return Err(());
 		}
 
 		for pixel in self.pixels(background.is_none()) {
-			let result = framebuffer.set_pixel(&(&pixel.0 + top_left), if pixel.1 { foreground } else { background.unwrap() });
+			let result = framebuffer.set_pixel(
+				&(&pixel.0 + top_left),
+				if pixel.1 {
+					foreground
+				} else {
+					background.unwrap()
+				},
+			);
 			if result.is_err() {
-				return result
+				return result;
 			}
 		}
 
@@ -269,15 +337,15 @@ impl<'a> Iterator for GlyphIter<'a> {
 		while self.1.is_some() {
 			let point = self.1.unwrap();
 			let bit_index = point.as_index(self.0.padded_width());
-	
+
 			let byte = self.0.data[bit_index / 8];
 			let bit = 7 - ((bit_index % 8) as u8);
 			let present = (byte & (1 << bit)) != 0;
-	
+
 			self.1 = point.next_point(&(self.0.width(), self.0.height()).into());
 
 			if !present && self.2 {
-				continue
+				continue;
 			}
 
 			return Some(GlyphPixel(point, present));
@@ -290,8 +358,8 @@ impl<'a> Iterator for GlyphIter<'a> {
 impl<'a> FusedIterator for GlyphIter<'a> {}
 
 impl<'a> IntoIterator for &'a Glyph {
-	type Item = GlyphPixel;
 	type IntoIter = GlyphIter<'a>;
+	type Item = GlyphPixel;
 
 	/// Creates an iterator that iterates over the pixels in this glyph (including unset pixels).
 	fn into_iter(self) -> Self::IntoIter {
@@ -324,7 +392,10 @@ pub const fn glyph_for_character(character: char) -> Option<Glyph> {
 	let glyph_size = FONT_HEADER.glyph_size as usize;
 	let byte_start = (index as usize) * glyph_size;
 
-	Some(Glyph::new(&FONT_HEADER, &FONT_DATA[byte_start..byte_start + glyph_size]))
+	Some(Glyph::new(
+		&FONT_HEADER,
+		FONT_DATA.const_subslice(byte_start..byte_start + glyph_size),
+	))
 }
 
 pub const GLYPH_WIDTH: usize = FONT_HEADER.glyph_width as usize;
