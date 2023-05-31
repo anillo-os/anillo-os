@@ -15,3 +15,4 @@ build.release
 tmp/
 target
 *-build
+.cache
