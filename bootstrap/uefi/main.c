@@ -202,9 +202,15 @@ static uint64_t* fpage_table_setup_get_next_entry(fpage_table_setup_context_t* c
 	if (level < 4) {
 		if (!context->l3_curr) {
 			context->l3_curr = context->l3_tables;
+			if ((uint64_t)(context->l3_curr - context->l3_tables) / sizeof(fpage_table_t) >= context->l3_count) {
+				return NULL;
+			}
 			context->l4_table->entries[context->l4_index++] = fpage_table_entry((uintptr_t)context->l3_curr, true);
 		} else if (context->l3_index > FPAGE_TABLE_ENTRY_MAX) {
 			++context->l3_curr;
+			if ((uint64_t)(context->l3_curr - context->l3_tables) / sizeof(fpage_table_t) >= context->l3_count) {
+				return NULL;
+			}
 			context->l4_table->entries[context->l4_index++] = fpage_table_entry((uintptr_t)context->l3_curr, true);
 			context->l3_index = 0;
 		}
@@ -213,9 +219,15 @@ static uint64_t* fpage_table_setup_get_next_entry(fpage_table_setup_context_t* c
 	if (level < 3) {
 		if (!context->l2_curr) {
 			context->l2_curr = context->l2_tables;
+			if ((uint64_t)(context->l2_curr - context->l2_tables) / sizeof(fpage_table_t) >= context->l2_count) {
+				return NULL;
+			}
 			context->l3_curr->entries[context->l3_index++] = fpage_table_entry((uintptr_t)context->l2_curr, true);
 		} else if (context->l2_index > FPAGE_TABLE_ENTRY_MAX) {
 			++context->l2_curr;
+			if ((uint64_t)(context->l2_curr - context->l2_tables) / sizeof(fpage_table_t) >= context->l2_count) {
+				return NULL;
+			}
 			context->l3_curr->entries[context->l3_index++] = fpage_table_entry((uintptr_t)context->l2_curr, true);
 			context->l2_index = 0;
 		}
@@ -224,9 +236,15 @@ static uint64_t* fpage_table_setup_get_next_entry(fpage_table_setup_context_t* c
 	if (level < 2) {
 		if (!context->l1_curr) {
 			context->l1_curr = context->l1_tables;
+			if ((uint64_t)(context->l1_curr - context->l1_tables) / sizeof(fpage_table_t) >= context->l1_count) {
+				return NULL;
+			}
 			context->l2_curr->entries[context->l2_index++] = fpage_table_entry((uintptr_t)context->l1_curr, true);
 		} else if (context->l1_index > FPAGE_TABLE_ENTRY_MAX) {
 			++context->l1_curr;
+			if ((uint64_t)(context->l1_curr - context->l1_tables) / sizeof(fpage_table_t) >= context->l1_count) {
+				return NULL;
+			}
 			context->l2_curr->entries[context->l2_index++] = fpage_table_entry((uintptr_t)context->l1_curr, true);
 			context->l1_index = 0;
 		}
@@ -244,11 +262,19 @@ static uint64_t* fpage_table_setup_get_next_entry(fpage_table_setup_context_t* c
 static uintptr_t fpage_table_setup_add(fpage_table_setup_context_t* context, uintptr_t physical_address, bool large_page, bool no_cache) {
 	uint64_t* entry = fpage_table_setup_get_next_entry(context, large_page ? 2 : 1);
 	uintptr_t address = fpage_make_virtual_address(context->l4_index - 1, context->l3_index - 1, context->l2_index - 1, large_page ? 0 : (context->l1_index - 1), 0);
+	if (!entry) {
+		return 0;
+	}
 	*entry = (large_page ? fpage_large_page_entry : fpage_page_entry)(physical_address, true);
 	if (no_cache) {
 		*entry = fpage_entry_disable_caching(*entry);
 	}
 	return address;
+};
+
+__attribute__((noreturn))
+static void panic(const char* message) {
+	while (true);
 };
 
 fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_table_t* system_table) {
@@ -751,7 +777,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		printf("Error: Failed to allocate memory to store Ferro memory map (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
 		return status;
 	}
-	printf("Info: Allocated Ferro memory map\n");
+	printf("Info: Allocated Ferro memory map at %p\n", ferro_memory_map);
 	simple_memset(ferro_memory_map, 0, ferro_map_size);
 
 	// calculate the final size required for page tables and allocate the region for them
@@ -760,13 +786,11 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	if (graphics_available) {
 		required_pages += fpage_round_up_to_page_count(ferro_framebuffer_info->total_byte_size);
 	}
-	size_t required_l1_entries = (required_pages + 511) / 512;
-	size_t l1_table_count = (required_l1_entries + 511) / 512;
 	size_t kernel_l2_entries = fpage_round_up_to_large_page_count(kernel_image_info->size);
 	// `+ 1` for the kernel stack entry
 	size_t required_l2_entries = kernel_l2_entries + 1;
 	fpage_table_setup_context_t page_table_setup_context;
-	size_t required_tables = fpage_table_setup_init(&page_table_setup_context, kernel_image_info, required_l1_entries, required_l2_entries);
+	size_t required_tables = fpage_table_setup_init(&page_table_setup_context, kernel_image_info, required_pages, required_l2_entries);
 	size_t table_region_size = required_tables * FPAGE_PAGE_SIZE;
 
 	if ((page_tables = mmap(NULL, table_region_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0)) == MAP_FAILED) {
@@ -1001,12 +1025,18 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 	// set up the kernel entries (always do this first so the kernel is paged in the right place)
 	for (size_t i = 0; i < kernel_l2_entries; ++i) {
-		fpage_table_setup_add(&page_table_setup_context, (uintptr_t)kernel_image_info->physical_base_address + i * FPAGE_LARGE_PAGE_SIZE, true, false);
+		if (!fpage_table_setup_add(&page_table_setup_context, (uintptr_t)kernel_image_info->physical_base_address + i * FPAGE_LARGE_PAGE_SIZE, true, false)) {
+			panic("Failed to set up kernel image page");
+		}
 	}
 
 	// set up the kernel stack
 	uintptr_t virt_stack_base = fpage_table_setup_add(&page_table_setup_context, stack_base, true, false);
 	uintptr_t virt_pool = 0;
+
+	if (!virt_stack_base) {
+		panic("Failed to set up kernel stack page");
+	}
 
 	// set up the other kernel reserved regions
 	for (size_t i = 0; i < map_entry_count; ++i) {
@@ -1027,6 +1057,9 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 		for (size_t i = 0; i < region->page_count; ++i) {
 			uintptr_t virt = fpage_table_setup_add(&page_table_setup_context, region->physical_start + i * FPAGE_PAGE_SIZE, false, false);
+			if (!virt) {
+				panic("Failed to set up kernel reserved region page");
+			}
 			if (i == 0) {
 				virt_start = virt;
 			}
@@ -1051,6 +1084,9 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 		for (size_t i = 0; i < fb_page_count; ++i) {
 			uintptr_t virt = fpage_table_setup_add(&page_table_setup_context, (uintptr_t)ferro_framebuffer_info->physical_base + i * FPAGE_PAGE_SIZE, false, true);
+			if (!virt) {
+				panic("Failed to set up framebuffer page");
+			}
 			if (i == 0) {
 				virt_fb = virt;
 			}
