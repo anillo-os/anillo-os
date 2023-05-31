@@ -73,10 +73,14 @@ parser.add_argument('-m', '--memory', help='The amount of memory to give to the 
 parser.add_argument('-R', '--record', type=str, default=None, help='Record the execution of the VM into the given recording file')
 parser.add_argument('-P', '--play', type=str, default=None, help='Play the execution of the VM from the given recording file')
 parser.add_argument('-c', '--cores', type=int, nargs='?', const=1, default=1, help='The number of CPU cores to virtualize (this can be greater or lesser than the number of host CPU cores)')
+parser.add_argument('--monitor-stdio', action='store_true', help='Redirect the QEMU monitor to stdio')
 
 args = parser.parse_args()
 
 use_sudo = False
+
+if args.serial == 'stdio' and args.monitor_stdio:
+	raise RuntimeError('Cannot redirect both serial console and monitor to stdio')
 
 if not (args.arch in VALID_ARCHES):
 	raise RuntimeError(f'Invalid architecture "{args.arch}"; expected one of {VALID_ARCHES}')
@@ -282,6 +286,9 @@ if args.serial == 'pty':
 	]
 elif args.serial == 'stdio':
 	qemu_args += ['-serial', 'stdio']
+
+if args.monitor_stdio:
+	qemu_args += ['-monitor', 'stdio']
 
 if args.debug:
 	qemu_args += ['-serial', 'tcp::1234,server,nowait']
