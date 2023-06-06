@@ -21,7 +21,7 @@ use super::PAGE_SIZE;
 pub(super) const MAX_ORDER: usize = 32;
 
 /// NOTE: This function truncates the page count if necessary and returns the *maximum* order of the given page count.
-pub(super) const fn order_of_page_count(page_count: u64) -> usize {
+pub(super) const fn order_of_page_count_floor(page_count: u64) -> usize {
 	if page_count == 0 {
 		usize::MAX
 	} else {
@@ -31,6 +31,19 @@ pub(super) const fn order_of_page_count(page_count: u64) -> usize {
 		} else {
 			order
 		}
+	}
+}
+
+pub(super) const fn order_of_page_count_ceil(page_count: u64) -> usize {
+	let order = order_of_page_count_floor(page_count);
+	if order != usize::MAX && page_count > page_count_of_order(order) {
+		if order >= MAX_ORDER - 1 {
+			usize::MAX
+		} else {
+			order + 1
+		}
+	} else {
+		order
 	}
 }
 

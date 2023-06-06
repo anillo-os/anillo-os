@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use crate::{
 	const_from_impl,
 	util::{ConstDefault, ConstInto},
@@ -42,11 +44,19 @@ pub const L4_SHIFT: u64 = 39;
 const PHYSICAL_MAPPED_BASE: u64 = make_virtual_address(PHYSICAL_MEMORY_L4_INDEX as u16, 0, 0, 0, 0);
 
 /// A pointer that represents a physical address.
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct PhysicalAddress(u64);
 
 impl PhysicalAddress {
 	fn new(value: u64) -> Self {
 		Self(value)
+	}
+}
+
+// we implement Debug and not Display because you should only ever see physical addresses during debugging
+impl Debug for PhysicalAddress {
+	fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+		write!(f, "PhysicalAddress({:#x})", self.0)
 	}
 }
 

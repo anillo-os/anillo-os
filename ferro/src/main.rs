@@ -50,6 +50,8 @@ use core::ffi::c_void;
 use core::mem::size_of;
 use core::panic::PanicInfo;
 
+use crate::memory::pmm::PhysicalFrame;
+
 #[repr(i32)]
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum BootDataType {
@@ -243,6 +245,19 @@ pub extern "C" fn ferro_entry(
 	memory::initialize(memory_map, kernel_image_info)
 		.expect("The memory subsystem should initialize without error");
 	kprintln!("Memory subsystem initialized");
+
+	kprintln!("Total frames = {}", memory::pmm::total_frames());
+	kprintln!("Frames-in-use #1 = {}", memory::pmm::frames_in_use());
+
+	{
+		let frame = PhysicalFrame::allocate(4)
+			.expect("Allocating a physical frame was supposed to succeed");
+		kprintln!("Allocated a physical frame at {:?}", frame.address());
+		kprintln!("Frames-in-use #2 = {}", memory::pmm::frames_in_use());
+	}
+
+	kprintln!("Successfully allocated and freed a frame");
+	kprintln!("Frames-in-use #3 = {}", memory::pmm::frames_in_use());
 
 	loop {}
 }
