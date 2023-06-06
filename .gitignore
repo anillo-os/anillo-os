@@ -16,3 +16,5 @@ tmp/
 target
 *-build
 .cache
+/.cargo
+/vendor
