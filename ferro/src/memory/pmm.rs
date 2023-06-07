@@ -327,6 +327,7 @@ pub fn frames_in_use() -> u64 {
 pub struct PhysicalFrame {
 	addr: PhysicalAddress,
 	page_count: u64,
+	allocated: bool,
 }
 
 impl PhysicalFrame {
@@ -612,7 +613,50 @@ impl PhysicalFrame {
 		Ok(Self {
 			addr: PhysicalAddress::new(candidate_block_addr - PHYSICAL_MAPPED_BASE),
 			page_count,
+			allocated: true,
 		})
+	}
+
+	/// Creates a PhysicalFrame from the given address and page count, assuming it is memory that has been previously allocated by a PhysicalFrame
+	/// and returned by [`Self::detach`].
+	///
+	/// # Safety
+	///
+	/// This method and its sibling, [`Self::from_unallocated()`], are unsafe for two reasons:
+	///   * The given address and page count must refer to a valid memory region.
+	///   * The memory region must be completely unowned by anyone else. In the current PMM implementation, this means that it must not be owned by
+	///     another PhysicalFrame (since no other code allocates and deallocates physical frames).
+	pub unsafe fn from_allocated(addr: PhysicalAddress, page_count: u64) -> Self {
+		Self {
+			addr,
+			page_count,
+			allocated: true,
+		}
+	}
+
+	/// Creates a PhysicalFrame from the given address and page count, assuming it is *not* memory that has been previously allocated.
+	///
+	/// The given memory region **must** remain valid for as long as the PhysicalFrame does.
+	///
+	/// See [`Self::from_allocated`] for more information.
+	pub unsafe fn from_unallocated(addr: PhysicalAddress, page_count: u64) -> Self {
+		Self {
+			addr,
+			page_count,
+			allocated: false,
+		}
+	}
+
+	/// Consumes this PhysicalFrame and the associated physical address and page count *without* deallocating the frame.
+	///
+	/// Ordinarily, PhysicalFrames created via allocation methods ([`Self::allocate()`] and [`Self::allocate_aligned()`]) are deallocated when
+	/// dropped. This method can be used to consume/drop an allocated PhysicalFrame while holding on to the frame itself.
+	///
+	/// To re-attach the memory to a PhysicalFrame which will deallocate it when dropped, use the [`Self::from_allocated()`] method.
+	pub fn detach(self) -> (PhysicalAddress, u64) {
+		let result = (self.addr, self.page_count);
+		core::mem::forget(self);
+		result
 	}
 
 	pub fn address(&self) -> PhysicalAddress {
@@ -654,6 +698,10 @@ impl PhysicalFrame {
 
 impl Drop for PhysicalFrame {
 	fn drop(&mut self) {
+		if !self.allocated {
+			return;
+		}
+
 		let mut order = order_of_page_count_ceil(self.page_count);
 
 		#[cfg(pmm_log_frames)]
