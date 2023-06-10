@@ -1,3 +1,21 @@
+/*
+ * This file is part of Anillo OS
+ * Copyright (C) 2023 Anillo OS Developers
+ *
+ * This program is free software: you can redistribute it and/or modify
+ * it under the terms of the GNU Lesser General Public License as published by
+ * the Free Software Foundation, either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU Lesser General Public License
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
+ */
+
 use core::fmt::Debug;
 
 use crate::{
@@ -7,11 +25,13 @@ use crate::{
 };
 
 pub mod pmm;
+pub mod vmm;
 
 mod order;
 mod util;
 
 mod common;
+mod region;
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 #[cfg(target_arch = "x86_64")]
@@ -50,6 +70,18 @@ pub struct PhysicalAddress(u64);
 impl PhysicalAddress {
 	fn new(value: u64) -> Self {
 		Self(value)
+	}
+
+	fn as_value(&self) -> u64 {
+		self.0
+	}
+
+	fn as_ptr<T>(&self) -> *const T {
+		(self.0 + PHYSICAL_MAPPED_BASE) as *const T
+	}
+
+	fn as_mut_ptr<T>(&self) -> *mut T {
+		(self.0 + PHYSICAL_MAPPED_BASE) as *mut T
 	}
 }
 
