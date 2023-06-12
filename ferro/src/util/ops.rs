@@ -171,21 +171,21 @@ const_from_widening_impl! {
 }
 
 macro_rules! const_operator_impl {
-	($($ty:ty),+ $(,)? => $trait_name:ident : $func_name:ident ( $self:ident, $rhs_name:ident ) => $value:expr) => {
+	($($ty:ty),+ $(,)? => $trait_name:ident < $rhs_type:ty > @ $output:ty $(, $default_output:ty)? : $func_name:ident ( $self:ident, $rhs_name:ident ) => $value:expr) => {
 		$(
-			impl const $trait_name for $ty {
-				type Output = Self;
+			impl const $trait_name<$rhs_type> for $ty {
+				type Output = $output;
 
-				fn $func_name($self, $rhs_name: Self) -> Self::Output {
+				fn $func_name($self, $rhs_name: $rhs_type) -> Self::Output {
 					$value
 				}
 			}
 		)+
 	};
-	($($ty:ty),+ $(,)? => $trait_name:ident : $func_name:ident ( $self:ident ) => $value:expr) => {
+	($($ty:ty),+ $(,)? => $trait_name:ident @ $output:ty $(, $default_output:ty)? : $func_name:ident ( $self:ident ) => $value:expr) => {
 		$(
 			impl const $trait_name for $ty {
-				type Output = Self;
+				type Output = $output;
 
 				fn $func_name($self) -> Self::Output {
 					$value
@@ -210,6 +210,13 @@ macro_rules! const_operator_impl_type_class {
 		}
 		const_operator_impl_type_class! { $($other),* => $($other_tt)* }
 	};
+	(u_no_u32 $(, $other:ident)* => $($other_tt:tt)*) => {
+		const_operator_impl! {
+			u8, u16, u64, u128, usize,
+			=> $($other_tt)*
+		}
+		const_operator_impl_type_class! { $($other),* => $($other_tt)* }
+	};
 	(f $(, $other:ident)* => $($other_tt:tt)*) => {
 		const_operator_impl! {
 			f32, f64,
@@ -229,7 +236,7 @@ macro_rules! const_operator_impl_type_class {
 }
 
 macro_rules! const_operator {
-	($trait_name:ident [ $($type_class:ident),+ $(,)? ] : $func_name:ident ( $self:ident, $rhs_name:ident ) => $value:expr $(, $other_trait_name:ident [ $($other_type_class:ident),+ $(,)? ] : $other_func_name:ident ( $other_self:ident $(, $other_rhs_name:ident)? ) => $other_value:expr)* $(,)?) => {
+	($trait_name:ident [ $($type_class:ident),+ $(,)? ] : $func_name:ident ( $self:ident, $rhs_name:ident ) $(-> $output:ty)? => $value:expr $(, $other_trait_name:ident [ $($other_type_class:ident),+ $(,)? ] : $other_func_name:ident ( $other_self:ident $(, $other_rhs_name:ident)? ) $(-> $other_output:ty)? => $other_value:expr)* $(,)?) => {
 		#[const_trait]
 		pub trait $trait_name<Rhs = Self> {
 			type Output;
@@ -238,12 +245,12 @@ macro_rules! const_operator {
 		}
 
 		const_operator_impl_type_class! {
-			$($type_class),+ => $trait_name: $func_name($self, $rhs_name) => $value
+			$($type_class),+ => $trait_name<Self> @ $($output , )? Self: $func_name($self, $rhs_name) => $value
 		}
 
-		const_operator! { $($other_trait_name [ $($other_type_class),+ ] : $other_func_name ($other_self $(, $other_rhs_name)?) => $other_value),* }
+		const_operator! { $($other_trait_name [ $($other_type_class),+ ] : $other_func_name ($other_self $(, $other_rhs_name)?) $(-> $other_output)? => $other_value),* }
 	};
-	($trait_name:ident [ $($type_class:ident),+ $(,)? ] : $func_name:ident ($self:ident) => $value:expr $(, $other_trait_name:ident [ $($other_type_class:ident),+ $(,)? ] : $other_func_name:ident ( $other_self:ident $(, $other_rhs_name:ident)? ) => $other_value:expr)* $(,)?) => {
+	($trait_name:ident [ $($type_class:ident),+ $(,)? ] : $func_name:ident ($self:ident) $(-> $output:ty)? => $value:expr $(, $other_trait_name:ident [ $($other_type_class:ident),+ $(,)? ] : $other_func_name:ident ( $other_self:ident $(, $other_rhs_name:ident)? ) $(-> $other_output:ty)? => $other_value:expr)* $(,)?) => {
 		#[const_trait]
 		pub trait $trait_name {
 			type Output;
@@ -252,10 +259,10 @@ macro_rules! const_operator {
 		}
 
 		const_operator_impl_type_class! {
-			$($type_class),+ => $trait_name: $func_name($self) => $value
+			$($type_class),+ => $trait_name @ $($output , )? Self: $func_name($self) => $value
 		}
 
-		const_operator! { $($other_trait_name [ $($other_type_class),+ ] : $other_func_name ($other_self $(, $other_rhs_name)?) => $other_value),* }
+		const_operator! { $($other_trait_name [ $($other_type_class),+ ] : $other_func_name ($other_self $(, $other_rhs_name)?) $(-> $other_output)? => $other_value),* }
 	};
 	() => {};
 }
@@ -272,4 +279,20 @@ const_operator! {
 	ConstBitAnd[i, u, b]: const_bitand(self, rhs) => self & rhs,
 	ConstBitOr[i, u, b]: const_bitor(self, rhs) => self | rhs,
 	ConstBitXor[i, u, b]: const_bitxor(self, rhs) => self ^ rhs,
+
+	ConstShl[i, u]: const_shl(self, rhs) => self << rhs,
+	ConstShr[i, u]: const_shr(self, rhs) => self >> rhs,
+
+	ConstCountOnes[i, u]: const_count_ones(self) -> u32 => self.count_ones(),
+	ConstCountZeros[i, u]: const_count_zeros(self) -> u32 => self.count_zeros(),
+	ConstILog2[i, u]: const_ilog2(self) -> u32 => self.ilog2(),
+	ConstNextPowerOfTwo[u]: const_next_power_of_two(self) => self.next_power_of_two(),
+}
+
+const_operator_impl_type_class! {
+	i, u_no_u32 => ConstShl<u32> @ Self: const_shl(self, rhs) => self << rhs
+}
+
+const_operator_impl_type_class! {
+	i, u_no_u32 => ConstShr<u32> @ Self: const_shr(self, rhs) => self >> rhs
 }

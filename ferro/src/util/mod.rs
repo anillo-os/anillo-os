@@ -20,6 +20,8 @@ mod ops;
 mod range;
 mod slice;
 
+use core::marker::Destruct;
+
 pub use ops::*;
 pub use range::*;
 pub use slice::*;
@@ -77,43 +79,35 @@ pub trait Alignable:
 	+ ~const ConstNot<Output = Self>
 	+ ~const ConstAdd<Output = Self>
 	+ ~const ConstSub<Output = Self>
+	+ ~const ConstCountOnes
 	+ Sized
 	+ ~const ConstFrom<u8>
 	+ Copy
 {
-	fn count_ones(self) -> u32;
 }
 
-impl const Alignable for u8 {
-	fn count_ones(self) -> u32 {
-		self.count_ones()
-	}
-}
-
-impl const Alignable for u16 {
-	fn count_ones(self) -> u32 {
-		self.count_ones()
-	}
-}
-
-impl const Alignable for u32 {
-	fn count_ones(self) -> u32 {
-		self.count_ones()
-	}
-}
-
-impl const Alignable for u64 {
-	fn count_ones(self) -> u32 {
-		self.count_ones()
-	}
+impl<T> const Alignable for T where
+	T: ~const ConstBitAnd<Output = Self>
+		+ ~const ConstNot<Output = Self>
+		+ ~const ConstAdd<Output = Self>
+		+ ~const ConstSub<Output = Self>
+		+ ~const ConstCountOnes
+		+ Sized
+		+ ~const ConstFrom<u8>
+		+ Copy
+{
 }
 
 pub const fn align_down_pow2<T>(value: T, alignment: T) -> T
 where
 	T: ~const Alignable,
+	<T as ConstCountOnes>::Output: ~const ConstPartialEq + ~const ConstFrom<u8> + ~const Destruct,
 {
 	#[cfg(debug_assertions)]
-	if alignment.count_ones() != 1 {
+	if alignment
+		.const_count_ones()
+		.const_ne(&<T as ConstCountOnes>::Output::const_from(1u8))
+	{
 		panic!("Invalid alignment");
 	}
 
@@ -123,9 +117,45 @@ where
 pub const fn align_up_pow2<T>(value: T, alignment: T) -> T
 where
 	T: ~const Alignable,
+	<T as ConstCountOnes>::Output: ~const ConstPartialEq + ~const ConstFrom<u8> + ~const Destruct,
 {
 	align_down_pow2(
 		value.const_add(alignment.const_sub(T::const_from(1u8))),
 		alignment,
 	)
+}
+
+/// Returns the closest power of 2 less than or equal to the given value.
+///
+/// Note that this returns `0` for `0`.
+pub const fn closest_pow2_floor<T>(value: T) -> T
+where
+	T: ~const ConstILog2
+		+ ~const ConstShl<<T as ConstILog2>::Output, Output = T>
+		+ ~const ConstFrom<u8>
+		+ ~const ConstPartialEq
+		+ ~const Destruct,
+{
+	if value.const_eq(&T::const_from(0u8)) {
+		T::const_from(0u8)
+	} else {
+		T::const_from(1u8).const_shl(value.const_ilog2())
+	}
+}
+
+/// Returns the closest power of 2 greater than or equal to the given value.
+///
+/// In contrast to next_power_of_two, this returns `0` for `0`.
+pub const fn closest_pow2_ceil<T>(value: T) -> T
+where
+	T: ~const ConstNextPowerOfTwo<Output = T>
+		+ ~const ConstFrom<u8>
+		+ ~const ConstPartialEq
+		+ ~const Destruct,
+{
+	if value.const_eq(&T::const_from(0u8)) {
+		T::const_from(0u8)
+	} else {
+		value.const_next_power_of_two()
+	}
 }

@@ -20,7 +20,7 @@ use core::fmt::Debug;
 
 use crate::{
 	const_from_impl,
-	util::{ConstDefault, ConstInto},
+	util::{ConstDefault, ConstFrom, ConstInto},
 	KernelImageInfo, MemoryRegion,
 };
 
@@ -54,6 +54,7 @@ pub const LARGE_PAGE_SIZE: u64 = 0x20_0000;
 pub const VERY_LARGE_PAGE_SIZE: u64 = 0x4000_0000;
 
 pub const KERNEL_VIRTUAL_START: u64 = 0xffff_8000_0000_0000;
+const KERNEL_L4_START: usize = DecomposedAddress::const_from(KERNEL_VIRTUAL_START).l4 as usize;
 const PHYSICAL_MEMORY_L4_INDEX: usize = 511;
 
 pub const L1_SHIFT: u64 = 12;

@@ -58,6 +58,7 @@ pub(super) trait BuddyRegionHeader {
 	fn after_insert(&mut self, _block_addr: u64, _order: usize) {}
 	fn after_remove(&mut self, _block: *mut FreeBlock, _order: usize) {}
 	fn after_allocate_remove(_order: usize) {}
+	fn after_free_buddy_remove(_order: usize) {}
 
 	unsafe fn addr_to_insert_ptr(block_addr: u64) -> *mut MaybeUninit<FreeBlock> {
 		block_addr as *mut MaybeUninit<FreeBlock>
@@ -187,14 +188,17 @@ pub(super) trait BuddyRegionHeader {
 		self.after_remove(block, order);
 	}
 
-	fn remove_first_free_block(&mut self, order: usize) -> u64 {
-		let addr = (self.buckets()[order].front().get().unwrap() as *const FreeBlock) as u64;
+	fn remove_first_free_block(&mut self, order: usize) -> *mut FreeBlock {
+		let block = self.buckets()[order].front().get().unwrap();
+
+		// SAFETY: we have exclusive access to this region, so we also have exclusive access to its free blocks
+		let ptr = (block as *const FreeBlock) as *mut FreeBlock;
 
 		// SAFETY: we know this block came from the bucket of the given order, so this is perfectly safe
-		unsafe { self.remove_free_block(addr as *mut FreeBlock, order) };
+		unsafe { self.remove_free_block(ptr, order) };
 
 		// SAFETY: no one else can possibly have this block now; we've removed it from the list
-		addr
+		ptr
 	}
 
 	/// Allocates the next available contiguous aligned block of the given size and alignment.
@@ -451,34 +455,58 @@ pub(super) trait BuddyRegionHeader {
 		Ok(candidate_block_addr)
 	}
 
+	/// Finds and returns a (mutable) reference to the given block's parent region.
+	fn find_parent_region<'a, A: Adapter>(
+		_order: usize,
+		block_addr: u64,
+		regions: &'a mut LinkedList<A>,
+	) -> Option<&'a mut Self>
+	where
+		A::LinkOps: LinkedListOps,
+		<<A as Adapter>::PointerOps as PointerOps>::Value: BuddyRegionHeaderWrapper<Wrapped = Self>,
+	{
+		regions.iter().find_map(|region| {
+			// SAFETY: because we have exclusive access to the linked list, we are guaranteed to have exclusive access to its regions.
+			let inner = unsafe { region.inner() };
+
+			if block_addr >= inner.start_address()
+				&& block_addr < inner.start_address() + (inner.page_count() * PAGE_SIZE)
+			{
+				Some(inner)
+			} else {
+				None
+			}
+		})
+	}
+
 	/// Frees/deallocates a block of memory previously allocated from the same region list.
 	///
 	/// # Safety
 	///
 	/// This function is unsafe because the block address given must be of the given order and must be a valid block that was previously allocated
 	/// from the same list of regions.
-	unsafe fn free<A: Adapter>(mut order: usize, block_addr: u64, regions: &mut LinkedList<A>)
+	unsafe fn free<A: Adapter>(mut order: usize, mut block_addr: u64, regions: &mut LinkedList<A>)
 	where
 		A::LinkOps: LinkedListOps,
 		<<A as Adapter>::PointerOps as PointerOps>::Value: BuddyRegionHeaderWrapper<Wrapped = Self>,
 	{
-		#[cfg(pmm_log_frames)]
-		kprintln!("Freeing frame {} (order = {})", self.addr.0, order);
+		#[cfg(memory_log_alloc)]
+		kprintln!("Freeing block {} (order = {})", block_addr, order);
 
-		let parent_region = self.find_parent_region(&mut regions);
-		let mut block = (self.addr.0 + PHYSICAL_MAPPED_BASE) as *mut MaybeUninit<FreeBlock>;
+		let parent_region = Self::find_parent_region(order, block_addr, regions)
+			.expect("The block should belong to one of the regions in the given region list");
 
-		if !parent_region.block_is_in_use(block as u64) {
+		if !parent_region.block_is_in_use(block_addr) {
 			panic!("Attempt to free frame that wasn't allocated");
 		}
 
 		// mark this block as free since we might not be able to do so later
 		// (if we merge with a buddy)
-		parent_region.set_block_is_in_use(block as u64, false);
+		parent_region.set_block_is_in_use(block_addr, false);
 
 		// find buddies to merge with
 		while order < MAX_ORDER {
-			let buddy = match parent_region.find_buddy(block as u64, order) {
+			let buddy = match parent_region.find_buddy(block_addr, order) {
 				Some(x) => x,
 
 				// oh, no buddy? how sad :(
@@ -490,27 +518,32 @@ pub(super) trait BuddyRegionHeader {
 				break;
 			}
 
-			// make sure our buddy is of the order we're expecting
-			if !parent_region.buckets[order]
+			// find our buddy and make sure they're of the order we're expecting
+			let buddy_block = match parent_region.buckets()[order]
 				.iter()
-				.any(|maybe_buddy| (maybe_buddy as *const FreeBlock) as u64 == buddy)
+				.find(|&maybe_buddy| maybe_buddy.addr == buddy)
 			{
+				Some(x) => x,
+
 				// oh, looks like our buddy isn't the right size so we can't merge with them.
-				break;
-			}
+				None => break,
+			};
+
+			// SAFETY: we have exclusive access to the region list, so we have exclusive access to its regions and, by extension, to their free blocks
+			let buddy_block = (buddy_block as *const FreeBlock) as *mut FreeBlock;
 
 			// yay, our buddy is free! let's get together.
 
 			// take them out of their current bucket
 			//
 			// SAFETY: we've made sure that the buddy is actually free and part of the bucket of the given order.
-			unsafe { parent_region.remove_free_block(buddy as *mut FreeBlock, order) };
+			unsafe { parent_region.remove_free_block(buddy_block, order) };
 
-			FRAMES_IN_USE.fetch_add(page_count_of_order(order), Ordering::Relaxed);
+			Self::after_free_buddy_remove(order);
 
 			// whoever's got the lower address is the start of the bigger block
-			if buddy < block as u64 {
-				block = buddy as *mut MaybeUninit<FreeBlock>;
+			if buddy < block_addr {
+				block_addr = buddy;
 			}
 
 			// now *don't* insert the new block into the free list.
@@ -523,6 +556,6 @@ pub(super) trait BuddyRegionHeader {
 		// finally, insert the new (possibly merged) block into the appropriate bucket
 		//
 		// SAFETY: we've ensured that the block is truly free (and, thus, is unaliased) and we've only (potentially) merged it with other free blocks.
-		unsafe { parent_region.insert_free_block(block as u64, order) };
+		unsafe { parent_region.insert_free_block(block_addr, order) };
 	}
 }

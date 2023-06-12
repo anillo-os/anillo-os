@@ -26,7 +26,6 @@ use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink}
 
 use super::{
 	order::{order_of_page_count_ceil, order_of_page_count_floor, page_count_of_order, MAX_ORDER},
-	region::FreeBlock,
 	region::FreeBlockAdapter,
 	region::{BuddyRegionHeader, BuddyRegionHeaderWrapper},
 	util::round_up_page_div,
@@ -90,6 +89,10 @@ impl BuddyRegionHeader for InnerRegionHeader {
 	}
 
 	fn after_allocate_remove(order: usize) {
+		FRAMES_IN_USE.fetch_add(page_count_of_order(order), Ordering::Relaxed);
+	}
+
+	fn after_free_buddy_remove(order: usize) {
 		FRAMES_IN_USE.fetch_add(page_count_of_order(order), Ordering::Relaxed);
 	}
 }
@@ -326,30 +329,6 @@ impl PhysicalFrame {
 	pub fn page_count(&self) -> u64 {
 		self.page_count
 	}
-
-	/// Finds and returns a (mutable) reference to this frame's parent region. Panics if none was found (since all frames must have a valid parent region).
-	fn find_parent_region<'a>(
-		&self,
-		regions: &'a mut LinkedList<RegionHeaderAdapter>,
-	) -> &'a mut InnerRegionHeader {
-		let mapped_addr = self.addr.0 + PHYSICAL_MAPPED_BASE;
-
-		regions
-			.iter()
-			.find_map(|region| {
-				// SAFETY: because we are holding the spin-lock, we are guaranteed to have exclusive access to the region list and its regions.
-				let inner = unsafe { &mut *region.inner.get() };
-
-				if mapped_addr >= inner.phys_start_addr
-					&& mapped_addr < inner.phys_start_addr + (inner.page_count * PAGE_SIZE)
-				{
-					Some(inner)
-				} else {
-					None
-				}
-			})
-			.expect("All physical frames must belong to a parent region")
-	}
 }
 
 impl Drop for PhysicalFrame {
@@ -358,71 +337,11 @@ impl Drop for PhysicalFrame {
 			return;
 		}
 
-		let mut order = order_of_page_count_ceil(self.page_count);
-
-		#[cfg(pmm_log_frames)]
-		kprintln!("Freeing frame {} (order = {})", self.addr.0, order);
-
+		let order = order_of_page_count_ceil(self.page_count);
 		let mut regions = REGIONS.lock();
 
-		let parent_region = self.find_parent_region(&mut regions);
-		let mut block = (self.addr.0 + PHYSICAL_MAPPED_BASE) as *mut MaybeUninit<FreeBlock>;
-
-		if !parent_region.block_is_in_use(block as u64) {
-			panic!("Attempt to free frame that wasn't allocated");
-		}
-
-		// mark this block as free since we might not be able to do so later
-		// (if we merge with a buddy)
-		parent_region.set_block_is_in_use(block as u64, false);
-
-		// find buddies to merge with
-		while order < MAX_ORDER {
-			let buddy = match parent_region.find_buddy(block as u64, order) {
-				Some(x) => x,
-
-				// oh, no buddy? how sad :(
-				None => break,
-			};
-
-			if parent_region.block_is_in_use(buddy) {
-				// whelp, our buddy is in use. we can't do any more merging
-				break;
-			}
-
-			// make sure our buddy is of the order we're expecting
-			if !parent_region.buckets[order]
-				.iter()
-				.any(|maybe_buddy| (maybe_buddy as *const FreeBlock) as u64 == buddy)
-			{
-				// oh, looks like our buddy isn't the right size so we can't merge with them.
-				break;
-			}
-
-			// yay, our buddy is free! let's get together.
-
-			// take them out of their current bucket
-			//
-			// SAFETY: we've made sure that the buddy is actually free and part of the bucket of the given order.
-			unsafe { parent_region.remove_free_block(buddy as *mut FreeBlock, order) };
-
-			FRAMES_IN_USE.fetch_add(page_count_of_order(order), Ordering::Relaxed);
-
-			// whoever's got the lower address is the start of the bigger block
-			if buddy < block as u64 {
-				block = buddy as *mut MaybeUninit<FreeBlock>;
-			}
-
-			// now *don't* insert the new block into the free list.
-			// that would be pointless since we might still have a buddy to merge with the bigger block
-			// and we insert it later, after the loop.
-
-			order += 1;
-		}
-
-		// finally, insert the new (possibly merged) block into the appropriate bucket
-		//
-		// SAFETY: we've ensured that the block is truly free (and, thus, is unaliased) and we've only (potentially) merged it with other free blocks.
-		unsafe { parent_region.insert_free_block(block as u64, order) };
+		// SAFETY: we know this is a valid block within the region list because we either allocated it from the list ourselves (using `Self::allocate` or
+		//         `Self::allocate_aligned`) or we were told that it was previously allocated from it (using `Self::from_allocated`).
+		unsafe { BuddyRegionHeader::free(order, self.addr.0 + PHYSICAL_MAPPED_BASE, &mut regions) };
 	}
 }
