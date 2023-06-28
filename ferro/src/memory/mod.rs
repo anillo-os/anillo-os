@@ -30,8 +30,10 @@ pub mod vmm;
 mod order;
 mod util;
 
+mod arc_frame;
 mod common;
 mod region;
+
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 #[cfg(target_arch = "x86_64")]
