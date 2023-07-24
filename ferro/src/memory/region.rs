@@ -47,6 +47,26 @@ pub(super) trait BuddyRegionHeaderWrapper {
 	unsafe fn inner(&self) -> &mut Self::Wrapped;
 }
 
+pub(super) struct CandidateBlockResult {
+	order: usize,
+	aligned_address: Option<u64>,
+	aligned_order: Option<usize>,
+}
+
+impl CandidateBlockResult {
+	pub fn order(&self) -> usize {
+		self.order
+	}
+
+	pub fn aligned_address(&self) -> Option<u64> {
+		self.aligned_address
+	}
+
+	pub fn aligned_order(&self) -> Option<usize> {
+		self.aligned_order
+	}
+}
+
 pub(super) trait BuddyRegionHeader {
 	fn bitmap(&self) -> &[u8];
 	fn bitmap_mut(&mut self) -> &mut [u8];
@@ -201,166 +221,148 @@ pub(super) trait BuddyRegionHeader {
 		ptr
 	}
 
-	/// Allocates the next available contiguous aligned block of the given size and alignment.
-	///
-	/// # Arguments
-	///
-	/// * `order` - The order of the block to allocate.
-	/// * `alignment_power` - A power of two for the alignment that the allocated region should have.
-	///                       For example, for 8-byte alignment, this should be 3 because 2^3 = 8.
-	///                       A value of 0 is 2^0 = 1, which is normal, unaligned memory.
-	/// * `regions` - A linked list of BuddyRegionHeaderWrappers that wrap BuddyRegionHeaders of this type.
-	fn allocate_aligned<A: Adapter>(
-		order: usize,
+	fn find_candidate_block(
+		&mut self,
+		min_order: usize,
 		alignment_power: u8,
-		regions: &mut LinkedList<A>,
-	) -> Result<u64, ()>
-	where
-		A::LinkOps: LinkedListOps,
-		<<A as Adapter>::PointerOps as PointerOps>::Value: BuddyRegionHeaderWrapper<Wrapped = Self>,
-	{
-		if order >= MAX_ORDER {
-			return Err(());
-		}
-
+		previous_candidate_order: &mut Option<usize>,
+	) -> Option<CandidateBlockResult> {
 		let alignment_mask = (1u64 << alignment_power) - 1;
-		let min_order = order;
+		let orig_candidate_order: Option<usize> = *previous_candidate_order;
+		let mut new_candidate_order: Option<usize> = None;
 
-		let mut candidate_order = None;
+		let mut aligned_candidate_block = None;
+		let mut aligned_candidate_order = None;
 
-		// first, look for the smallest usable block from any region
-		let result = regions
-			.iter()
-			.filter_map(|phys_region| {
-				// SAFETY: we have exclusive access to the linked list, so this can't possibly be aliased.
-				let inner = unsafe { phys_region.inner() };
+		for (index, bucket) in self.buckets_mut()[min_order..].iter_mut().enumerate() {
+			let order = min_order + index;
 
-				let mut aligned_candidate_block = None;
-				let mut aligned_candidate_order = None;
+			if order
+				>= new_candidate_order
+					.or(orig_candidate_order)
+					.unwrap_or(usize::MAX)
+			{
+				break;
+			}
 
-				for (index, bucket) in inner.buckets_mut()[min_order..].iter_mut().enumerate() {
-					let order = min_order + index;
+			let block_cursor = bucket.front();
+			let block = match block_cursor.get() {
+				Some(x) => x,
+				None => continue,
+			};
 
-					if order >= candidate_order.unwrap_or(usize::MAX) {
-						break;
-					}
+			// SAFETY: this is a valid block because it came from the free block buckets of the region (which must only contain valid free blocks).
+			let block_addr = (unsafe { &*(block as *const FreeBlock) }).addr;
 
-					let block_cursor = bucket.front();
-					let block = match block_cursor.get() {
-						Some(x) => x,
-						None => continue,
-					};
+			// if the address isn't aligned how we want it, let's see if maybe there's a sub-block that *is*
+			if (block_addr & alignment_mask) != 0 {
+				if order > min_order {
+					let next_aligned_address =
+						(block_addr & !alignment_mask) + (alignment_mask + 1);
+					let mut subblock_end = block_addr + byte_count_of_order(order);
 
-					// SAFETY: this is a valid block because it came from the free block buckets of the region (which must only contain valid free blocks).
-					let block_addr = (unsafe { &*(block as *const FreeBlock) }).addr;
+					if next_aligned_address > block_addr && next_aligned_address < subblock_end {
+						// okay, great; the next aligned address falls within this block.
+						// however, let's see if the sub-block is big enough for us.
+						let mut subblock = block_addr;
+						let mut suborder = order - 1;
+						let mut found = false;
 
-					// if the address isn't aligned how we want it, let's see if maybe there's a sub-block that *is*
-					if (block_addr & alignment_mask) != 0 {
-						if order > min_order {
-							let next_aligned_address =
-								(block_addr & !alignment_mask) + (alignment_mask + 1);
-							let mut subblock_end = block_addr + byte_count_of_order(order);
-
-							if next_aligned_address > block_addr
-								&& next_aligned_address < subblock_end
-							{
-								// okay, great; the next aligned address falls within this block.
-								// however, let's see if the sub-block is big enough for us.
-								let mut subblock = block_addr;
-								let mut suborder = order - 1;
-								let mut found = false;
-
-								while suborder >= min_order && subblock < subblock_end {
-									if (subblock & alignment_mask) == 0 {
-										// awesome, this sub-block is big enough and it's aligned properly
-										found = true;
-										// SAFETY: this one is twofold:
-										//   * this is not aliased because we have exclusive access to the region list and free blocks must be unaliased
-										//   * this is a valid pointer because it's a sub-block and we just made sure it's aligned and sized properly.
-										aligned_candidate_block = Some(subblock);
-										aligned_candidate_order = Some(suborder);
+						while suborder >= min_order && subblock < subblock_end {
+							if (subblock & alignment_mask) == 0 {
+								// awesome, this sub-block is big enough and it's aligned properly
+								found = true;
+								// SAFETY: this one is twofold:
+								//   * this is not aliased because we have exclusive access to the region list and free blocks must be unaliased
+								//   * this is a valid pointer because it's a sub-block and we just made sure it's aligned and sized properly.
+								aligned_candidate_block = Some(subblock);
+								aligned_candidate_order = Some(suborder);
+								break;
+							} else {
+								if next_aligned_address > subblock
+									&& next_aligned_address
+										< subblock + byte_count_of_order(suborder)
+								{
+									// okay, so this sub-block contains the address; let's search its sub-leaves
+									if suborder == min_order {
+										// can't split up a min order block to get an aligned block big enough
 										break;
 									} else {
-										if next_aligned_address > subblock
-											&& next_aligned_address
-												< subblock + byte_count_of_order(suborder)
-										{
-											// okay, so this sub-block contains the address; let's search its sub-leaves
-											if suborder == min_order {
-												// can't split up a min order block to get an aligned block big enough
-												break;
-											} else {
-												subblock_end =
-													subblock + byte_count_of_order(suborder);
-												suborder -= 1;
-											}
-										} else {
-											// nope, this sub-block doesn't contain the address; let's skip it
-											subblock += byte_count_of_order(suborder);
-										}
+										subblock_end = subblock + byte_count_of_order(suborder);
+										suborder -= 1;
 									}
+								} else {
+									// nope, this sub-block doesn't contain the address; let's skip it
+									subblock += byte_count_of_order(suborder);
 								}
-
-								if !found {
-									// none of this block's sub-blocks were big enough and aligned properly
-									continue;
-								}
-
-							// great, we have an aligned subblock big enough; let's go ahead and save this candidate
-							} else {
-								// nope, the next aligned address isn't in this block.
-								continue;
 							}
-						} else {
-							// can't split up a min order block to get an aligned block big enough
+						}
+
+						if !found {
+							// none of this block's sub-blocks were big enough and aligned properly
 							continue;
 						}
+
+					// great, we have an aligned subblock big enough; let's go ahead and save this candidate
+					} else {
+						// nope, the next aligned address isn't in this block.
+						continue;
 					}
-
-					candidate_order = Some(order);
-					break;
-				}
-
-				if candidate_order.is_some() {
-					Some((
-						candidate_order.unwrap(),
-						inner,
-						aligned_candidate_block,
-						aligned_candidate_order,
-					))
 				} else {
-					None
+					// can't split up a min order block to get an aligned block big enough
+					continue;
 				}
-			})
-			.min_by_key(|item| item.0);
+			}
 
-		// uh-oh, we don't have any free blocks big enough in any region
-		if result.is_none() {
-			return Err(());
+			new_candidate_order = Some(order);
+
+			if order == min_order {
+				// we're not going to be able to find a smaller candidate block
+				break;
+			}
 		}
 
-		let (
-			mut candidate_order,
-			candidate_parent_region,
-			aligned_candidate_block,
-			aligned_candidate_order,
-		) = result.unwrap();
+		if new_candidate_order.is_some() {
+			*previous_candidate_order = new_candidate_order;
 
-		// this is guaranteed to be the same block we found above since we have exclusive access to the list (so no one else can be modifying or even reading from any of the regions)
-		let candidate_block_ptr = candidate_parent_region.buckets_mut()[candidate_order]
-			.front_mut()
-			.get()
-			.unwrap() as *const FreeBlock;
+			Some(CandidateBlockResult {
+				order: new_candidate_order.unwrap(),
+				aligned_address: aligned_candidate_block,
+				aligned_order: aligned_candidate_order,
+			})
+		} else {
+			None
+		}
+	}
+
+	fn allocate_candidate(
+		&mut self,
+		min_order: usize,
+		candidate: CandidateBlockResult,
+		alignment_power: u8,
+	) -> Option<u64> {
+		let alignment_mask = (1u64 << alignment_power) - 1;
+
+		let CandidateBlockResult {
+			order: mut candidate_order,
+			aligned_address: aligned_candidate_block,
+			aligned_order: aligned_candidate_order,
+		} = candidate;
+
+		let candidate_block_ptr =
+			self.buckets_mut()[candidate_order].front_mut().get()? as *const FreeBlock;
 
 		// SAFETY: this is safe because this is a valid free block that we obtained from the candidate region's free block buckets
 		let mut candidate_block_addr = (unsafe { &*candidate_block_ptr }).addr;
 
-		candidate_parent_region.ensure_block_state(candidate_block_addr, false);
+		// FIXME: we shouldn't implicitly trust the information in `candidate` and we should verify it ourselves
+
+		self.ensure_block_state(candidate_block_addr, false);
 
 		// okay, we've chosen our candidate region. un-free it
 		assert_eq!(
 			candidate_block_ptr,
-			candidate_parent_region.remove_first_free_block(candidate_order) as *const FreeBlock
+			self.remove_first_free_block(candidate_order) as *const FreeBlock
 		);
 
 		Self::after_allocate_remove(candidate_order);
@@ -395,7 +397,7 @@ pub(super) trait BuddyRegionHeader {
 						// SAFETY: we know this block is not aliased because it was part of a free block (and free blocks must be unaliased).
 						//         additionally, we know this is a valid pointer because we derived it from a free block and made sure it was aligned
 						//         to the correct order and sized properly.
-						unsafe { candidate_parent_region.insert_free_block(split_block, suborder) };
+						unsafe { self.insert_free_block(split_block, suborder) };
 					}
 				}
 
@@ -438,9 +440,63 @@ pub(super) trait BuddyRegionHeader {
 			// SAFETY: we know this block is not aliased because it was part of a free block (and free blocks must be unaliased).
 			//         additionally, we know this is a valid pointer because we derived it from a free block and made sure it was aligned
 			//         to the correct order and sized properly.
-			unsafe { candidate_parent_region.insert_free_block(start_split, order) };
+			unsafe { self.insert_free_block(start_split, order) };
 			start_split += byte_count_of_order(order);
 		}
+
+		Some(candidate_block_addr)
+	}
+
+	/// Allocates the next available contiguous aligned block of the given size and alignment.
+	///
+	/// # Arguments
+	///
+	/// * `order` - The order of the block to allocate.
+	/// * `alignment_power` - A power of two for the alignment that the allocated region should have.
+	///                       For example, for 8-byte alignment, this should be 3 because 2^3 = 8.
+	///                       A value of 0 is 2^0 = 1, which is normal, unaligned memory.
+	/// * `regions` - A linked list of BuddyRegionHeaderWrappers that wrap BuddyRegionHeaders of this type.
+	fn allocate_aligned<A: Adapter>(
+		min_order: usize,
+		alignment_power: u8,
+		regions: &mut LinkedList<A>,
+	) -> Result<u64, ()>
+	where
+		A::LinkOps: LinkedListOps,
+		<<A as Adapter>::PointerOps as PointerOps>::Value: BuddyRegionHeaderWrapper<Wrapped = Self>,
+	{
+		if min_order >= MAX_ORDER {
+			return Err(());
+		}
+
+		let mut candidate_order = None;
+
+		// first, look for the smallest usable block from any region
+		let result = regions
+			.iter()
+			.filter_map(|phys_region| {
+				// SAFETY: we have exclusive access to the linked list, so this can't possibly be aliased.
+				let inner = unsafe { phys_region.inner() };
+
+				inner
+					.find_candidate_block(min_order, alignment_power, &mut candidate_order)
+					.map(|result| (inner, result))
+			})
+			.min_by_key(|item| item.1.order);
+
+		// uh-oh, we don't have any free blocks big enough in any region
+		if result.is_none() {
+			return Err(());
+		}
+
+		// this is guaranteed to be the same block we found above since we have exclusive access to the list (so no one else can be modifying or even reading from any of the regions);
+		let candidate_block_addr = {
+			let unwrapped = result.unwrap();
+			unwrapped
+				.0
+				.allocate_candidate(min_order, unwrapped.1, alignment_power)
+				.unwrap()
+		};
 
 		// alright, we now have the right-size block.
 

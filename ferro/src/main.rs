@@ -32,7 +32,9 @@
 	generic_const_exprs,
 	generic_arg_infer,
 	const_slice_from_raw_parts_mut,
-	const_fn_floating_point_arithmetic
+	const_fn_floating_point_arithmetic,
+	ptr_as_uninit,
+	dropck_eyepatch
 )]
 #![allow(dead_code, incomplete_features)]
 
@@ -44,6 +46,7 @@ mod console;
 mod geometry;
 mod interrupts;
 mod memory;
+mod mempool;
 mod util;
 
 use core::ffi::c_void;

@@ -34,6 +34,7 @@ mod arc_frame;
 mod common;
 mod region;
 
+mod pslab;
 #[cfg(target_arch = "x86_64")]
 mod x86_64;
 #[cfg(target_arch = "x86_64")]
@@ -112,6 +113,9 @@ const_from_impl! { addr: u64 => DecomposedAddress {
 		offset: (addr & 0x1ff) as u16,
 	}
 }}
+
+pub const PAGE_TABLE_INDEX_MAX: u16 = 0x1ff;
+pub const PAGE_OFFSET_MAX: u16 = 0xfff;
 
 pub const fn make_virtual_address(l4: u16, l3: u16, l2: u16, l1: u16, offset: u16) -> u64 {
 	let mut result = 0
