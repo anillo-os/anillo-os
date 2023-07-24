@@ -23,26 +23,35 @@
 
 use core::{
 	marker::PhantomData,
-	mem::{align_of, size_of},
+	mem::size_of,
 	ops::Deref,
 	ptr::{addr_of_mut, drop_in_place, NonNull},
 	sync::atomic::{fence, AtomicUsize, Ordering},
 };
 
-use super::{pmm::PhysicalFrame, pslab::PSlabRef, util::round_up_page_div};
+use super::{
+	pmm::PhysicalFrame,
+	pslab::{PSlab, PSlabAllocation, PSlabRef},
+	util::round_up_page_div,
+};
 
 enum ArcFrameBackingMemory<T> {
+	/// Only used as a temporary value during initialization
+	None,
 	/// Allocate an individual PhysicalFrame just for this ArcFrame.
 	Individual(PhysicalFrame),
 	// Put the ArcFrame into a slab of memory along with other ArcFrames of the same type.
-	Slab(PSlabRef<T>),
+	Slab(PSlabRef<ArcFrameInner<T>>),
 }
 
-struct ArcFrameInner<T> {
+// must be public to be able to create slabs for it
+pub(super) struct ArcFrameInner<T> {
 	counter: AtomicUsize,
 	backing_memory: ArcFrameBackingMemory<T>,
 	content: T,
 }
+
+pub(super) type ArcFramePSlab<T> = PSlab<ArcFrameInner<T>>;
 
 pub(super) struct ArcFrame<T> {
 	allocation: NonNull<ArcFrameInner<T>>,
@@ -50,9 +59,7 @@ pub(super) struct ArcFrame<T> {
 }
 
 impl<T> ArcFrame<T> {
-	pub(super) fn new(value: T) -> Self {
-		assert!(align_of::<T>() <= align_of::<usize>());
-
+	pub(super) fn new_in_frame(value: T) -> Self {
 		let frame =
 			PhysicalFrame::allocate(round_up_page_div(size_of::<ArcFrameInner<T>>() as u64))
 				.expect("should be able to allocate physical frame(s) for ArcFrame");
@@ -67,8 +74,26 @@ impl<T> ArcFrame<T> {
 		// note that we do *not* want to use `assume_init` because we do not want to take ownership of the data.
 		// nor do we use `assume_init_{mut,ref}` since we don't need a reference to the initialized data (we use a pointer).
 		Self {
-			// SAFETY: we know that physical frames cannot have null addresses (our frame allocator guarantees that)
-			allocation: unsafe { NonNull::new_unchecked(inner_ptr) },
+			// SAFETY: we just initialized it above
+			allocation: unsafe { inner_uninit.assume_init_mut() }.into(),
+			phantom: PhantomData,
+		}
+	}
+
+	pub(super) fn new_in_slab(value: T, slab: ArcFramePSlab<T>) -> Self {
+		let alloc = slab
+			.allocate(ArcFrameInner {
+				counter: AtomicUsize::new(1),
+				backing_memory: ArcFrameBackingMemory::None,
+				content: value,
+			})
+			.expect("should be able to allocate in PSlab for ArcFrame");
+		let (mut ptr, reference) = alloc.detach();
+		// SAFETY: we just allocated it above and still have the reference to keep it alive
+		let inner = unsafe { ptr.as_mut() };
+		inner.backing_memory = ArcFrameBackingMemory::Slab(reference);
+		Self {
+			allocation: inner.into(),
 			phantom: PhantomData,
 		}
 	}
@@ -83,12 +108,6 @@ impl<T> ArcFrame<T> {
 	fn inner(&self) -> &ArcFrameInner<T> {
 		// SAFETY: we own a reference on the data, so it's perfectly valid for us to dereference it
 		unsafe { self.allocation.as_ref() }
-	}
-}
-
-impl<T: Default> Default for ArcFrame<T> {
-	fn default() -> Self {
-		Self::new(Default::default())
 	}
 }
 
@@ -137,8 +156,14 @@ unsafe impl<#[may_dangle] T> Drop for ArcFrame<T> {
 		unsafe { drop_in_place(addr_of_mut!((*self.allocation.as_ptr()).content)) };
 
 		// we're now free to drop the backing memory
-		// (we could just let it go out of scope, but let's be explicit)
-		drop(backing_memory);
+		match backing_memory {
+			ArcFrameBackingMemory::None => unreachable!(),
+			ArcFrameBackingMemory::Individual(frame) => drop(frame),
+			// SAFETY: we obtained the ArcFrameInner and PSlabRef from the same call to PSlabAllocation::detach
+			ArcFrameBackingMemory::Slab(reference) => {
+				drop(unsafe { PSlabAllocation::from_detached(self.allocation, reference) })
+			},
+		}
 	}
 }
 

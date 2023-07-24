@@ -21,6 +21,7 @@
 use core::{
 	marker::PhantomData,
 	mem::{align_of, size_of, MaybeUninit},
+	ops::{Deref, DerefMut},
 	ptr::{addr_of_mut, null_mut, NonNull},
 	sync::atomic::{fence, AtomicUsize, Ordering},
 };
@@ -28,7 +29,10 @@ use core::{
 use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink};
 
 use super::{pmm::PhysicalFrame, PAGE_SIZE};
-use crate::sync::{Lock, SpinLock};
+use crate::{
+	sync::{Lock, SpinLock},
+	util::ConstDefault,
+};
 
 struct FreeNode {
 	next: *mut FreeNode,
@@ -44,10 +48,45 @@ struct PSlabRegion {
 
 intrusive_adapter!(PSlabRegionAdapter = &'static PSlabRegion: PSlabRegion { link: LinkedListAtomicLink });
 
-#[derive(Clone)]
 pub(super) struct PSlabAllocation<T> {
 	data: NonNull<T>,
 	reference: PSlabRef<T>,
+}
+
+impl<T> PSlabAllocation<T> {
+	pub(super) fn detach(self) -> (NonNull<T>, PSlabRef<T>) {
+		// SAFETY: we read the structure to avoid cloning it, and then we
+		//         immediately forget the stored copy in self below so that our read copy
+		//         is the only valid copy.
+		let result = (self.data, unsafe {
+			(&self.reference as *const PSlabRef<T>).read()
+		});
+		core::mem::forget(self);
+		result
+	}
+
+	/// SAFETY: `data` and `reference` must have been obtained from *the same call* to Self::detach
+	///         on a previous PSlabAllocation<T> instance.
+	pub(super) unsafe fn from_detached(data: NonNull<T>, reference: PSlabRef<T>) -> Self {
+		Self { data, reference }
+	}
+}
+
+impl<T> Deref for PSlabAllocation<T> {
+	type Target = T;
+
+	fn deref(&self) -> &Self::Target {
+		// SAFETY: as long as we have the allocation, we can safely reference the data
+		unsafe { self.data.as_ref() }
+	}
+}
+
+impl<T> DerefMut for PSlabAllocation<T> {
+	fn deref_mut(&mut self) -> &mut Self::Target {
+		// SAFETY: PSlabAllocations are move-only types (unlike e.g. ArcFrame), so we can be sure that having a mutable reference
+		//         to the allocation means that we have exclusive access to the data
+		unsafe { self.data.as_mut() }
+	}
 }
 
 impl<T> Drop for PSlabAllocation<T> {
@@ -63,7 +102,7 @@ impl<T> Drop for PSlabAllocation<T> {
 }
 
 impl PSlabRegion {
-	// SAFETY: this PSlabRegion *must* be allocated for elements of the given type
+	/// SAFETY: this PSlabRegion *must* be allocated for elements of the given type
 	unsafe fn allocate<T>(&self) -> Option<NonNull<MaybeUninit<T>>> {
 		let mut first_free_ptr = self.first_free.lock();
 		let first_free = *first_free_ptr;
@@ -72,7 +111,7 @@ impl PSlabRegion {
 		}
 
 		// SAFETY: we're holding the lock and we know that the free nodes in the PSlabRegion are valid
-		let next_ptr = unsafe { *first_free }.next;
+		let next_ptr = unsafe { (*first_free).next };
 		unsafe { *first_free_ptr = next_ptr };
 
 		// SAFETY: we just checked above that the first free pointer is not null
@@ -93,6 +132,12 @@ impl PSlabRegion {
 	}
 }
 
+impl const ConstDefault for LinkedList<PSlabRegionAdapter> {
+	fn const_default() -> Self {
+		Self::new(PSlabRegionAdapter::NEW)
+	}
+}
+
 /// A simple slab allocator for allocating groups of types in physical memory.
 ///
 /// For our internal needs here in the memory subsystem, PSlabs **must** be static variables.
@@ -104,9 +149,9 @@ pub(super) struct PSlab<T> {
 }
 
 impl<T> PSlab<T> {
-	const fn new() -> Self {
+	pub(super) const fn new() -> Self {
 		Self {
-			regions: Default::default(),
+			regions: ConstDefault::const_default(),
 			phantom: PhantomData,
 		}
 	}
@@ -119,11 +164,12 @@ impl<T> PSlab<T> {
 		assert!(entry_count > 0);
 
 		let frame = PhysicalFrame::allocate(1).ok()?;
-		let region_ptr = frame.address().as_mut_ptr::<PSlabRegion>();
+		let frame_addr = frame.address();
+		let region_ptr = frame_addr.as_mut_ptr::<PSlabRegion>();
 		// SAFETY: we just allocated this above
 		let region_uninit =
 			unsafe { region_ptr.as_uninit_mut() }.expect("region pointer should not be null");
-		let first_addr = frame.address().as_value() + (size_of::<PSlabRegion>() as u64);
+		let first_addr = frame_addr.as_value() + (size_of::<PSlabRegion>() as u64);
 
 		region_uninit.write(PSlabRegion {
 			link: Default::default(),
@@ -136,7 +182,7 @@ impl<T> PSlab<T> {
 			let node_addr = first_addr + (entry_size * i);
 			let node_ptr = node_addr as *mut FreeNode;
 
-			assert!(node_addr >= first_addr && node_addr < frame.address().as_value() + PAGE_SIZE);
+			assert!(node_addr >= first_addr && node_addr < frame_addr.as_value() + PAGE_SIZE);
 
 			// SAFETY: we know this is within the region because we just asserted it above
 			let node_uninit =
@@ -198,7 +244,7 @@ impl<T> PSlab<T> {
 		None
 	}
 
-	fn allocate(&self, value: T) -> Option<PSlabAllocation<T>> {
+	pub(super) fn allocate(&self, value: T) -> Option<PSlabAllocation<T>> {
 		let allocator = |reference: PSlabRef<T>| {
 			// SAFETY: this slab only refers to regions that allocate objects of type T
 			unsafe { reference.region().allocate::<T>() }.map(|val| (val, reference))
@@ -208,15 +254,15 @@ impl<T> PSlab<T> {
 				let reference = self.new_region()?;
 				allocator(reference)
 			})
-			.map(|(alloc, reference)| {
+			.map(|(mut alloc, reference)| {
 				// SAFETY: we just allocated this above
 				let ptr = unsafe { alloc.as_mut() };
 				ptr.write(value);
-				Some(PSlabAllocation {
+				PSlabAllocation {
 					// SAFETY: we just initialized this above
 					data: unsafe { ptr.assume_init_mut().into() },
 					reference,
-				})
+				}
 			})
 	}
 }
