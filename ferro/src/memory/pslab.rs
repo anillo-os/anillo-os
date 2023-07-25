@@ -26,7 +26,7 @@ use core::{
 	sync::atomic::{fence, AtomicUsize, Ordering},
 };
 
-use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink};
+use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink, PointerOps};
 
 use super::{pmm::PhysicalFrame, PAGE_SIZE};
 use crate::{
@@ -38,7 +38,7 @@ struct FreeNode {
 	next: *mut FreeNode,
 }
 
-struct PSlabRegion {
+pub(super) struct PSlabRegion {
 	link: LinkedListAtomicLink,
 	counter: AtomicUsize,
 	frame: PhysicalFrame,
@@ -267,15 +267,22 @@ impl<T> PSlab<T> {
 	}
 }
 
+// SAFETY: PSlabs are always safe to send and share across threads (as long as they're not moved)
+unsafe impl<T> Send for PSlab<T> {}
+unsafe impl<T> Sync for PSlab<T> {}
+
 pub(super) struct PSlabRef<T>(NonNull<PSlabRegion>, *const PSlab<T>);
 
 impl<T> PSlabRef<T> {
-	unsafe fn new_no_increment(region: NonNull<PSlabRegion>, pslab: *const PSlab<T>) -> Self {
+	pub(super) unsafe fn new_no_increment(
+		region: NonNull<PSlabRegion>,
+		pslab: *const PSlab<T>,
+	) -> Self {
 		// SAFETY: we're assuming that the caller knows that the region is alive
 		Self(region, pslab)
 	}
 
-	unsafe fn new(region: NonNull<PSlabRegion>, pslab: *const PSlab<T>) -> Self {
+	pub(super) unsafe fn new(region: NonNull<PSlabRegion>, pslab: *const PSlab<T>) -> Self {
 		// SAFETY: we're assuming that the caller knows that the region is alive
 		unsafe { region.as_ref() }
 			.counter
@@ -331,5 +338,49 @@ impl<T> Drop for PSlabRef<T> {
 		// now we can drop the backing memory
 		// (explicitly drop it just to be clear)
 		drop(frame)
+	}
+}
+
+pub(super) trait IntrusivePSlabAllocation
+where
+	Self: Sized,
+{
+	fn slab() -> *const PSlab<Self>;
+	fn region(&self) -> NonNull<PSlabRegion>;
+}
+
+pub(super) struct PSlabPointerOps<T: IntrusivePSlabAllocation>(PhantomData<T>);
+
+impl<T: IntrusivePSlabAllocation> PSlabPointerOps<T> {
+	pub(super) const fn new() -> Self {
+		Self(PhantomData)
+	}
+}
+
+impl<T: IntrusivePSlabAllocation> Clone for PSlabPointerOps<T> {
+	fn clone(&self) -> Self {
+		Self(PhantomData)
+	}
+}
+impl<T: IntrusivePSlabAllocation> Copy for PSlabPointerOps<T> {}
+
+unsafe impl<T: IntrusivePSlabAllocation> PointerOps for PSlabPointerOps<T> {
+	type Pointer = PSlabAllocation<T>;
+	type Value = T;
+
+	#[inline]
+	unsafe fn from_raw(&self, raw: *const T) -> PSlabAllocation<T> {
+		PSlabAllocation::from_detached(
+			NonNull::new_unchecked(raw as *mut T),
+			PSlabRef::new_no_increment((*raw).region(), T::slab()),
+		)
+	}
+
+	#[inline]
+	fn into_raw(&self, ptr: PSlabAllocation<T>) -> *const T {
+		let (data, reference) = ptr.detach();
+		// forget the reference so that we hang on to it until we rebuild it later
+		core::mem::forget(reference);
+		data.as_ptr() as *const T
 	}
 }

@@ -34,6 +34,8 @@ mod arc_frame;
 mod common;
 mod region;
 
+mod custom_adapter;
+pub mod mapping;
 mod pslab;
 #[cfg(target_arch = "x86_64")]
 mod x86_64;

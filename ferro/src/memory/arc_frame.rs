@@ -44,6 +44,10 @@ enum ArcFrameBackingMemory<T> {
 	Slab(PSlabRef<ArcFrameInner<T>>),
 }
 
+// the backing memory is always Send+Sync for internal use
+unsafe impl<T> Send for ArcFrameBackingMemory<T> {}
+unsafe impl<T> Sync for ArcFrameBackingMemory<T> {}
+
 // must be public to be able to create slabs for it
 pub(super) struct ArcFrameInner<T> {
 	counter: AtomicUsize,
