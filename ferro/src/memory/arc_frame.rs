@@ -63,10 +63,10 @@ pub(super) struct ArcFrame<T> {
 }
 
 impl<T> ArcFrame<T> {
-	pub(super) fn new_in_frame(value: T) -> Self {
+	pub(super) fn new_in_frame(value: T) -> Option<Self> {
 		let frame =
 			PhysicalFrame::allocate(round_up_page_div(size_of::<ArcFrameInner<T>>() as u64))
-				.expect("should be able to allocate physical frame(s) for ArcFrame");
+				.ok()?;
 		let inner_ptr = frame.address().as_mut_ptr::<ArcFrameInner<T>>();
 		let inner_uninit =
 			unsafe { inner_ptr.as_uninit_mut() }.expect("frame pointer must not be null");
@@ -77,29 +77,27 @@ impl<T> ArcFrame<T> {
 		});
 		// note that we do *not* want to use `assume_init` because we do not want to take ownership of the data.
 		// nor do we use `assume_init_{mut,ref}` since we don't need a reference to the initialized data (we use a pointer).
-		Self {
+		Some(Self {
 			// SAFETY: we just initialized it above
 			allocation: unsafe { inner_uninit.assume_init_mut() }.into(),
 			phantom: PhantomData,
-		}
+		})
 	}
 
-	pub(super) fn new_in_slab(value: T, slab: ArcFramePSlab<T>) -> Self {
-		let alloc = slab
-			.allocate(ArcFrameInner {
-				counter: AtomicUsize::new(1),
-				backing_memory: ArcFrameBackingMemory::None,
-				content: value,
-			})
-			.expect("should be able to allocate in PSlab for ArcFrame");
+	pub(super) fn new_in_slab(value: T, slab: ArcFramePSlab<T>) -> Option<Self> {
+		let alloc = slab.allocate(ArcFrameInner {
+			counter: AtomicUsize::new(1),
+			backing_memory: ArcFrameBackingMemory::None,
+			content: value,
+		})?;
 		let (mut ptr, reference) = alloc.detach();
 		// SAFETY: we just allocated it above and still have the reference to keep it alive
 		let inner = unsafe { ptr.as_mut() };
 		inner.backing_memory = ArcFrameBackingMemory::Slab(reference);
-		Self {
+		Some(Self {
 			allocation: inner.into(),
 			phantom: PhantomData,
-		}
+		})
 	}
 
 	unsafe fn from_inner(inner: NonNull<ArcFrameInner<T>>) -> Self {

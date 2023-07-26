@@ -329,6 +329,10 @@ impl PhysicalFrame {
 	pub fn page_count(&self) -> u64 {
 		self.page_count
 	}
+
+	pub fn owned(&self) -> bool {
+		self.allocated
+	}
 }
 
 impl Drop for PhysicalFrame {
