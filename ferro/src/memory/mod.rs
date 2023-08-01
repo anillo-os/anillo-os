@@ -89,6 +89,10 @@ impl PhysicalAddress {
 	fn as_mut_ptr<T>(&self) -> *mut T {
 		(self.0 + PHYSICAL_MAPPED_BASE) as *mut T
 	}
+
+	fn offset_pages(&self, page_count: i64) -> Self {
+		Self(self.0.wrapping_add_signed(page_count * (PAGE_SIZE as i64)))
+	}
 }
 
 // we implement Debug and not Display because you should only ever see physical addresses during debugging

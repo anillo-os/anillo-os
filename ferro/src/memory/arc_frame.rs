@@ -84,7 +84,7 @@ impl<T> ArcFrame<T> {
 		})
 	}
 
-	pub(super) fn new_in_slab(value: T, slab: ArcFramePSlab<T>) -> Option<Self> {
+	pub(super) fn new_in_slab(value: T, slab: &ArcFramePSlab<T>) -> Option<Self> {
 		let alloc = slab.allocate(ArcFrameInner {
 			counter: AtomicUsize::new(1),
 			backing_memory: ArcFrameBackingMemory::None,

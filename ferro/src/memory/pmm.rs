@@ -310,7 +310,7 @@ impl PhysicalFrame {
 		}
 	}
 
-	/// Consumes this PhysicalFrame and the associated physical address and page count *without* deallocating the frame.
+	/// Consumes this PhysicalFrame and returns the associated physical address and page count *without* deallocating the frame.
 	///
 	/// Ordinarily, PhysicalFrames created via allocation methods ([`Self::allocate()`] and [`Self::allocate_aligned()`]) are deallocated when
 	/// dropped. This method can be used to consume/drop an allocated PhysicalFrame while holding on to the frame itself.

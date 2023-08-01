@@ -28,21 +28,60 @@ use super::{
 	pslab::{IntrusivePSlabAllocation, PSlab, PSlabPointerOps, PSlabRegion},
 	PhysicalAddress,
 };
-use crate::{custom_intrusive_adapter, sync::SpinLock};
+use crate::{
+	custom_intrusive_adapter,
+	sync::{Lock, SpinLock},
+};
 
 static MAPPING_SLAB: ArcFramePSlab<InnerMapping> = ArcFramePSlab::new();
 static MAPPING_PORTION_SLAB: PSlab<MappingPortion> = PSlab::new();
 
 bitflags! {
-	struct MappingFlags: u64 {
+	pub struct MappingFlags: u64 {
 		// TODO
 	}
 }
 
+#[derive(Clone)]
 enum MappingPortionBacking {
-	OwnedFrame(PhysicalAddress),
-	UnownedFrame(PhysicalAddress),
-	Mapping { mapping: Mapping, owner_offset: u32 },
+	OwnedFrame {
+		start_addr: PhysicalAddress,
+		total_page_count: u32,
+		page_offset: u32,
+		mapped_page_count: u32,
+		portion_offset: u32,
+	},
+	UnownedFrame {
+		start_addr: PhysicalAddress,
+		page_count: u32,
+		portion_offset: u32,
+	},
+	Mapping {
+		mapping: Mapping,
+		owner_offset: u32,
+		page_count: u32,
+		portion_offset: u32,
+	},
+}
+
+impl MappingPortionBacking {
+	fn page_count(&self) -> u32 {
+		match self {
+			Self::OwnedFrame {
+				mapped_page_count, ..
+			} => *mapped_page_count,
+			Self::UnownedFrame { page_count, .. } => *page_count,
+			Self::Mapping { page_count, .. } => *page_count,
+		}
+	}
+
+	fn portion_offset(&self) -> u32 {
+		match self {
+			Self::OwnedFrame { portion_offset, .. } => *portion_offset,
+			Self::UnownedFrame { portion_offset, .. } => *portion_offset,
+			Self::Mapping { portion_offset, .. } => *portion_offset,
+		}
+	}
 }
 
 // keep this structure as small as possible!
@@ -50,11 +89,10 @@ pub(super) struct MappingPortion {
 	link: LinkedListAtomicLink,
 	region: NonNull<PSlabRegion>,
 	backing: MappingPortionBacking,
-	page_count: u64,
 }
 
 // current size; this is just to make sure we keep it as small as possible and the size doesn't change unexpectedly
-const_assert_eq!(size_of::<MappingPortion>(), 48);
+const_assert_eq!(size_of::<MappingPortion>(), 56);
 
 impl IntrusivePSlabAllocation for MappingPortion {
 	fn slab() -> *const PSlab<Self> {
@@ -70,6 +108,7 @@ custom_intrusive_adapter!(MappingPortionAdapter = PSlabPointerOps<MappingPortion
 
 // try to keep this structure small, but it's not nearly as crucial as MappingPortion
 struct InnerMapping {
+	page_count: u64,
 	portions: SpinLock<LinkedList<MappingPortionAdapter>>,
 }
 
@@ -99,12 +138,59 @@ pub enum BindError {
 impl Mapping {
 	pub fn new(page_count: u64, flags: MappingFlags) -> Option<Self> {
 		let inner = InnerMapping {
+			page_count,
 			portions: Default::default(),
 		};
-		Some(Self(ArcFrame::new_in_slab(inner, MAPPING_SLAB)?))
+		Some(Self(ArcFrame::new_in_slab(inner, &MAPPING_SLAB)?))
+	}
+
+	pub fn page_count(&self) -> u64 {
+		self.0.page_count
+	}
+
+	/// NOTE: This method assumes that all the necessary checks have already been
+	///       performed.
+	fn bind_internal(
+		&self,
+		portions: &mut LinkedList<MappingPortionAdapter>,
+		backing: MappingPortionBacking,
+	) -> Result<(), BindError> {
+		todo!()
+	}
+
+	fn check_overlap(
+		&self,
+		portions: &LinkedList<MappingPortionAdapter>,
+		bind_page_offset: u64,
+		bind_page_count: u64,
+	) -> Result<(), BindError> {
+		if portions.iter().any(|portion| {
+			let backing = &portion.backing;
+			let backing_offset = backing.portion_offset() as u64;
+			let backing_count = backing.page_count() as u64;
+			// check if this portion contains the start of the tentative portion
+			(
+				backing_offset <= bind_page_offset &&
+				(backing_offset + backing_count) > bind_page_offset
+			) ||
+			// check if the tentative portion contains the start of this portion
+			(
+				bind_page_offset <= backing_offset &&
+				(bind_page_offset + bind_page_count) > backing_offset
+			)
+		}) {
+			Err(BindError::AlreadyBound)
+		} else {
+			Ok(())
+		}
 	}
 
 	/// Binds a portion of this mapping to one or more newly allocated pages.
+	///
+	/// In contrast to [`Self::bind_existing`] and [`Self::bind_indirect`],
+	/// this method is safe. This is because there's no possibility to
+	/// introduce aliasing because the memory being bound to the portion is newly
+	/// allocated memory that isn't in-use for anything else.
 	pub fn bind_new(
 		&self,
 		page_count: u64,
@@ -119,14 +205,75 @@ impl Mapping {
 	/// Note that the mapping will take ownership of the given frame. If the frame owns the referenced memory,
 	/// it will be deallocated once the mapping no longer needs it; otherwise (if the frame does *not* own the referenced memory),
 	/// it will simply be discarded once the mapping no longer needs it.
-	pub fn bind_existing(
+	///
+	/// # Safety
+	///
+	/// This method is unsafe because it may introduce aliasing by allowing the same memory
+	/// to be referenced by multiple mappings. If this mapping is not mapped in any address space,
+	/// there is no such issue. However, because it's possible to bind memory to mappings after
+	/// they've already been mapped (and future lookups would return the newly bound memory),
+	/// it's possible to introduce aliasing with it even if the initial mapping was perfectly safe
+	/// (i.e. introduced no aliasing).
+	pub unsafe fn bind_existing(
 		&self,
 		page_count: u64,
 		bind_page_offset: u64,
 		incoming_page_offset: u64,
 		frame: PhysicalFrame,
 	) -> Result<(), BindError> {
-		todo!()
+		if bind_page_offset + page_count > self.0.page_count {
+			return Err(BindError::OutOfBoundsDestination);
+		}
+		if incoming_page_offset + page_count > frame.page_count() {
+			return Err(BindError::OutOfBoundsSource);
+		}
+
+		if TryInto::<u32>::try_into(page_count).is_err()
+			|| TryInto::<u32>::try_into(bind_page_offset).is_err()
+			|| TryInto::<u32>::try_into(incoming_page_offset).is_err()
+		{
+			panic!("arguments out-of-bounds");
+		}
+
+		let mut portions = self.0.portions.lock();
+
+		self.check_overlap(&portions, bind_page_offset, page_count)?;
+
+		let owned = frame.owned();
+		let (start_addr, total_page_count) = frame.detach();
+
+		if TryInto::<u32>::try_into(total_page_count).is_err() {
+			panic!("total page count out-of-bounds");
+		}
+
+		let backing = match owned {
+			true => MappingPortionBacking::OwnedFrame {
+				start_addr,
+				total_page_count: total_page_count as u32,
+				page_offset: incoming_page_offset as u32,
+				mapped_page_count: page_count as u32,
+				portion_offset: bind_page_offset as u32,
+			},
+			false => MappingPortionBacking::UnownedFrame {
+				start_addr: start_addr.offset_pages(incoming_page_offset as i64),
+				page_count: page_count as u32,
+				portion_offset: bind_page_offset as u32,
+			},
+		};
+
+		let result = self.bind_internal(&mut portions, backing);
+
+		if result.is_err() && owned {
+			// we failed to bind the portion (most likely: we failed to allocate the memory for the info structure).
+			// this frame was owned (i.e. allocated), but the caller passes ownership of it to us unconditionally,
+			// so we have to clean it up (i.e. deallocate it).
+
+			// SAFETY: we know this is a valid allocated frame because we just detached it above
+			//         (and failing to bind it to a portion does not affect the frame allocation)
+			drop(unsafe { PhysicalFrame::from_allocated(start_addr, total_page_count) });
+		}
+
+		result
 	}
 
 	/// Binds a portion of this mapping to a portion of the given mapping.
@@ -135,13 +282,45 @@ impl Mapping {
 	/// This is useful, for example, because it allows delaying the actual binding of physical memory until later when it is needed.
 	///
 	/// Effectively, this allows mappings to share memory without having the memory bound yet.
-	pub fn bind_indirect(
+	///
+	/// # Safety
+	///
+	/// The safety considerations for this method are the same as for [`Self::bind_existing()`].
+	/// However, this method is even *more* likely to introduce aliasing: because you're binding a
+	/// portion of a mapping to portion of another mapping, it's even more likely that both mappings
+	/// be in-use and thus the memory the reference will be aliased.
+	pub unsafe fn bind_indirect(
 		&self,
 		page_count: u64,
 		bind_page_offset: u64,
 		incoming_page_offset: u64,
 		mapping: Mapping,
 	) -> Result<(), BindError> {
-		todo!()
+		if bind_page_offset + page_count > self.0.page_count {
+			return Err(BindError::OutOfBoundsDestination);
+		}
+		if incoming_page_offset + page_count > mapping.page_count() {
+			return Err(BindError::OutOfBoundsSource);
+		}
+
+		if TryInto::<u32>::try_into(page_count).is_err()
+			|| TryInto::<u32>::try_into(bind_page_offset).is_err()
+			|| TryInto::<u32>::try_into(incoming_page_offset).is_err()
+		{
+			panic!("arguments out-of-bounds");
+		}
+
+		let mut portions = self.0.portions.lock();
+
+		self.check_overlap(&portions, bind_page_offset, page_count)?;
+
+		let backing = MappingPortionBacking::Mapping {
+			mapping,
+			owner_offset: incoming_page_offset as u32,
+			page_count: page_count as u32,
+			portion_offset: bind_page_offset as u32,
+		};
+
+		self.bind_internal(&mut portions, backing)
 	}
 }
