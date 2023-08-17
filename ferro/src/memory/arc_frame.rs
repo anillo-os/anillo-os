@@ -153,16 +153,18 @@ unsafe impl<#[may_dangle] T> Drop for ArcFrame<T> {
 		let backing_memory =
 			unsafe { addr_of_mut!((*self.allocation.as_ptr()).backing_memory).read() };
 
-		// SAFETY: we know this data is initialized (we were previously using it, after all), we know
-		//         the backing memory is still valid, and we know that we're the only ones dropping it.
-		unsafe { drop_in_place(addr_of_mut!((*self.allocation.as_ptr()).content)) };
-
 		// we're now free to drop the backing memory
 		match backing_memory {
 			ArcFrameBackingMemory::None => unreachable!(),
-			ArcFrameBackingMemory::Individual(frame) => drop(frame),
+			ArcFrameBackingMemory::Individual(frame) => {
+				// SAFETY: we know this data is initialized (we were previously using it, after all), we know
+				//         the backing memory is still valid, and we know that we're the only ones dropping it.
+				unsafe { drop_in_place(addr_of_mut!((*self.allocation.as_ptr()).content)) };
+				drop(frame)
+			},
 			// SAFETY: we obtained the ArcFrameInner and PSlabRef from the same call to PSlabAllocation::detach
 			ArcFrameBackingMemory::Slab(reference) => {
+				// no need to drop the data ourselves; PSlabAllocation takes care of that
 				drop(unsafe { PSlabAllocation::from_detached(self.allocation, reference) })
 			},
 		}

@@ -22,7 +22,7 @@ use core::{
 	marker::PhantomData,
 	mem::{align_of, size_of, MaybeUninit},
 	ops::{Deref, DerefMut},
-	ptr::{addr_of_mut, null_mut, NonNull},
+	ptr::{addr_of_mut, drop_in_place, null_mut, NonNull},
 	sync::atomic::{fence, AtomicUsize, Ordering},
 };
 
@@ -91,6 +91,10 @@ impl<T> DerefMut for PSlabAllocation<T> {
 
 impl<T> Drop for PSlabAllocation<T> {
 	fn drop(&mut self) {
+		// SAFETY: we know this data is initialized (we were previously using it, after all), we know
+		//         the backing memory is still valid, and we know that we're the only ones dropping it.
+		unsafe { drop_in_place(addr_of_mut!((*self.data.as_ptr()))) };
+
 		// SAFETY(free): we know the data was allocated from this region
 		// SAFETY(new_unchecked): we know the data pointer is not null
 		unsafe {
@@ -245,6 +249,13 @@ impl<T> PSlab<T> {
 	}
 
 	pub(super) fn allocate(&self, value: T) -> Option<PSlabAllocation<T>> {
+		self.allocate_with(|reference, ptr| ptr.write(value))
+	}
+
+	pub(super) fn allocate_with<F>(&self, initializer: F) -> Option<PSlabAllocation<T>>
+	where
+		F: FnOnce(&PSlabRef<T>, &MaybeUninit<T>) -> (),
+	{
 		let allocator = |reference: PSlabRef<T>| {
 			// SAFETY: this slab only refers to regions that allocate objects of type T
 			unsafe { reference.region().allocate::<T>() }.map(|val| (val, reference))
@@ -257,7 +268,7 @@ impl<T> PSlab<T> {
 			.map(|(mut alloc, reference)| {
 				// SAFETY: we just allocated this above
 				let ptr = unsafe { alloc.as_mut() };
-				ptr.write(value);
+				initializer(&reference, &ptr);
 				PSlabAllocation {
 					// SAFETY: we just initialized this above
 					data: unsafe { ptr.assume_init_mut().into() },
@@ -290,7 +301,7 @@ impl<T> PSlabRef<T> {
 		Self(region, pslab)
 	}
 
-	fn region(&self) -> &PSlabRegion {
+	pub(super) fn region(&self) -> &PSlabRegion {
 		// SAFETY: we own a reference on the data, so it's perfectly valid for us to dereference it
 		unsafe { self.0.as_ref() }
 	}

@@ -30,6 +30,7 @@ use super::{
 };
 use crate::{
 	custom_intrusive_adapter,
+	memory::PAGE_SIZE,
 	sync::{Lock, SpinLock},
 };
 
@@ -106,6 +107,12 @@ impl IntrusivePSlabAllocation for MappingPortion {
 
 custom_intrusive_adapter!(MappingPortionAdapter = PSlabPointerOps<MappingPortion>: MappingPortion { link: LinkedListAtomicLink });
 
+impl Drop for MappingPortion {
+	fn drop(&mut self) {
+		todo!()
+	}
+}
+
 // try to keep this structure small, but it's not nearly as crucial as MappingPortion
 struct InnerMapping {
 	page_count: u64,
@@ -122,7 +129,7 @@ pub enum BindError {
 	/// An unknown error occurred.
 	Unknown,
 
-	/// Failed to allocate one or more frames to complete the binding.
+	/// Failed to allocate one or more frames or portions to complete the binding.
 	AllocationFailure,
 
 	/// The given page offset and count for the bind destination (i.e. the target portion of the mapping) is out-of-bounds.
@@ -155,7 +162,19 @@ impl Mapping {
 		portions: &mut LinkedList<MappingPortionAdapter>,
 		backing: MappingPortionBacking,
 	) -> Result<(), BindError> {
-		todo!()
+		match MAPPING_PORTION_SLAB.allocate_with(|reference, ptr| {
+			ptr.write(MappingPortion {
+				link: Default::default(),
+				region: reference.region().into(),
+				backing,
+			})
+		}) {
+			Some(allocation) => {
+				portions.push_back(allocation);
+				Ok(())
+			},
+			None => Err(BindError::AllocationFailure),
+		}
 	}
 
 	fn check_overlap(
@@ -197,7 +216,82 @@ impl Mapping {
 		page_offset: u64,
 		zeroed: bool,
 	) -> Result<(), BindError> {
-		todo!()
+		if page_offset + page_count > self.0.page_count {
+			return Err(BindError::OutOfBoundsDestination);
+		}
+
+		if TryInto::<u32>::try_into(page_count).is_err() {
+			panic!("arguments out-of-bounds");
+		}
+
+		// FIXME: we should *not* be holding the lock while allocating frames
+
+		let mut portions = self.0.portions.lock();
+
+		self.check_overlap(&portions, page_offset, page_count)?;
+
+		for i in 0..page_count {
+			match PhysicalFrame::allocate(1) {
+				Ok(frame) => {
+					if zeroed {
+						// SAFETY: we know that the memory is valid because 1) we just allocated it and 2) it is one page long
+						let bytes: &mut [u8] = unsafe {
+							core::slice::from_raw_parts_mut(frame.address().as_mut_ptr(), PAGE_SIZE)
+						};
+						bytes.fill(0);
+					}
+
+					let (start_addr, page_count) = frame.detach();
+					assert_eq!(page_count, 1);
+					let backing = MappingPortionBacking::OwnedFrame {
+						start_addr,
+						total_page_count: 1,
+						page_offset: 0,
+						mapped_page_count: 1,
+						portion_offset: (page_offset as u32) + i,
+					};
+
+					let result = self.bind_internal(&mut portions, backing);
+
+					if result.is_err() {
+						// abort the entire bind
+
+						// SAFETY: we know this is a valid allocated frame because we just detached it above
+						//         (and failing to bind it to a portion does not affect the frame allocation)
+						drop(unsafe { PhysicalFrame::from_allocated(start_addr, 1) });
+
+						// remove all the portions we added
+						// (they should all be at the end of the list, since we just added them and we're still holding the lock)
+						let mut cursor = portions.back_mut();
+						for _ in 0..i {
+							let item = cursor
+								.remove()
+								.expect("there must be a portion that we added");
+							cursor.move_prev(); // move back from the null object
+							drop(item); // explicitly drop the portion
+						}
+
+						return result;
+					}
+				},
+				Err(()) => {
+					// remove all the portions we added
+					// (they should all be at the end of the list, since we just added them and we're still holding the lock)
+					let mut cursor = portions.back_mut();
+					for _ in 0..i {
+						let item = cursor
+							.remove()
+							.expect("there must be a portion that we added");
+						cursor.move_prev(); // move back from the null object
+						drop(item); // explicitly drop the portion
+					}
+
+					return Err(BindError::AllocationFailure);
+				},
+			}
+		}
+
+		Ok(())
 	}
 
 	/// Binds a portion of this mapping to the given frame (either a portion of it or the whole thing).
