@@ -16,160 +16,71 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use core::{marker::Destruct, ops::Bound};
+use core::{
+	mem::{ManuallyDrop, MaybeUninit},
+	ops::Range,
+};
 
-use super::{ConstDefault, ConstPartialEq, ConstRangeBounds};
+//
+// these would be much more ergonomic as const trait functions, but a recent nightly update broke that
+// (and, in fact, const traits are being reworked, so they won't be available for a while).
+//
 
-pub const fn slices_are_equal<T: ~const ConstPartialEq>(a: &[T], b: &[T]) -> bool {
-	if a.len() != b.len() {
-		return false;
+pub const fn const_unroll<T, const N: usize>(slice: &[T]) -> [T; N]
+where
+	T: Copy,
+{
+	let mut tmp: [MaybeUninit<T>; N] = [MaybeUninit::uninit(); N];
+
+	if slice.len() < tmp.len() {
+		panic!("Invalid source (length less than unroll count)");
 	}
+
 	let mut i: usize = 0;
-	while i < a.len() {
-		if a[i].const_ne(&b[i]) {
-			return false;
-		}
+	while i < tmp.len() {
+		tmp[i].write(slice[i]);
 		i += 1;
 	}
-	return true;
+
+	// see https://github.com/rust-lang/rust/issues/61956
+	unsafe { core::mem::transmute_copy(&ManuallyDrop::new(tmp)) }
 }
 
-#[const_trait]
-pub trait ConstSlice<T> {
-	fn const_copy_from_slice(&mut self, source: &Self)
-	where
-		T: Copy;
+pub const fn const_subslice<T>(slice: &[T], range: Range<usize>) -> &[T] {
+	if range.start >= slice.len() {
+		panic!("Invalid subslice start");
+	}
 
-	fn const_unroll<const N: usize>(&self) -> [T; N]
-	where
-		T: Copy + ~const ConstDefault;
+	if range.end > slice.len() {
+		panic!("Invalid subslice end");
+	}
 
-	fn const_subslice<R: ~const ConstRangeBounds<usize> + ~const Destruct>(&self, range: R)
-		-> &[T];
-	fn const_subslice_mut<R: ~const ConstRangeBounds<usize> + ~const Destruct>(
-		&mut self,
-		range: R,
-	) -> &mut [T];
+	let start = unsafe { slice.as_ptr().offset(range.start as isize) };
+
+	unsafe { core::slice::from_raw_parts(start, range.end - range.start) }
 }
 
-#[const_trait]
-pub trait ConstSizedSlice<T, const N: usize> {
-	fn const_concat<const M: usize>(&self, other: &[T; M]) -> [T; N + M]
-	where
-		T: Copy + ~const ConstDefault;
-}
+pub const fn const_concat<T, const N: usize, const M: usize>(
+	slice: &[T; N],
+	other: &[T; M],
+) -> [T; N + M]
+where
+	T: Copy,
+{
+	let mut tmp: [MaybeUninit<T>; N + M] = [MaybeUninit::uninit(); N + M];
 
-impl<T> const ConstSlice<T> for [T] {
-	fn const_copy_from_slice(&mut self, source: &Self)
-	where
-		T: Copy,
-	{
-		if self.len() != source.len() {
-			panic!("Invalid source (length not equal to destination length)");
-		}
-
-		unsafe {
-			core::ptr::copy_nonoverlapping(source.as_ptr(), self.as_mut_ptr(), self.len());
-		}
+	let mut i: usize = 0;
+	while i < slice.len() {
+		tmp[i].write(slice[i]);
+		i += 1;
 	}
 
-	fn const_unroll<const N: usize>(&self) -> [T; N]
-	where
-		T: Copy + ~const ConstDefault,
-	{
-		let mut tmp: [T; N] = [ConstDefault::const_default(); N];
-
-		if self.len() < tmp.len() {
-			panic!("Invalid source (length less than unroll count)");
-		}
-
-		let mut i: usize = 0;
-		while i < tmp.len() {
-			tmp[i] = self[i];
-			i += 1;
-		}
-
-		tmp
+	let mut j: usize = 0;
+	while j < other.len() {
+		tmp[i + j].write(other[j]);
+		j += 1;
 	}
 
-	fn const_subslice<R: ~const ConstRangeBounds<usize> + ~const Destruct>(
-		&self,
-		range: R,
-	) -> &[T] {
-		let start_index = match range.const_start_bound() {
-			Bound::Included(&x) => x,
-			Bound::Excluded(&x) => x + 1,
-			Bound::Unbounded => 0,
-		};
-
-		if start_index >= self.len() {
-			panic!("Invalid subslice start");
-		}
-
-		let end_index = match range.const_end_bound() {
-			Bound::Included(&x) => x + 1,
-			Bound::Excluded(&x) => x,
-			Bound::Unbounded => self.len(),
-		};
-
-		if end_index > self.len() {
-			panic!("Invalid subslice end");
-		}
-
-		let start = unsafe { self.as_ptr().offset(start_index as isize) };
-
-		unsafe { core::slice::from_raw_parts(start, end_index - start_index) }
-	}
-
-	fn const_subslice_mut<R: ~const ConstRangeBounds<usize> + ~const Destruct>(
-		&mut self,
-		range: R,
-	) -> &mut [T] {
-		let start_index = match range.const_start_bound() {
-			Bound::Included(&x) => x,
-			Bound::Excluded(&x) => x + 1,
-			Bound::Unbounded => 0,
-		};
-
-		if start_index >= self.len() {
-			panic!("Invalid subslice start");
-		}
-
-		let end_index = match range.const_end_bound() {
-			Bound::Included(&x) => x + 1,
-			Bound::Excluded(&x) => x,
-			Bound::Unbounded => self.len(),
-		};
-
-		if end_index > self.len() {
-			panic!("Invalid subslice end");
-		}
-
-		let start = unsafe { self.as_mut_ptr().offset(start_index as isize) };
-
-		unsafe { core::slice::from_raw_parts_mut(start, end_index - start_index) }
-	}
-}
-
-impl<T, const N: usize> const ConstSizedSlice<T, N> for [T; N] {
-	fn const_concat<const M: usize>(&self, other: &[T; M]) -> [T; N + M]
-	where
-		T: Copy + ~const ConstDefault,
-	{
-		let mut tmp: [T; N + M] = [ConstDefault::const_default(); N + M];
-
-		let mut i: usize = 0;
-		while i < self.len() {
-			tmp[i] = self[i];
-			i += 1;
-		}
-
-		let mut j: usize = 0;
-		while j < other.len() {
-			tmp[i + j] = other[j];
-			j += 1;
-		}
-
-		tmp
-	}
+	// see https://github.com/rust-lang/rust/issues/61956
+	unsafe { core::mem::transmute_copy(&ManuallyDrop::new(tmp)) }
 }

@@ -28,7 +28,6 @@ use crate::{
 	},
 	geometry::Point,
 	sync::{Lock, SpinLock},
-	util::ConstInto,
 };
 
 struct Console {
@@ -44,7 +43,7 @@ impl Console {
 		Self {
 			foreground: WHITE,
 			background: BLACK,
-			location: (0, 0).const_into(),
+			location: Point::new(0, 0),
 			char_padding: 0,
 			line_padding: 0,
 		}

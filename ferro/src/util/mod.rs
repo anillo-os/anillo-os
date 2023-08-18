@@ -16,14 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-mod ops;
-mod range;
 mod slice;
 
-use core::marker::Destruct;
-
-pub use ops::*;
-pub use range::*;
 pub use slice::*;
 
 pub const fn decode_utf8_and_length(bytes: &[u8]) -> Option<(char, u8)> {
@@ -73,89 +67,40 @@ pub const fn decode_utf8(bytes: &[u8]) -> Option<char> {
 	}
 }
 
-#[const_trait]
-pub trait Alignable:
-	~const ConstBitAnd<Output = Self>
-	+ ~const ConstNot<Output = Self>
-	+ ~const ConstAdd<Output = Self>
-	+ ~const ConstSub<Output = Self>
-	+ ~const ConstCountOnes
-	+ Sized
-	+ ~const ConstFrom<u8>
-	+ Copy
-{
-}
+// it'd be great if we could make these functions generic, but unfortunately we can't do so
+// because const traits are being reworked.
 
-impl<T> const Alignable for T where
-	T: ~const ConstBitAnd<Output = Self>
-		+ ~const ConstNot<Output = Self>
-		+ ~const ConstAdd<Output = Self>
-		+ ~const ConstSub<Output = Self>
-		+ ~const ConstCountOnes
-		+ Sized
-		+ ~const ConstFrom<u8>
-		+ Copy
-{
-}
-
-pub const fn align_down_pow2<T>(value: T, alignment: T) -> T
-where
-	T: ~const Alignable,
-	<T as ConstCountOnes>::Output: ~const ConstPartialEq + ~const ConstFrom<u8> + ~const Destruct,
-{
+pub const fn align_down_pow2(value: u64, alignment: u64) -> u64 {
 	#[cfg(debug_assertions)]
-	if alignment
-		.const_count_ones()
-		.const_ne(&<T as ConstCountOnes>::Output::const_from(1u8))
-	{
+	if alignment.count_ones() != 1u32 {
 		panic!("Invalid alignment");
 	}
 
-	value.const_bitand((alignment.const_sub(T::const_from(1u8))).const_not())
+	value & !(alignment - 1u64)
 }
 
-pub const fn align_up_pow2<T>(value: T, alignment: T) -> T
-where
-	T: ~const Alignable,
-	<T as ConstCountOnes>::Output: ~const ConstPartialEq + ~const ConstFrom<u8> + ~const Destruct,
-{
-	align_down_pow2(
-		value.const_add(alignment.const_sub(T::const_from(1u8))),
-		alignment,
-	)
+pub const fn align_up_pow2(value: u64, alignment: u64) -> u64 {
+	align_down_pow2(value + (alignment - 1u64), alignment)
 }
 
 /// Returns the closest power of 2 less than or equal to the given value.
 ///
 /// Note that this returns `0` for `0`.
-pub const fn closest_pow2_floor<T>(value: T) -> T
-where
-	T: ~const ConstILog2
-		+ ~const ConstShl<<T as ConstILog2>::Output, Output = T>
-		+ ~const ConstFrom<u8>
-		+ ~const ConstPartialEq
-		+ ~const Destruct,
-{
-	if value.const_eq(&T::const_from(0u8)) {
-		T::const_from(0u8)
+pub const fn closest_pow2_floor(value: u64) -> u64 {
+	if value == 0u64 {
+		0u64
 	} else {
-		T::const_from(1u8).const_shl(value.const_ilog2())
+		1u64 << value.ilog2()
 	}
 }
 
 /// Returns the closest power of 2 greater than or equal to the given value.
 ///
 /// In contrast to next_power_of_two, this returns `0` for `0`.
-pub const fn closest_pow2_ceil<T>(value: T) -> T
-where
-	T: ~const ConstNextPowerOfTwo<Output = T>
-		+ ~const ConstFrom<u8>
-		+ ~const ConstPartialEq
-		+ ~const Destruct,
-{
-	if value.const_eq(&T::const_from(0u8)) {
-		T::const_from(0u8)
+pub const fn closest_pow2_ceil(value: u64) -> u64 {
+	if value == 0u64 {
+		0u64
 	} else {
-		value.const_next_power_of_two()
+		value.next_power_of_two()
 	}
 }

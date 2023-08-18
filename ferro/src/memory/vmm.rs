@@ -19,16 +19,20 @@
 use core::{
 	cell::UnsafeCell,
 	mem::{align_of, size_of, MaybeUninit},
+	ptr::NonNull,
 	sync::atomic::{AtomicUsize, Ordering},
 };
 
+use bitflags::bitflags;
 use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink};
 use static_assertions::const_assert;
 
 use super::{
 	make_virtual_address,
+	mapping::Mapping,
 	order::{order_of_page_count_ceil, order_of_page_count_floor, page_count_of_order, MAX_ORDER},
 	pmm::PhysicalFrame,
+	pslab::{IntrusivePSlabAllocation, PSlab, PSlabPointerOps, PSlabRegion},
 	region::{
 		BuddyRegionHeader, BuddyRegionHeaderWrapper, CandidateBlockResult, FreeBlock,
 		FreeBlockAdapter,
@@ -37,9 +41,24 @@ use super::{
 	PHYSICAL_MEMORY_L4_INDEX,
 };
 use crate::{
+	custom_intrusive_adapter,
 	sync::SpinLock,
 	util::{align_down_pow2, closest_pow2_floor},
 };
+
+bitflags! {
+	struct Flags: u32 {
+		const UNCACHED = 1 << 0;
+		const UNPRIVILEGED = 1 << 1;
+		const PREBOUND = 1 << 2;
+		const ZEROED = 1 << 3;
+	}
+	struct Permissions: u8 {
+		const READ = 1 << 0;
+		const WRITE = 1 << 1;
+		const EXECUTE = 1 << 2;
+	}
+}
 
 // TODO: we don't need whole pages/frames to store free virtual blocks.
 //       we can instead group them together on allocated frames.
@@ -130,6 +149,47 @@ static ADDRESS_SPACE_ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
 const RESERVED_L4_INDICES: [usize; 2] = [PHYSICAL_MEMORY_L4_INDEX, KERNEL_L4_START];
 
+static ADDRESS_SPACE_MAPPING_SLAB: PSlab<AddressSpaceMapping> = PSlab::new();
+
+struct InnerAddressSpaceMapping {
+	backing: Mapping,
+	virt_addr: u64,
+	page_count: u32,
+	page_offset: u32,
+	flags: Flags,
+	permissions: Permissions,
+}
+
+struct AddressSpaceMapping {
+	link: LinkedListAtomicLink,
+	region: NonNull<PSlabRegion>,
+	inner: UnsafeCell<InnerAddressSpaceMapping>,
+}
+
+// SAFETY: same as for RegionHeader
+unsafe impl Send for AddressSpaceMapping {}
+unsafe impl Sync for AddressSpaceMapping {}
+
+impl IntrusivePSlabAllocation for AddressSpaceMapping {
+	fn slab() -> *const PSlab<Self> {
+		&ADDRESS_SPACE_MAPPING_SLAB
+	}
+
+	fn region(&self) -> NonNull<PSlabRegion> {
+		self.region
+	}
+}
+
+impl AddressSpaceMapping {
+	// SAFETY: this method must only be called when you're sure you have exclusive access to the address space mapping.
+	//         this is true whenever you have exclusive access to the linked list containing it.
+	unsafe fn inner(&self) -> &mut InnerAddressSpaceMapping {
+		&mut *self.inner.get()
+	}
+}
+
+custom_intrusive_adapter!(AddressSpaceMappingAdapter = PSlabPointerOps<AddressSpaceMapping>: AddressSpaceMapping { link: LinkedListAtomicLink });
+
 struct InnerAddressSpace {
 	id: usize,
 	table_frame: PhysicalFrame,
@@ -139,6 +199,7 @@ struct InnerAddressSpace {
 	lower_half: LinkedList<RegionHeaderAdapter>,
 	/// Same as Self::next_higher_half_top, but for the lower-half.
 	next_lower_half_top: u64,
+	mappings: LinkedList<AddressSpaceMappingAdapter>,
 }
 
 impl InnerAddressSpace {
@@ -185,6 +246,7 @@ impl InnerAddressSpace {
 				PAGE_TABLE_INDEX_MAX,
 				PAGE_OFFSET_MAX,
 			) + 1,
+			mappings: LinkedList::new(AddressSpaceMappingAdapter::NEW),
 		}
 	}
 

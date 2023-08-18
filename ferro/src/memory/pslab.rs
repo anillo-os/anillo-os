@@ -29,10 +29,7 @@ use core::{
 use intrusive_collections::{intrusive_adapter, LinkedList, LinkedListAtomicLink, PointerOps};
 
 use super::{pmm::PhysicalFrame, PAGE_SIZE};
-use crate::{
-	sync::{Lock, SpinLock},
-	util::ConstDefault,
-};
+use crate::sync::{Lock, SpinLock};
 
 struct FreeNode {
 	next: *mut FreeNode,
@@ -98,9 +95,9 @@ impl<T> Drop for PSlabAllocation<T> {
 		// SAFETY(free): we know the data was allocated from this region
 		// SAFETY(new_unchecked): we know the data pointer is not null
 		unsafe {
-			self.reference
-				.region()
-				.free(unsafe { NonNull::new_unchecked(self.data.as_ptr() as *mut MaybeUninit<T>) })
+			self.reference.region().free(NonNull::new_unchecked(
+				self.data.as_ptr() as *mut MaybeUninit<T>
+			))
 		}
 	}
 }
@@ -116,7 +113,7 @@ impl PSlabRegion {
 
 		// SAFETY: we're holding the lock and we know that the free nodes in the PSlabRegion are valid
 		let next_ptr = unsafe { (*first_free).next };
-		unsafe { *first_free_ptr = next_ptr };
+		*first_free_ptr = next_ptr;
 
 		// SAFETY: we just checked above that the first free pointer is not null
 		Some(unsafe { NonNull::new_unchecked(first_free as *mut MaybeUninit<T>) })
@@ -136,12 +133,6 @@ impl PSlabRegion {
 	}
 }
 
-impl const ConstDefault for LinkedList<PSlabRegionAdapter> {
-	fn const_default() -> Self {
-		Self::new(PSlabRegionAdapter::NEW)
-	}
-}
-
 /// A simple slab allocator for allocating groups of types in physical memory.
 ///
 /// For our internal needs here in the memory subsystem, PSlabs **must** be static variables.
@@ -155,7 +146,9 @@ pub(super) struct PSlab<T> {
 impl<T> PSlab<T> {
 	pub(super) const fn new() -> Self {
 		Self {
-			regions: ConstDefault::const_default(),
+			regions: SpinLock::new(LinkedList::<PSlabRegionAdapter>::new(
+				PSlabRegionAdapter::NEW,
+			)),
 			phantom: PhantomData,
 		}
 	}
@@ -249,12 +242,14 @@ impl<T> PSlab<T> {
 	}
 
 	pub(super) fn allocate(&self, value: T) -> Option<PSlabAllocation<T>> {
-		self.allocate_with(|reference, ptr| ptr.write(value))
+		self.allocate_with(|_, ptr| {
+			ptr.write(value);
+		})
 	}
 
 	pub(super) fn allocate_with<F>(&self, initializer: F) -> Option<PSlabAllocation<T>>
 	where
-		F: FnOnce(&PSlabRef<T>, &MaybeUninit<T>) -> (),
+		F: FnOnce(&PSlabRef<T>, &mut MaybeUninit<T>) -> (),
 	{
 		let allocator = |reference: PSlabRef<T>| {
 			// SAFETY: this slab only refers to regions that allocate objects of type T
@@ -267,8 +262,8 @@ impl<T> PSlab<T> {
 			})
 			.map(|(mut alloc, reference)| {
 				// SAFETY: we just allocated this above
-				let ptr = unsafe { alloc.as_mut() };
-				initializer(&reference, &ptr);
+				let mut ptr = unsafe { alloc.as_mut() };
+				initializer(&reference, &mut ptr);
 				PSlabAllocation {
 					// SAFETY: we just initialized this above
 					data: unsafe { ptr.assume_init_mut().into() },

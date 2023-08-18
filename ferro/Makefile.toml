@@ -2,6 +2,7 @@
 command = "cargo"
 toolchain = "nightly"
 args = ["build", "--target", "../rust-targets/${ANILLO_ARCH}-anillo-ferro-macho.json"]
+dependencies = ["process-font"]
 
 [tasks.test-one]
 command = "cargo"
@@ -10,3 +11,10 @@ args = ["test", "--target", "../rust-targets/${ANILLO_ARCH}-anillo-ferro-macho.j
 
 [tasks.ramdisk-one]
 command = "true"
+
+[tasks.process-font]
+command = "./scripts/process-font.py"
+args = [
+	"./resources/ter-u16n.psf",
+	"${BUILD_DIR}/font"
+]

@@ -143,7 +143,7 @@ pub enum BindError {
 }
 
 impl Mapping {
-	pub fn new(page_count: u64, flags: MappingFlags) -> Option<Self> {
+	pub fn new(page_count: u64, _flags: MappingFlags) -> Option<Self> {
 		let inner = InnerMapping {
 			page_count,
 			portions: Default::default(),
@@ -167,7 +167,7 @@ impl Mapping {
 				link: Default::default(),
 				region: reference.region().into(),
 				backing,
-			})
+			});
 		}) {
 			Some(allocation) => {
 				portions.push_back(allocation);
@@ -236,7 +236,10 @@ impl Mapping {
 					if zeroed {
 						// SAFETY: we know that the memory is valid because 1) we just allocated it and 2) it is one page long
 						let bytes: &mut [u8] = unsafe {
-							core::slice::from_raw_parts_mut(frame.address().as_mut_ptr(), PAGE_SIZE)
+							core::slice::from_raw_parts_mut(
+								frame.address().as_mut_ptr(),
+								PAGE_SIZE as usize,
+							)
 						};
 						bytes.fill(0);
 					}
@@ -248,7 +251,7 @@ impl Mapping {
 						total_page_count: 1,
 						page_offset: 0,
 						mapped_page_count: 1,
-						portion_offset: (page_offset as u32) + i,
+						portion_offset: (page_offset as u32) + (i as u32),
 					};
 
 					let result = self.bind_internal(&mut portions, backing);

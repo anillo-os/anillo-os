@@ -34,7 +34,9 @@
 	const_slice_from_raw_parts_mut,
 	const_fn_floating_point_arithmetic,
 	ptr_as_uninit,
-	dropck_eyepatch
+	dropck_eyepatch,
+	const_maybe_uninit_write,
+	const_transmute_copy
 )]
 #![allow(dead_code, incomplete_features)]
 

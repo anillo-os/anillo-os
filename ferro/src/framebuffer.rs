@@ -19,7 +19,6 @@
 use core::ffi::c_void;
 
 use super::sync::SpinLock;
-use crate::const_from_impl;
 use crate::geometry::{Point, Rect};
 use crate::sync::Lock;
 
@@ -107,22 +106,23 @@ impl Pixel {
 	}
 }
 
-const_from_impl! { value: (u8, u8, u8) => Pixel {
-	Self::new(value.0, value.1, value.2)
-}}
+impl From<(u8, u8, u8)> for Pixel {
+	fn from(value: (u8, u8, u8)) -> Self {
+		Self::new(value.0, value.1, value.2)
+	}
+}
 
 pub mod color {
 	use super::Pixel;
-	use crate::util::ConstInto;
 
-	pub const BLACK: Pixel = (0, 0, 0).const_into();
-	pub const WHITE: Pixel = (0xff, 0xff, 0xff).const_into();
-	pub const RED: Pixel = (0xff, 0, 0).const_into();
-	pub const GREEN: Pixel = (0, 0xff, 0).const_into();
-	pub const BLUE: Pixel = (0, 0, 0xff).const_into();
-	pub const CYAN: Pixel = (0, 0xff, 0xff).const_into();
-	pub const MAGENTA: Pixel = (0xff, 0, 0xff).const_into();
-	pub const YELLOW: Pixel = (0xff, 0xff, 0).const_into();
+	pub const BLACK: Pixel = Pixel::new(0, 0, 0);
+	pub const WHITE: Pixel = Pixel::new(0xff, 0xff, 0xff);
+	pub const RED: Pixel = Pixel::new(0xff, 0, 0);
+	pub const GREEN: Pixel = Pixel::new(0, 0xff, 0);
+	pub const BLUE: Pixel = Pixel::new(0, 0, 0xff);
+	pub const CYAN: Pixel = Pixel::new(0, 0xff, 0xff);
+	pub const MAGENTA: Pixel = Pixel::new(0xff, 0, 0xff);
+	pub const YELLOW: Pixel = Pixel::new(0xff, 0xff, 0);
 }
 
 struct InnerFramebuffer<'a> {

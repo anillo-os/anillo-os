@@ -18,11 +18,7 @@
 
 use core::fmt::Debug;
 
-use crate::{
-	const_from_impl,
-	util::{ConstDefault, ConstFrom, ConstInto},
-	KernelImageInfo, MemoryRegion,
-};
+use crate::{KernelImageInfo, MemoryRegion};
 
 pub mod pmm;
 pub mod vmm;
@@ -59,7 +55,7 @@ pub const LARGE_PAGE_SIZE: u64 = 0x20_0000;
 pub const VERY_LARGE_PAGE_SIZE: u64 = 0x4000_0000;
 
 pub const KERNEL_VIRTUAL_START: u64 = 0xffff_8000_0000_0000;
-const KERNEL_L4_START: usize = DecomposedAddress::const_from(KERNEL_VIRTUAL_START).l4 as usize;
+const KERNEL_L4_START: usize = DecomposedAddress::new(KERNEL_VIRTUAL_START).l4 as usize;
 const PHYSICAL_MEMORY_L4_INDEX: usize = 511;
 
 pub const L1_SHIFT: u64 = 12;
@@ -110,15 +106,23 @@ struct DecomposedAddress {
 	offset: u16,
 }
 
-const_from_impl! { addr: u64 => DecomposedAddress {
-	DecomposedAddress {
-		l4: ((addr >> L4_SHIFT) & 0x1ff) as u16,
-		l3: ((addr >> L3_SHIFT) & 0x1ff) as u16,
-		l2: ((addr >> L2_SHIFT) & 0x1ff) as u16,
-		l1: ((addr >> L1_SHIFT) & 0x1ff) as u16,
-		offset: (addr & 0x1ff) as u16,
+impl DecomposedAddress {
+	pub const fn new(addr: u64) -> Self {
+		DecomposedAddress {
+			l4: ((addr >> L4_SHIFT) & 0x1ff) as u16,
+			l3: ((addr >> L3_SHIFT) & 0x1ff) as u16,
+			l2: ((addr >> L2_SHIFT) & 0x1ff) as u16,
+			l1: ((addr >> L1_SHIFT) & 0x1ff) as u16,
+			offset: (addr & 0x1ff) as u16,
+		}
 	}
-}}
+}
+
+impl From<u64> for DecomposedAddress {
+	fn from(value: u64) -> Self {
+		Self::new(value)
+	}
+}
 
 pub const PAGE_TABLE_INDEX_MAX: u16 = 0x1ff;
 pub const PAGE_OFFSET_MAX: u16 = 0xfff;
@@ -138,7 +142,7 @@ pub const fn make_virtual_address(l4: u16, l3: u16, l2: u16, l1: u16, offset: u1
 
 const fn generate_offset_table() -> PageTable {
 	let mut pt = PageTable {
-		entries: [ConstDefault::const_default(); 512],
+		entries: [arch::Entry::new(); 512],
 	};
 
 	let mut i = 0;
@@ -199,7 +203,7 @@ unsafe fn root_page_table_pointer() -> *mut PageTable {
 ///
 /// This operation is unsafe because of aliasing; Rust assumes it is the only one accessing the table.
 pub(crate) unsafe fn virt_to_phys(virt_addr: u64) -> u64 {
-	let decomp: DecomposedAddress = virt_addr.const_into();
+	let decomp = DecomposedAddress::new(virt_addr);
 	let root = root_page_table_pointer();
 
 	kprintln!(

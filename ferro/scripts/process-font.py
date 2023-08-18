@@ -12,13 +12,11 @@ sys.path.append(os.path.join(SOURCE_ROOT, 'scripts'))
 import anillo_util
 
 if len(sys.argv) != 3:
-	print('Usage: ' + sys.argv[0] + ' <input-font> <output-header>')
+	print('Usage: ' + sys.argv[0] + ' <input-font> <output-dir>')
 	sys.exit(1)
 
 FONT_PATH = sys.argv[1]
 OUTPUT_PATH = sys.argv[2]
-
-HEADER_GUARD_NAME = '_GEN_FERRO_FONT_H'
 
 PSF1_MAGIC = bytearray([0x36, 0x04])
 PSF2_MAGIC = bytearray([0x72, 0xb5, 0x4a, 0x86])
@@ -64,15 +62,18 @@ elif magic == PSF2_MAGIC:
 	glyph_size = header[4]
 	glyph_height = header[5]
 	glyph_width = header[6]
+else:
+	assert False
 
 table_offset = header_size + (glyph_size * glyph_count)
-unicode_map = [0] * 0xffff
-font_data = contents[0:table_offset]
+unicode_map = [0xffff] * 0xffff
+font_data = contents[header_size:table_offset]
 
 if magic == PSF1_MAGIC:
 	# Ferro expects a PSF2 font; let's convert the header to a PSF2 header
-	new_header = struct.pack('4BIIIIIII', PSF2_MAGIC[0], PSF2_MAGIC[1], PSF2_MAGIC[2], PSF2_MAGIC[3], version, struct.calcsize('4BIIIIIII'), PSF2_UNICODE_FLAG if (flags & PSF1_UNICODE_FLAG) != 0 else 0, glyph_count, glyph_size, glyph_height, glyph_width)
-	font_data = new_header + font_data[header_size:]
+	font_header = bytearray(struct.pack('4BIIIIIII', PSF2_MAGIC[0], PSF2_MAGIC[1], PSF2_MAGIC[2], PSF2_MAGIC[3], version, struct.calcsize('4BIIIIIII'), PSF2_UNICODE_FLAG if (flags & PSF1_UNICODE_FLAG) != 0 else 0, glyph_count, glyph_size, glyph_height, glyph_width))
+else:
+	font_header = contents[0:32]
 
 if magic == PSF2_MAGIC and (flags & PSF2_UNICODE_FLAG) != 0:
 	table = contents[table_offset:]
@@ -153,10 +154,14 @@ elif magic == PSF1_MAGIC and (flags & PSF1_UNICODE_FLAG) != 0:
 else:
 	unicode_map = []
 
-anillo_util.mkdir_p(os.path.dirname(OUTPUT_PATH))
+anillo_util.mkdir_p(OUTPUT_PATH)
 
-with open(OUTPUT_PATH, 'wb') as outfile:
-	outfile.write(('#ifndef ' + HEADER_GUARD_NAME + '\n#define ' + HEADER_GUARD_NAME + '\n\n#include <stdint.h>\n\n').encode())
-	outfile.write(anillo_util.to_c_array('font_data', font_data).encode())
-	outfile.write(anillo_util.to_c_array('unicode_map', unicode_map, 'uint16_t', lambda v: anillo_util.to_padded_hex(v, 4)).encode())
-	outfile.write(('\n#endif // ' + HEADER_GUARD_NAME + '\n').encode())
+with open(os.path.join(OUTPUT_PATH, 'header.bin'), 'wb') as outfile:
+	outfile.write(font_header)
+
+with open(os.path.join(OUTPUT_PATH, 'data.bin'), 'wb') as outfile:
+	outfile.write(font_data)
+
+with open(os.path.join(OUTPUT_PATH, 'unicode.bin'), 'wb') as outfile:
+	unicode_map_bytes = bytes(val for x in unicode_map for val in x.to_bytes(2, 'little'))
+	outfile.write(unicode_map_bytes)

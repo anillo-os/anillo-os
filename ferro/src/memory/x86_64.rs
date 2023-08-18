@@ -21,7 +21,6 @@ use core::arch::asm;
 use bitflags::bitflags;
 
 use super::PageTable;
-use crate::const_default_impl;
 
 bitflags! {
 	pub(super) struct EntryFlags: u64 {
@@ -70,9 +69,11 @@ pub(super) unsafe fn refresh_root_page_table() {
 #[derive(Debug)]
 pub(super) struct Entry(u64);
 
-const_default_impl! { Entry => {
-	Entry(0)
-}}
+impl Default for Entry {
+	fn default() -> Self {
+		Self::new()
+	}
+}
 
 pub(super) use super::common::EntryType;
 

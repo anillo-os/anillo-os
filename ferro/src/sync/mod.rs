@@ -23,10 +23,7 @@ use core::{
 	sync::atomic::{AtomicBool, Ordering},
 };
 
-use crate::{
-	interrupts::{self, restore_interrupts, InterruptState},
-	util::ConstDefault,
-};
+use crate::interrupts::{self, restore_interrupts, InterruptState};
 
 // heavily inspired by the standard library's Mutex and MutexGuard
 
@@ -159,11 +156,5 @@ impl<T: ?Sized + Send> SyncLock<T> for SpinLock<T> {}
 impl<T: Default> Default for SpinLock<T> {
 	fn default() -> Self {
 		Self::new(Default::default())
-	}
-}
-
-impl<T: ~const ConstDefault> const ConstDefault for SpinLock<T> {
-	fn const_default() -> Self {
-		Self::new(ConstDefault::const_default())
 	}
 }

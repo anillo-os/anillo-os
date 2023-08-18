@@ -18,8 +18,6 @@
 
 use core::ops::Add;
 
-use crate::const_from_impl;
-
 #[derive(Default, Clone, Copy)]
 pub struct Point {
 	pub x: usize,
@@ -84,9 +82,11 @@ impl Add<&Size2D> for &Point {
 	}
 }
 
-const_from_impl! { value: (usize, usize) => Point {
-	Self::new(value.0, value.1)
-}}
+impl From<(usize, usize)> for Point {
+	fn from(value: (usize, usize)) -> Self {
+		Self::new(value.0, value.1)
+	}
+}
 
 #[derive(Default, Clone, Copy)]
 pub struct Size2D {
@@ -100,9 +100,11 @@ impl Size2D {
 	}
 }
 
-const_from_impl! { value: (usize, usize) => Size2D {
-	Self::new(value.0, value.1)
-}}
+impl From<(usize, usize)> for Size2D {
+	fn from(value: (usize, usize)) -> Self {
+		Self::new(value.0, value.1)
+	}
+}
 
 #[derive(Default, Clone, Copy)]
 pub struct Rect {

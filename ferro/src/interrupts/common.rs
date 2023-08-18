@@ -16,11 +16,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-use crate::const_default_impl;
-
 #[derive(Clone, Copy)]
 pub struct InterruptState(pub(super) bool);
 
-const_default_impl! { InterruptState => {
-	InterruptState(false)
-}}
+impl InterruptState {
+	pub const fn new() -> Self {
+		InterruptState(false)
+	}
+}
+
+impl Default for InterruptState {
+	fn default() -> Self {
+		Self::new()
+	}
+}
