@@ -234,7 +234,15 @@ static void insert_free_leaf(simple_mempool_region_header_t* parent_region, simp
 	leaf->next = region_buckets(parent_region)[order];
 
 	if (leaf->next) {
+		if (parent_region->instance->allocator.unpoison) {
+			parent_region->instance->allocator.unpoison((uintptr_t)&leaf->next->prev, sizeof(simple_mempool_free_leaf_t*));
+		}
+
 		leaf->next->prev = &leaf->next;
+
+		if (parent_region->instance->allocator.poison) {
+			parent_region->instance->allocator.poison((uintptr_t)&leaf->next->prev, sizeof(simple_mempool_free_leaf_t*));
+		}
 	}
 
 	region_buckets(parent_region)[order] = leaf;
@@ -248,6 +256,10 @@ static void insert_free_leaf(simple_mempool_region_header_t* parent_region, simp
 #if LIBSIMPLE_MEMPOOL_DEBUG
 	simple_mempool_region_check_leaves(parent_region);
 #endif
+
+	if (parent_region->instance->allocator.poison) {
+		parent_region->instance->allocator.poison((uintptr_t)leaf, size_of_order(parent_region->instance, order));
+	}
 };
 
 /**
@@ -256,15 +268,36 @@ static void insert_free_leaf(simple_mempool_region_header_t* parent_region, simp
  * @note This does NOT take care of setting the leaf as in-use.
  */
 static void remove_free_leaf(simple_mempool_region_header_t* parent_region, simple_mempool_free_leaf_t* leaf, size_t order) {
+	if (parent_region->instance->allocator.unpoison) {
+		parent_region->instance->allocator.unpoison((uintptr_t)leaf, size_of_order(parent_region->instance, order));
+	}
+
 #if LIBSIMPLE_MEMPOOL_DEBUG
 	if (!leaf->prev) {
 		parent_region->instance->allocator.panic("invalid leaf");
 	}
 #endif
 
+	if (parent_region->instance->allocator.unpoison && leaf->prev != &region_buckets(parent_region)[order]) {
+		parent_region->instance->allocator.unpoison((uintptr_t)leaf->prev, sizeof(simple_mempool_free_leaf_t*));
+	}
+
 	*leaf->prev = leaf->next;
+
+	if (parent_region->instance->allocator.poison && leaf->prev != &region_buckets(parent_region)[order]) {
+		parent_region->instance->allocator.poison((uintptr_t)leaf->prev, sizeof(simple_mempool_free_leaf_t*));
+	}
+
 	if (leaf->next) {
+		if (parent_region->instance->allocator.unpoison) {
+			parent_region->instance->allocator.unpoison((uintptr_t)&leaf->next->prev, sizeof(simple_mempool_free_leaf_t*));
+		}
+
 		leaf->next->prev = leaf->prev;
+
+		if (parent_region->instance->allocator.poison) {
+			parent_region->instance->allocator.poison((uintptr_t)&leaf->next->prev, sizeof(simple_mempool_free_leaf_t*));
+		}
 	}
 
 	parent_region->free_count -= leaf_count_of_order(order);
@@ -466,6 +499,8 @@ static void* allocate_existing(simple_mempool_instance_t* instance, size_t byte_
 	// XXX: `flags` is fmempool_flags_t but acquire_first_region() expects fmempool_region_flags_t.
 	//      they're currently identical, but this may change; be aware of this in the future.
 	for (simple_mempool_region_header_t* region = instance->regions_head; region != NULL; region = region->next) {
+		fassert(region->instance == instance);
+
 		for (size_t order = min_order; order < instance->options.max_order && order < candidate_order; ++order) {
 			simple_mempool_free_leaf_t* leaf = region_buckets(region)[order];
 
@@ -627,7 +662,7 @@ static void* allocate_existing(simple_mempool_instance_t* instance, size_t byte_
  */
 static void* allocate_new(simple_mempool_instance_t* instance, size_t byte_count, uint8_t alignment_power, uint8_t boundary_alignment_power) {
 	size_t min_order = min_order_for_byte_count(instance, byte_count);
-	size_t region_order = min_order * 4;
+	size_t region_order = (min_order < instance->options.optimal_min_region_order) ? instance->options.optimal_min_region_order : min_order;
 	simple_mempool_region_header_t* header = NULL;
 	size_t header_size = 0;
 	size_t region_size = 0;
@@ -718,6 +753,8 @@ static simple_mempool_region_header_t* find_parent_region(simple_mempool_instanc
 #endif
 
 	for (simple_mempool_region_header_t* region = instance->regions_head; region != NULL; region = region->next) {
+		fassert(region->instance == instance);
+
 		if (leaf_belongs_to_region(leaf, region)) {
 			parent_region = region;
 			break;

@@ -37,6 +37,8 @@ typedef ferr_t (*simple_mempool_allocator_allocate_header_f)(void* context, size
 typedef ferr_t (*simple_mempool_allocator_free_header_f)(void* context, size_t page_count, void* allocated_start);
 typedef bool (*simple_mempool_allocator_is_aligned_f)(void* context, void* address, size_t byte_count, uint8_t alignment_power, uint8_t boundary_alignment_power);
 typedef LIBSIMPLE_NO_RETURN void (*simple_mempool_panic_f)(const char* message, ...);
+typedef void (*simple_mempool_allocator_poison_f)(uintptr_t address, size_t size);
+typedef void (*simple_mempool_allocator_unpoison_f)(uintptr_t address, size_t size);
 
 LIBSIMPLE_STRUCT(simple_mempool_allocator) {
 	simple_mempool_allocator_allocate_f allocate;
@@ -45,6 +47,8 @@ LIBSIMPLE_STRUCT(simple_mempool_allocator) {
 	simple_mempool_allocator_free_header_f free_header;
 	simple_mempool_allocator_is_aligned_f is_aligned;
 	simple_mempool_panic_f panic;
+	simple_mempool_allocator_poison_f poison;
+	simple_mempool_allocator_unpoison_f unpoison;
 };
 
 LIBSIMPLE_STRUCT_FWD(simple_mempool_instance);
@@ -67,6 +71,7 @@ LIBSIMPLE_STRUCT(simple_mempool_instance_options) {
 	size_t min_leaf_size;
 	size_t min_leaf_alignment;
 	size_t max_kept_region_count;
+	size_t optimal_min_region_order;
 };
 
 LIBSIMPLE_STRUCT(simple_mempool_instance) {
