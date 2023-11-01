@@ -326,6 +326,11 @@ ferr_t sys_thread_suspend_timeout(sys_thread_t* object, uint64_t timeout, sys_ti
 	return libsyscall_wrapper_thread_suspend(thread->id, timeout, timeout_type);
 };
 
+ferr_t sys_thread_yield(sys_thread_t* object) {
+	sys_thread_object_t* thread = (void*)object;
+	return libsyscall_wrapper_thread_yield(thread->id);
+};
+
 sys_thread_id_t sys_thread_id(sys_thread_t* object) {
 	sys_thread_object_t* thread = (void*)object;
 	return thread->id;
@@ -624,6 +629,7 @@ ferr_t sys_thread_signal_configure_special_mapping(sys_thread_t* object, const s
 		.floating_point_exception_signal = mapping->floating_point_exception,
 		.illegal_instruction_signal = mapping->illegal_instruction,
 		.debug_signal = mapping->debug,
+		.division_by_zero_signal = mapping->division_by_zero,
 	};
 
 	sys_thread_block_signals(object);

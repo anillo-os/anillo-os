@@ -93,6 +93,7 @@ LIBSYS_STRUCT(sys_thread_special_signal_mapping) {
 	uint64_t floating_point_exception;
 	uint64_t illegal_instruction;
 	uint64_t debug;
+	uint64_t division_by_zero;
 };
 
 /**
@@ -128,6 +129,7 @@ LIBSYS_WUR ferr_t sys_thread_create(void* stack, size_t stack_size, sys_thread_e
 LIBSYS_WUR ferr_t sys_thread_resume(sys_thread_t* thread);
 LIBSYS_WUR ferr_t sys_thread_suspend(sys_thread_t* thread);
 LIBSYS_WUR ferr_t sys_thread_suspend_timeout(sys_thread_t* thread, uint64_t timeout, sys_timeout_type_t timeout_type);
+LIBSYS_WUR ferr_t sys_thread_yield(sys_thread_t* thread);
 sys_thread_t* sys_thread_current(void);
 
 sys_thread_id_t sys_thread_id(sys_thread_t* thread);
