@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <gen/libsyscall/syscall-wrappers.h>
 #include <libsys/mempool.h>
 #include <libsys/general.h>
 #include <libsimple/libsimple.h>
@@ -137,6 +138,7 @@ static simple_mempool_instance_options_t options = {
 	.min_leaf_size = 16,
 	.min_leaf_alignment = 4,
 	.max_kept_region_count = 3,
+	.optimal_min_region_order = 8, // this corresponds to a minimum region size of 4096 bytes with the current leaf size (16)
 };
 
 static void sys_mempool_do_init(void* context) {
