@@ -1,8 +1,5 @@
 project(sysman C)
 
-spooky_gen(sysman_test_client src/test.spky)
-spooky_gen(sysman_test_server src/test.spky SERVER)
-
 add_link_options(
 	-fvisibility=hidden
 )
@@ -12,7 +9,6 @@ add_anillo_executable(sysman
 	INSTALL_PATH /sys/sysman/sysman
 	SOURCES
 		src/sysman.c
-		"${CMAKE_CURRENT_BINARY_DIR}/test.server.c"
 )
 
 target_include_directories(sysman PRIVATE
@@ -32,7 +28,6 @@ add_anillo_executable(tinysh
 	INSTALL_PATH /sys/sysman/tinysh
 	SOURCES
 		src/tinysh.c
-		"${CMAKE_CURRENT_BINARY_DIR}/test.client.c"
 )
 
 target_include_directories(tinysh PRIVATE
@@ -46,6 +41,3 @@ target_link_libraries(tinysh PUBLIC
 	libeve
 	libspooky
 )
-
-add_dependencies(sysman sysman_test_server)
-add_dependencies(tinysh sysman_test_client)
