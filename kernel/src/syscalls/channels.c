@@ -21,6 +21,7 @@
 #include <ferro/core/mempool.h>
 #include <libsimple/libsimple.h>
 #include <ferro/core/panic.h>
+#include <ferro/userspace/uio.h>
 
 // for doing locked receives and sends
 #include <ferro/core/channels.private.h>
@@ -61,15 +62,21 @@ const fproc_descriptor_class_t fsyscall_channel_server_context_descriptor_class 
 
 extern const fproc_descriptor_class_t fsyscall_shared_page_class;
 
-ferr_t fsyscall_handler_channel_connect(char const* server_channel_name, uint64_t server_channel_name_length, fsyscall_channel_realm_t realm_id, fsyscall_channel_connect_flags_t flags, uint64_t* out_channel_id) {
+ferr_t fsyscall_handler_channel_connect(char const* user_server_channel_name, uint64_t server_channel_name_length, fsyscall_channel_realm_t realm_id, fsyscall_channel_connect_flags_t flags, uint64_t* out_channel_id) {
 	ferr_t status = ferr_ok;
 	fchannel_t* channel = NULL;
 	fchannel_realm_t* realm = NULL;
 	fchannel_server_t* server = NULL;
 	uint64_t descriptor_id = FPROC_DID_MAX;
+	char* server_channel_name = NULL;
 
 	if (!out_channel_id) {
 		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	status = ferro_uio_copy_in((uintptr_t)user_server_channel_name, server_channel_name_length, (void*)&server_channel_name);
+	if (status != ferr_ok) {
 		goto out;
 	}
 
@@ -114,7 +121,14 @@ ferr_t fsyscall_handler_channel_connect(char const* server_channel_name, uint64_
 		goto out;
 	}
 
+	status = ferro_uio_copy_out(&descriptor_id, sizeof(descriptor_id), (uintptr_t)out_channel_id);
+
 out:
+	if (status != ferr_ok) {
+		if (descriptor_id != FPROC_DID_MAX) {
+			FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), descriptor_id));
+		}
+	}
 	if (channel) {
 		fchannel_release(channel);
 	}
@@ -124,8 +138,8 @@ out:
 	if (realm) {
 		fchannel_realm_release(realm);
 	}
-	if (status == ferr_ok) {
-		*out_channel_id = descriptor_id;
+	if (server_channel_name) {
+		ferro_uio_copy_free(server_channel_name, server_channel_name_length);
 	}
 	return status;
 };
@@ -155,6 +169,8 @@ ferr_t fsyscall_handler_channel_create_pair(uint64_t* out_channel_ids) {
 		goto out;
 	}
 
+	status = ferro_uio_copy_out(descriptor_ids, sizeof(descriptor_ids), (uintptr_t)out_channel_ids);
+
 out:
 	if (channels[0]) {
 		fchannel_release(channels[0]);
@@ -162,10 +178,7 @@ out:
 	if (channels[1]) {
 		fchannel_release(channels[1]);
 	}
-	if (status == ferr_ok) {
-		out_channel_ids[0] = descriptor_ids[0];
-		out_channel_ids[1] = descriptor_ids[1];
-	} else {
+	if (status != ferr_ok) {
 		if (descriptor_ids[0] != FPROC_DID_MAX) {
 			FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), descriptor_ids[0]));
 		}
@@ -199,12 +212,11 @@ ferr_t fsyscall_handler_channel_conversation_create(uint64_t channel_id, fchanne
 
 	convo_id = fchannel_next_conversation_id(channel);
 
+	status = ferro_uio_copy_out(&convo_id, sizeof(convo_id), (uintptr_t)out_conversation_id);
+
 out:
 	if (channel) {
 		desc_class->release(channel);
-	}
-	if (status == ferr_ok) {
-		*out_conversation_id = convo_id;
 	}
 	return status;
 };
@@ -213,14 +225,7 @@ out:
 //
 // this operation must remain atomic as part of a contract with userspace.
 // if the message cannot be sent, its contents must not be modified or invalidated in any observable way.
-//
-// FIXME: we currently access the same memory from userspace multiple times, which can lead to inconsistent views
-//        because userspace might randomly decide to change it on us. for safety, we should only read once (when it is safe to fail)
-//        and use our copy of this info later on (when we can no longer fail safely).
-//
-//        actually, pretty much all of the syscalls need to be fixed for safety at the syscall barrier, especially when it comes
-//        to accessing potentially invalid memory addresses.
-ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t flags, uint64_t timeout, fsyscall_timeout_type_t timeout_type, fsyscall_channel_message_t* in_out_message) {
+ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t flags, uint64_t timeout, fsyscall_timeout_type_t timeout_type, fsyscall_channel_message_t* user_in_out_message) {
 	ferr_t status = ferr_ok;
 	fchannel_t* channel = NULL;
 	const fproc_descriptor_class_t* desc_class = NULL;
@@ -230,10 +235,26 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 	fchannel_message_attachment_header_t* kernel_attachment_header = NULL;
 	fchannel_message_attachment_header_t* previous_kernel_attachment_header = NULL;
 	fchannel_send_lock_state_t send_lock_state;
+	fsyscall_channel_message_t in_message;
+	void* copied_attachments = NULL;
 
 	simple_memset(&message, 0, sizeof(message));
 
-	for (const fsyscall_channel_message_attachment_header_t* header = (const void*)in_out_message->attachments_address; header != NULL && (uintptr_t)header - in_out_message->attachments_address < in_out_message->attachments_length; header = (header->next_offset == 0) ? NULL : (const void*)((const char*)header + header->next_offset)) {
+	status = ferro_uio_copy_in_noalloc((uintptr_t)user_in_out_message, sizeof(in_message), &in_message);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (in_message.attachments_length > 0) {
+		status = ferro_uio_copy_in(in_message.attachments_address, in_message.attachments_length, &copied_attachments);
+		if (status != ferr_ok) {
+			goto out;
+		}
+
+		in_message.attachments_address = (uintptr_t)copied_attachments;
+	}
+
+	for (const fsyscall_channel_message_attachment_header_t* header = copied_attachments; header != NULL && (uintptr_t)header - (uintptr_t)copied_attachments < in_message.attachments_length; header = (header->next_offset == 0) ? NULL : (const void*)((const char*)header + header->next_offset)) {
 		switch (header->type) {
 			case fchannel_message_attachment_type_channel: {
 				kernel_attachments_length += sizeof(fchannel_message_attachment_channel_t);
@@ -267,8 +288,8 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 		goto out;
 	}
 
-	message.conversation_id = in_out_message->conversation_id;
-	message.body_length = in_out_message->body_length;
+	message.conversation_id = in_message.conversation_id;
+	message.body_length = in_message.body_length;
 	message.attachments_length = kernel_attachments_length;
 
 	if (message.body_length > 0) {
@@ -277,7 +298,10 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 			goto out;
 		}
 
-		simple_memcpy(message.body, (const void*)in_out_message->body_address, message.body_length);
+		status = ferro_uio_copy_in_noalloc(in_message.body_address, message.body_length, message.body);
+		if (status != ferr_ok) {
+			goto out;
+		}
 	}
 
 	if (kernel_attachments_length > 0) {
@@ -289,7 +313,7 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 		simple_memset(message.attachments, 0, message.attachments_length);
 
 		kernel_attachment_header = (void*)message.attachments;
-		for (const fsyscall_channel_message_attachment_header_t* header = (const void*)in_out_message->attachments_address; header != NULL && (uintptr_t)header - in_out_message->attachments_address < in_out_message->attachments_length; (header = (header->next_offset == 0) ? NULL : (const void*)((const char*)header + header->next_offset)), (previous_kernel_attachment_header = kernel_attachment_header), (kernel_attachment_header = (void*)((char*)kernel_attachment_header + kernel_attachment_header->length))) {
+		for (const fsyscall_channel_message_attachment_header_t* header = copied_attachments; header != NULL && (uintptr_t)header - (uintptr_t)copied_attachments < in_message.attachments_length; (header = (header->next_offset == 0) ? NULL : (const void*)((const char*)header + header->next_offset)), (previous_kernel_attachment_header = kernel_attachment_header), (kernel_attachment_header = (void*)((char*)kernel_attachment_header + kernel_attachment_header->length))) {
 			if (previous_kernel_attachment_header) {
 				previous_kernel_attachment_header->next_offset = (uintptr_t)kernel_attachment_header - (uintptr_t)previous_kernel_attachment_header;
 			}
@@ -371,7 +395,10 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 							goto out;
 						}
 
-						simple_memcpy(copied_data, (void*)syscall_data_attachment->target, syscall_data_attachment->length);
+						status = ferro_uio_copy_in_noalloc(syscall_data_attachment->target, syscall_data_attachment->length, copied_data);
+						if (status != ferr_ok) {
+							goto out;
+						}
 
 						data_attachment->copied_data = copied_data;
 					}
@@ -403,7 +430,7 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 	// if we got here, we can definitely send the message.
 	// we can now clean up resources from userspace because we know we can no longer fail.
 
-	for (const fsyscall_channel_message_attachment_header_t* header = (const void*)in_out_message->attachments_address; header != NULL && (uintptr_t)header - in_out_message->attachments_address < in_out_message->attachments_length; header = (header->next_offset == 0) ? NULL : (const void*)((const char*)header + header->next_offset)) {
+	for (const fsyscall_channel_message_attachment_header_t* header = copied_attachments; header != NULL && (uintptr_t)header - (uintptr_t)copied_attachments < in_message.attachments_length; header = (header->next_offset == 0) ? NULL : (const void*)((const char*)header + header->next_offset)) {
 		switch (header->type) {
 			case fchannel_message_attachment_type_channel: {
 				const fsyscall_channel_message_attachment_channel_t* syscall_channel_attachment = (const void*)header;
@@ -432,7 +459,7 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 
 	fchannel_unlock_send(channel, &send_lock_state);
 
-	in_out_message->conversation_id = message.conversation_id;
+	status = ferro_uio_copy_out(&message.conversation_id, sizeof(message.conversation_id), (uintptr_t)&user_in_out_message->conversation_id);
 
 out:
 	if (channel) {
@@ -481,10 +508,13 @@ out:
 			FERRO_WUR_IGNORE(fmempool_free(message.body));
 		}
 	}
+	if (copied_attachments) {
+		ferro_uio_copy_free(copied_attachments, in_message.attachments_length);
+	}
 	return status;
 };
 
-ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_receive_flags_t flags, uint64_t timeout, fsyscall_timeout_type_t timeout_type, fsyscall_channel_message_t* in_out_message) {
+ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_receive_flags_t flags, uint64_t timeout, fsyscall_timeout_type_t timeout_type, fsyscall_channel_message_t* user_in_out_message) {
 	ferr_t status = ferr_ok;
 	fchannel_t* channel = NULL;
 	const fproc_descriptor_class_t* desc_class = NULL;
@@ -495,6 +525,13 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 	fchannel_receive_flags_t kernel_flags = 0;
 	fchannel_message_id_t target_id = fchannel_message_id_invalid;
 	bool pre_receive_peek = (flags & fsyscall_channel_receive_flag_pre_receive_peek) != 0;
+	void* syscall_attachments_buffer = NULL;
+	fsyscall_channel_message_t in_message;
+
+	status = ferro_uio_copy_in_noalloc((uintptr_t)user_in_out_message, sizeof(in_message), &in_message);
+	if (status != ferr_ok) {
+		goto out;
+	}
 
 	if ((flags & fsyscall_channel_receive_flag_match_message_id) != 0) {
 		// we can only look for messages with matching message IDs if we're not going to wait for a message
@@ -503,7 +540,7 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 			goto out;
 		}
 
-		target_id = in_out_message->message_id;
+		target_id = in_message.message_id;
 	}
 
 	if ((flags & fsyscall_channel_receive_flag_no_wait) != 0) {
@@ -556,8 +593,18 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 		}
 	}
 
-	if (in_out_message->attachments_length < required_attachments_size || in_out_message->body_length < message.body_length) {
+	if (in_message.attachments_length < required_attachments_size || in_message.body_length < message.body_length) {
 		status = ferr_too_big;
+		goto out;
+	}
+
+	status = fmempool_allocate(required_attachments_size, NULL, &syscall_attachments_buffer);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = ferro_uio_copy_in_noalloc(in_message.attachments_address, required_attachments_size, syscall_attachments_buffer);
+	if (status != ferr_ok) {
 		goto out;
 	}
 
@@ -567,7 +614,7 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 		fsyscall_channel_message_attachment_header_t* syscall_attachment_header = NULL;
 		fsyscall_channel_message_attachment_header_t* previous_syscall_attachment_header = NULL;
 
-		syscall_attachment_header = (void*)in_out_message->attachments_address;
+		syscall_attachment_header = syscall_attachments_buffer;
 		for (fchannel_message_attachment_header_t* kernel_attachment_header = (void*)message.attachments; kernel_attachment_header != NULL; (kernel_attachment_header = (kernel_attachment_header->next_offset == 0) ? NULL : (void*)((char*)kernel_attachment_header + kernel_attachment_header->next_offset)), (previous_syscall_attachment_header = syscall_attachment_header), (syscall_attachment_header = (void*)((char*)syscall_attachment_header + syscall_attachment_header->length))) {
 			if (previous_syscall_attachment_header) {
 				previous_syscall_attachment_header->next_offset = (uintptr_t)syscall_attachment_header - (uintptr_t)previous_syscall_attachment_header;
@@ -638,7 +685,10 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 								goto out;
 							}
 
-							simple_memcpy((void*)syscall_data_attachment->target, kernel_data_attachment->copied_data, kernel_data_attachment->length);
+							status = ferro_uio_copy_out(kernel_data_attachment->copied_data, kernel_data_attachment->length, syscall_data_attachment->target);
+							if (status != ferr_ok) {
+								goto out;
+							}
 						}
 					}
 
@@ -666,13 +716,24 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 		}
 	}
 
+	status = ferro_uio_copy_out(syscall_attachments_buffer, required_attachments_size, in_message.attachments_address);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
 	// okay, should be smooth sailing from here on out
 
 	if (!pre_receive_peek) {
-		simple_memcpy((void*)in_out_message->body_address, message.body, message.body_length);
+		status = ferro_uio_copy_out(message.body, message.body_length, in_message.body_address);
+		if (status != ferr_ok) {
+			goto out;
+		}
 	}
 
-	in_out_message->conversation_id = message.conversation_id;
+	status = ferro_uio_copy_out(&message.conversation_id, sizeof(message.conversation_id), (uintptr_t)&user_in_out_message->conversation_id);
+	if (status != ferr_ok) {
+		goto out;
+	}
 
 	if (!pre_receive_peek) {
 		// now let's consume the message
@@ -723,15 +784,15 @@ out:
 	// no matter whether we have enough space or not, we always want to tell the user exactly how much space we need.
 	// if there's not enough space, then they need to know how much they should allocate.
 	// if there's enough, then they need to know how much we actually used (which may be vital info e.g. for the body).
-	in_out_message->attachments_length = required_attachments_size;
-	in_out_message->body_length = message.body_length;
+	status = ferro_uio_copy_out(&required_attachments_size, sizeof(required_attachments_size), (uintptr_t)&user_in_out_message->attachments_length);
+	status = ferro_uio_copy_out(&message.body_length, sizeof(message.body_length), (uintptr_t)&user_in_out_message->body_length);
 
 	// we only need to clean up attachments if we're doing a normal receive.
 	// pre-receive peeks don't actually acquire any resources from the message attachments;
 	// they only populate the information necessary for userspace to allocate some resources
 	// of its own to handle the message with a normal receive later.
 	if (status != ferr_ok && !pre_receive_peek) {
-		fsyscall_channel_message_attachment_header_t* syscall_attachment_header = (void*)in_out_message->attachments_address;
+		fsyscall_channel_message_attachment_header_t* syscall_attachment_header = syscall_attachments_buffer;
 
 		for (size_t i = 0; i < initialized_attachments && syscall_attachment_header != NULL; ++i) {
 			switch (syscall_attachment_header->type) {
@@ -773,6 +834,9 @@ out_unlocked:
 	if (channel) {
 		desc_class->release(channel);
 	}
+	if (syscall_attachments_buffer) {
+		FERRO_WUR_IGNORE(fmempool_free(syscall_attachments_buffer));
+	}
 	return status;
 };
 
@@ -806,13 +870,19 @@ out:
 	return status;
 };
 
-ferr_t fsyscall_handler_server_channel_create(char const* channel_name, uint64_t channel_name_length, fsyscall_channel_realm_t realm_id, uint64_t* out_server_channel_id) {
+ferr_t fsyscall_handler_server_channel_create(char const* user_channel_name, uint64_t channel_name_length, fsyscall_channel_realm_t realm_id, uint64_t* out_server_channel_id) {
 	ferr_t status = ferr_ok;
 	fchannel_server_t* server = NULL;
 	uint64_t descriptor_id = FPROC_DID_MAX;
 	fchannel_realm_t* realm = NULL;
 	bool unpublish_on_fail = false;
 	fsyscall_channel_server_context_t* server_context = NULL;
+	char* channel_name = NULL;
+
+	status = ferro_uio_copy_in((uintptr_t)user_channel_name, channel_name_length, (void*)&channel_name);
+	if (status != ferr_ok) {
+		goto out;
+	}
 
 	if (realm_id == fsyscall_channel_realm_global) {
 		realm = fchannel_realm_global();
@@ -857,7 +927,7 @@ ferr_t fsyscall_handler_server_channel_create(char const* channel_name, uint64_t
 		goto out;
 	}
 
-	simple_memset(server_context, 0, sizeof(server_context));
+	simple_memset(server_context, 0, sizeof(*server_context));
 
 	// move our references into the context
 	server_context->realm = realm;
@@ -879,10 +949,13 @@ ferr_t fsyscall_handler_server_channel_create(char const* channel_name, uint64_t
 		goto out;
 	}
 
+	status = ferro_uio_copy_out(&descriptor_id, sizeof(descriptor_id), (uintptr_t)out_server_channel_id);
+
 out:
-	if (status == ferr_ok) {
-		*out_server_channel_id = descriptor_id;
-	} else {
+	if (status != ferr_ok) {
+		if (descriptor_id != FPROC_DID_MAX) {
+			FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), descriptor_id));
+		}
 		if (unpublish_on_fail) {
 			FERRO_WUR_IGNORE(fchannel_realm_unpublish(realm, channel_name, channel_name_length));
 		}
@@ -895,6 +968,9 @@ out:
 	}
 	if (realm) {
 		fchannel_realm_release(realm);
+	}
+	if (channel_name) {
+		ferro_uio_copy_free(channel_name, channel_name_length);
 	}
 	return status;
 };
@@ -926,15 +1002,19 @@ ferr_t fsyscall_handler_server_channel_accept(uint64_t server_channel_id, fchann
 		goto out;
 	}
 
+	status = ferro_uio_copy_out(&accepted_channel_id, sizeof(accepted_channel_id), (uintptr_t)out_channel_id);
+
 out:
+	if (status != ferr_ok) {
+		if (accepted_channel_id != FPROC_DID_MAX) {
+			FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), accepted_channel_id));
+		}
+	}
 	if (server_context) {
 		desc_class->release(server_context);
 	}
 	if (accepted_channel) {
 		fchannel_release(accepted_channel);
-	}
-	if (status == ferr_ok) {
-		*out_channel_id = accepted_channel_id;
 	}
 	return status;
 };

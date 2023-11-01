@@ -19,21 +19,24 @@
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/core/paging.h>
 #include <ferro/core/per-cpu.private.h>
+#include <ferro/userspace/uio.h>
 
 ferr_t fsyscall_handler_constants(ferro_constants_t* out_constants) {
-	out_constants->page_size = FPAGE_PAGE_SIZE;
-	out_constants->minimum_stack_size = 4 * FPAGE_PAGE_SIZE;
+	ferro_constants_t constants;
+
+	constants.page_size = FPAGE_PAGE_SIZE;
+	constants.minimum_stack_size = 4 * FPAGE_PAGE_SIZE;
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
-	out_constants->minimum_thread_context_alignment_power = fpage_round_up_to_alignment_power(64);
+	constants.minimum_thread_context_alignment_power = fpage_round_up_to_alignment_power(64);
 	// pad the thread context size so that the xsave area can be aligned to 64 bytes
-	out_constants->total_thread_context_size = fpage_align_address_up(sizeof(ferro_thread_context_t), fpage_round_up_to_alignment_power(64)) + FARCH_PER_CPU(xsave_area_size);
-	out_constants->xsave_area_size = FARCH_PER_CPU(xsave_area_size);
+	constants.total_thread_context_size = fpage_align_address_up(sizeof(ferro_thread_context_t), fpage_round_up_to_alignment_power(64)) + FARCH_PER_CPU(xsave_area_size);
+	constants.xsave_area_size = FARCH_PER_CPU(xsave_area_size);
 #elif FERRO_ARCH == FERRO_ARCH_aarch64
-	out_constants->minimum_thread_context_alignment_power = fpage_round_up_to_alignment_power(16);
+	constants.minimum_thread_context_alignment_power = fpage_round_up_to_alignment_power(16);
 	// pad the thread context size so that the FP register area can be aligned to 16 bytes
-	out_constants->total_thread_context_size = fpage_align_address_up(sizeof(ferro_thread_context_t), fpage_round_up_to_alignment_power(16)) + (sizeof(__uint128_t) * 32);
+	constants.total_thread_context_size = fpage_align_address_up(sizeof(ferro_thread_context_t), fpage_round_up_to_alignment_power(16)) + (sizeof(__uint128_t) * 32);
 #endif
 
-	return ferr_ok;
+	return ferro_uio_copy_out(&constants, sizeof(constants), (uintptr_t)out_constants);
 };

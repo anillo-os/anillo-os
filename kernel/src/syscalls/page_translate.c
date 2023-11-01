@@ -19,6 +19,7 @@
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/userspace/processes.h>
 #include <ferro/core/paging.h>
+#include <ferro/userspace/uio.h>
 
 ferr_t fsyscall_handler_page_translate(void const* address, uint64_t* out_phys_address) {
 	ferr_t status = ferr_ok;
@@ -27,7 +28,7 @@ ferr_t fsyscall_handler_page_translate(void const* address, uint64_t* out_phys_a
 		status = ferr_no_such_resource;
 	}
 	if (out_phys_address) {
-		*out_phys_address = phys;
+		status = ferro_uio_copy_out(&phys, sizeof(phys), (uintptr_t)out_phys_address);
 	}
 out:
 	return status;

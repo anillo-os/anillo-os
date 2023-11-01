@@ -20,12 +20,14 @@
 #include <ferro/userspace/processes.h>
 #include <ferro/core/waitq.private.h>
 #include <ferro/core/threads.private.h>
+#include <ferro/userspace/uio.h>
 
 ferr_t fsyscall_handler_futex_wait(uint64_t* address, uint64_t channel, uint64_t expected_value, uint64_t timeout, fsyscall_timeout_type_t timeout_type, uint64_t flags) {
 	fproc_t* proc = fproc_current();
 	futex_t* futex = NULL;
 	ferr_t status = ferr_ok;
 	fthread_timeout_type_t thread_timeout_type;
+	uint64_t current_value;
 
 	switch (timeout_type) {
 		case fsyscall_timeout_type_none:
@@ -53,7 +55,13 @@ ferr_t fsyscall_handler_futex_wait(uint64_t* address, uint64_t channel, uint64_t
 	//
 	// this way, we're guaranteed to synchronize with any other wakeups on the same futex;
 	// either they'll see us as a waiter, or we'll see their updated value.
-	if (__atomic_load_n(address, __ATOMIC_RELAXED) != expected_value) {
+	status = ferro_uio_atomic_load_8_relaxed((uintptr_t)address, &current_value);
+	if (status != ferr_ok) {
+		fwaitq_unlock(&futex->waitq);
+		goto out;
+	}
+
+	if (current_value != expected_value) {
 		status = ferr_should_restart;
 		fwaitq_unlock(&futex->waitq);
 		goto out;

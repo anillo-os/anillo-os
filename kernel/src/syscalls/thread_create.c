@@ -21,6 +21,7 @@
 #include <ferro/userspace/threads.private.h>
 #include <ferro/core/scheduler.h>
 #include <ferro/userspace/syscalls.h>
+#include <ferro/userspace/uio.h>
 
 static void fproc_secondary_thread_init(void* entry) {
 	futhread_jump_user_self(entry);
@@ -56,10 +57,10 @@ ferr_t fsyscall_handler_thread_create(void* stack, uint64_t stack_size, void con
 		goto out;
 	}
 
+	status = ferro_uio_copy_out(&thread->id, sizeof(thread->id), (uintptr_t)out_thread_id);
+
 out:
-	if (status == ferr_ok) {
-		*out_thread_id = thread->id;
-	} else {
+	if (status != ferr_ok) {
 		if (unmanage) {
 			// currently, the only way to make the scheduler unmanage a thread is to kill it
 			FERRO_WUR_IGNORE(fthread_kill(thread));

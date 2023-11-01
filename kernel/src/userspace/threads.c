@@ -28,6 +28,7 @@
 #include <ferro/userspace/futex.h>
 #include <ferro/userspace/processes.h>
 #include <ferro/core/console.h>
+#include <ferro/userspace/uio.h>
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 	#include <ferro/core/x86_64/xsave.h>
@@ -90,7 +91,7 @@ static void uthread_thread_died(void* context) {
 		// FIXME: we should not access userspace memory directly here.
 		//        we need to have a set of functions to access userspace memory safely, without fear of faulting.
 		if (fpage_space_virtual_to_physical(data->user_space, private_data->uthread_death_futex->address) != UINTPTR_MAX) {
-			__atomic_store_n((uint64_t*)private_data->uthread_death_futex->address, private_data->uthread_death_futex_value, __ATOMIC_RELAXED);
+			FERRO_WUR_IGNORE(ferro_uio_atomic_store_8_relaxed(private_data->uthread_death_futex->address, private_data->uthread_death_futex_value));
 		}
 		fpanic_status(fpage_space_swap(curr));
 
@@ -769,6 +770,7 @@ static ferr_t futhread_signal_internal(fthread_t* uthread, futhread_pending_sign
 	bool mark_as_interrupted = true;
 	bool blocked = false;
 	fpage_space_t* saved_space = NULL;
+	uint8_t block_all_flag = 0;
 
 	status = simple_ghmap_lookup_h(&private_data->signal_handler_table, signal->signal, false, 0, NULL, (void*)&handler, NULL);
 	if (status != ferr_ok) {
@@ -801,7 +803,7 @@ static ferr_t futhread_signal_internal(fthread_t* uthread, futhread_pending_sign
 
 	// FIXME: we shouldn't access the flag directly; we should have some sort of wrapper function
 	//        that can gracefully handle invalid addresses.
-	if (private_data->signal_mapping.block_all_flag && __atomic_load_n(private_data->signal_mapping.block_all_flag, __ATOMIC_RELAXED)) {
+	if (private_data->signal_mapping.block_all_flag && ferro_uio_atomic_load_1_relaxed((uintptr_t)private_data->signal_mapping.block_all_flag, &block_all_flag) == ferr_ok && block_all_flag != 0) {
 		blocked = true;
 	}
 
@@ -814,7 +816,7 @@ static ferr_t futhread_signal_internal(fthread_t* uthread, futhread_pending_sign
 	//    it's likely doing something that would cause issues with signal handlers,
 	//    so if we have to suspend it (e.g. to handle a page fault), that would be a problem
 	//    for the signal handler we want to run.
-	if (uthread != target_uthread && target_private_data->signal_mapping.block_all_flag && __atomic_load_n(target_private_data->signal_mapping.block_all_flag, __ATOMIC_RELAXED)) {
+	if (uthread != target_uthread && target_private_data->signal_mapping.block_all_flag && ferro_uio_atomic_load_1_relaxed((uintptr_t)target_private_data->signal_mapping.block_all_flag, &block_all_flag) == ferr_ok && block_all_flag != 0) {
 		blocked = true;
 	}
 
@@ -1093,12 +1095,13 @@ ferr_t futhread_handle_signals(fthread_t* uthread, bool locked) {
 	futhread_data_t* data = futhread_data_for_thread(uthread);
 	futhread_data_private_t* private_data = (void*)data;
 	bool blocked = false;
+	uint8_t block_all_flag = 0;
 
 	if (!locked) {
 		flock_mutex_lock(&private_data->signals_mutex);
 	}
 
-	if (private_data->signal_mapping.block_all_flag && __atomic_load_n(private_data->signal_mapping.block_all_flag, __ATOMIC_RELAXED)) {
+	if (private_data->signal_mapping.block_all_flag && ferro_uio_atomic_load_1_relaxed((uintptr_t)private_data->signal_mapping.block_all_flag, &block_all_flag) == ferr_ok && block_all_flag != 0) {
 		blocked = true;
 	}
 
@@ -1130,7 +1133,7 @@ retry:
 
 	if (private_data->current_signal) {
 		futhread_data_private_t* target_private_data = (void*)futhread_data_for_thread(private_data->current_signal->target_uthread);
-		if (target_private_data->signal_mapping.block_all_flag && __atomic_load_n(target_private_data->signal_mapping.block_all_flag, __ATOMIC_RELAXED)) {
+		if (target_private_data->signal_mapping.block_all_flag && ferro_uio_atomic_load_1_relaxed((uintptr_t)target_private_data->signal_mapping.block_all_flag, &block_all_flag) == ferr_ok && block_all_flag != 0) {
 			blocked = true;
 		}
 

@@ -21,6 +21,7 @@
 #include <ferro/core/scheduler.h>
 #include <ferro/userspace/threads.h>
 #include <ferro/userspace/processes.h>
+#include <ferro/core/scheduler.private.h>
 
 ferr_t fsyscall_handler_thread_suspend(uint64_t thread_id, uint64_t timeout, fsyscall_timeout_type_t timeout_type) {
 	ferr_t status = ferr_ok;
@@ -63,6 +64,27 @@ ferr_t fsyscall_handler_thread_suspend(uint64_t thread_id, uint64_t timeout, fsy
 
 out:
 	if (thread && thread != fthread_current()) {
+		fthread_release(thread);
+	}
+	return status;
+};
+
+ferr_t fsyscall_handler_thread_yield(uint64_t thread_id) {
+	ferr_t status = ferr_ok;
+	fthread_t* thread = NULL;
+
+	thread = fsched_find(thread_id, true);
+	if (!thread) {
+		status = ferr_no_such_resource;
+		goto out;
+	}
+
+	flock_spin_intsafe_lock(&thread->lock);
+	fsched_preempt_thread(thread);
+	// `fsched_preempt_thread` drops the lock
+
+out:
+	if (thread) {
 		fthread_release(thread);
 	}
 	return status;

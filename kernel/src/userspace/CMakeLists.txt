@@ -7,6 +7,7 @@ add_library(ferro_userspace STATIC
 	processes.c
 	futex.c
 	process-registry.c
+	uio.c
 )
 
 add_subdirectory("${ANILLO_ARCH}")

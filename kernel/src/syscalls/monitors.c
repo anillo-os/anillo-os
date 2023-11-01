@@ -24,6 +24,7 @@
 #include <ferro/core/panic.h>
 #include <ferro/syscalls/channels.private.h>
 #include <ferro/core/waitq.private.h>
+#include <ferro/userspace/uio.h>
 
 // TODO: modularize this and allow monitor items to be managed in separate sources
 
@@ -529,8 +530,7 @@ static ferr_t fsyscall_monitor_item_enable(fsyscall_monitor_item_t* item) {
 
 			// see futex_wait.c for why we check the value and add ourselves while holding the waitq lock
 			fwaitq_lock(&futex_item->futex->waitq);
-			curr_val = __atomic_load_n((uint64_t*)futex_item->futex->address, __ATOMIC_RELAXED);
-			if (curr_val == futex_item->expected_value) {
+			if (ferro_uio_atomic_load_8_relaxed(futex_item->futex->address, &curr_val) == ferr_ok && curr_val == futex_item->expected_value) {
 				fwaitq_add_locked(&futex_item->futex->waitq, &futex_item->waiter);
 			}
 			fwaitq_unlock(&futex_item->futex->waitq);
@@ -829,9 +829,13 @@ ferr_t fsyscall_handler_monitor_create(uint64_t* out_monitor_handle) {
 		goto out;
 	}
 
+	status = ferro_uio_copy_out(&monitor_handle, sizeof(monitor_handle), (uintptr_t)out_monitor_handle);
+
 out:
-	if (status == ferr_ok) {
-		*out_monitor_handle = monitor_handle;
+	if (status != ferr_ok) {
+		if (monitor_handle != FPROC_DID_MAX) {
+			FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), monitor_handle));
+		}
 	}
 	if (monitor) {
 		fsyscall_monitor_release(monitor);
@@ -928,12 +932,17 @@ static fsyscall_monitor_item_flags_t fsyscall_update_flags_to_item_flags(fsyscal
 	return flags;
 };
 
-ferr_t fsyscall_handler_monitor_update(uint64_t monitor_handle, fsyscall_monitor_update_flags_t flags, fsyscall_monitor_update_item_t* in_out_items, uint64_t* in_out_item_count) {
+ferr_t fsyscall_handler_monitor_update(uint64_t monitor_handle, fsyscall_monitor_update_flags_t flags, fsyscall_monitor_update_item_t* user_in_out_items, uint64_t* user_in_out_item_count) {
 	ferr_t status = ferr_ok;
-	uint64_t item_count = *in_out_item_count;
+	uint64_t item_count = 0;
 	fsyscall_monitor_t* monitor = NULL;
 	const fproc_descriptor_class_t* desc_class = NULL;
 	uint64_t processed_items = 0;
+
+	status = ferro_uio_copy_in_noalloc((uintptr_t)user_in_out_item_count, sizeof(item_count), &item_count);
+	if (status != ferr_ok) {
+		goto out;
+	}
 
 	status = fproc_lookup_descriptor(fproc_current(), monitor_handle, true, (void*)&monitor, &desc_class);
 	if (status != ferr_ok) {
@@ -946,15 +955,21 @@ ferr_t fsyscall_handler_monitor_update(uint64_t monitor_handle, fsyscall_monitor
 	}
 
 	for (size_t i = 0; i < item_count; ++i) {
-		fsyscall_monitor_update_item_t* update_item = &in_out_items[i];
+		fsyscall_monitor_update_item_t update_item;
 		fsyscall_monitor_item_t* item = NULL;
 		ferr_t item_status = ferr_ok;
-		bool create_flag = (update_item->flags & fsyscall_monitor_update_item_flag_create) != 0;
-		bool update_flag = (update_item->flags & fsyscall_monitor_update_item_flag_update) != 0;
-		bool delete_flag = (update_item->flags & fsyscall_monitor_update_item_flag_delete) != 0;
+
+		item_status = ferro_uio_copy_in_noalloc((uintptr_t)&user_in_out_items[i], sizeof(update_item), &update_item);
+		if (item_status != ferr_ok) {
+			goto item_out;
+		}
+
+		bool create_flag = (update_item.flags & fsyscall_monitor_update_item_flag_create) != 0;
+		bool update_flag = (update_item.flags & fsyscall_monitor_update_item_flag_update) != 0;
+		bool delete_flag = (update_item.flags & fsyscall_monitor_update_item_flag_delete) != 0;
 		bool deferred_delete = false;
 		bool created = false;
-		bool strict_match = (update_item->flags & fsyscall_monitor_update_item_flag_strict_match) != 0;
+		bool strict_match = (update_item.flags & fsyscall_monitor_update_item_flag_strict_match) != 0;
 
 		if (
 			// can't create/update it and also delete it simultaneously
@@ -964,7 +979,7 @@ ferr_t fsyscall_handler_monitor_update(uint64_t monitor_handle, fsyscall_monitor
 			goto item_out;
 		}
 
-		switch (update_item->header.type) {
+		switch (update_item.header.type) {
 			case fsyscall_monitor_item_type_channel:
 			case fsyscall_monitor_item_type_server_channel:
 				break;
@@ -977,8 +992,8 @@ ferr_t fsyscall_handler_monitor_update(uint64_t monitor_handle, fsyscall_monitor
 						// 1) edge triggered, and
 						// 2) active high
 						// (for now, at least)
-						(update_item->flags & fsyscall_monitor_update_item_flag_edge_triggered) == 0 ||
-						(update_item->flags & fsyscall_monitor_update_item_flag_active_low) != 0
+						(update_item.flags & fsyscall_monitor_update_item_flag_edge_triggered) == 0 ||
+						(update_item.flags & fsyscall_monitor_update_item_flag_active_low) != 0
 					)
 				) {
 					item_status = ferr_invalid_argument;
@@ -994,8 +1009,8 @@ ferr_t fsyscall_handler_monitor_update(uint64_t monitor_handle, fsyscall_monitor
 						// 1) edge triggered, and
 						// 2) active high
 						// (for now, at least)
-						(update_item->flags & fsyscall_monitor_update_item_flag_edge_triggered) == 0 ||
-						(update_item->flags & fsyscall_monitor_update_item_flag_active_low) != 0
+						(update_item.flags & fsyscall_monitor_update_item_flag_edge_triggered) == 0 ||
+						(update_item.flags & fsyscall_monitor_update_item_flag_active_low) != 0
 					)
 				) {
 					item_status = ferr_invalid_argument;
@@ -1017,7 +1032,7 @@ create_item:
 				goto item_out;
 			}
 
-			item_status = fsyscall_monitor_item_create(&update_item->header, update_item->events, fsyscall_update_flags_to_item_flags(update_item->flags), monitor, update_item->data1, update_item->data2, &item);
+			item_status = fsyscall_monitor_item_create(&update_item.header, update_item.events, fsyscall_update_flags_to_item_flags(update_item.flags), monitor, update_item.data1, update_item.data2, &item);
 			if (item_status != ferr_ok) {
 				goto item_out;
 			}
@@ -1028,14 +1043,19 @@ create_item:
 			++monitor->item_count;
 			++monitor->items_array_size;
 
-			update_item->header.id = item->header.id;
-
 			created = true;
+
+			update_item.header.id = item->header.id;
+
+			item_status = ferro_uio_copy_out(&item->header.id, sizeof(item->header.id), (uintptr_t)&user_in_out_items[i].header.id);
+			if (item_status != ferr_ok) {
+				goto item_out;
+			}
 		} else {
 			item_status = ferr_no_such_resource;
 
 			// an ID of "none" is never present in the monitor
-			if (update_item->header.id == fsyscall_monitor_item_id_none) {
+			if (update_item.header.id == fsyscall_monitor_item_id_none) {
 				if (create_flag) {
 					// fall back to creating the item
 					goto create_item;
@@ -1048,13 +1068,13 @@ create_item:
 				fsyscall_monitor_item_t* this_item = monitor->items[i];
 
 				if (
-					this_item->header.id == update_item->header.id &&
+					this_item->header.id == update_item.header.id &&
 					(
 						!strict_match ||
 						(
-							this_item->header.type == update_item->header.type &&
-							this_item->header.descriptor_id == update_item->header.descriptor_id &&
-							this_item->header.context == update_item->header.context
+							this_item->header.type == update_item.header.type &&
+							this_item->header.descriptor_id == update_item.header.descriptor_id &&
+							this_item->header.context == update_item.header.context
 						)
 					)
 				) {
@@ -1069,7 +1089,7 @@ create_item:
 						if (
 							(item->monitored_events & fsyscall_monitor_event_item_deleted) &&
 							(
-								(update_item->flags & fsyscall_monitor_update_item_flag_defer_delete) ||
+								(update_item.flags & fsyscall_monitor_update_item_flag_defer_delete) ||
 								monitor->outstanding_polls > 0
 							)
 						) {
@@ -1116,16 +1136,16 @@ create_item:
 			fsyscall_monitor_item_flags_t old_flags = flags;
 
 			flags &= ~(fsyscall_monitor_item_flag_enabled | fsyscall_monitor_item_flag_disable_on_trigger | fsyscall_monitor_item_flag_edge_triggered | fsyscall_monitor_item_flag_active_low | fsyscall_monitor_item_flag_delete_on_trigger | fsyscall_monitor_item_flag_defer_delete | fsyscall_monitor_item_flag_set_user_flag);
-			flags |= fsyscall_update_flags_to_item_flags(update_item->flags);
+			flags |= fsyscall_update_flags_to_item_flags(update_item.flags);
 			item->flags = flags;
 
-			item->header.context = update_item->header.context;
+			item->header.context = update_item.header.context;
 
-			item->monitored_events = update_item->events;
+			item->monitored_events = update_item.events;
 
 			if (item->header.type == fsyscall_monitor_item_type_futex) {
 				fsyscall_monitor_item_futex_t* futex_item = (void*)item;
-				futex_item->expected_value = create_flag ? update_item->data2 : update_item->data1;
+				futex_item->expected_value = create_flag ? update_item.data2 : update_item.data1;
 			}
 
 			if ((old_flags & fsyscall_monitor_item_flag_enabled) != 0 && (item->flags & fsyscall_monitor_item_flag_enabled) == 0) {
@@ -1159,7 +1179,7 @@ item_out:
 			}
 		}
 
-		update_item->status = item_status;
+		item_status = ferro_uio_copy_out(&item_status, sizeof(item_status), (uintptr_t)&user_in_out_items[i].status);
 
 		++processed_items;
 
@@ -1172,17 +1192,23 @@ out:
 	if (monitor) {
 		desc_class->release(monitor);
 	}
-	*in_out_item_count = processed_items;
+	FERRO_WUR_IGNORE(ferro_uio_copy_out(&processed_items, sizeof(processed_items), (uintptr_t)user_in_out_item_count));
 	return status;
 };
 
-ferr_t fsyscall_handler_monitor_poll(uint64_t monitor_handle, fsyscall_monitor_poll_flags_t flags, uint64_t timeout, fsyscall_timeout_type_t timeout_type, fsyscall_monitor_event_t* out_events, uint64_t* in_out_event_count) {
+ferr_t fsyscall_handler_monitor_poll(uint64_t monitor_handle, fsyscall_monitor_poll_flags_t flags, uint64_t timeout, fsyscall_timeout_type_t timeout_type, fsyscall_monitor_event_t* user_out_events, uint64_t* user_in_out_event_count) {
 	ferr_t status = ferr_ok;
 	fsyscall_monitor_t* monitor = NULL;
 	const fproc_descriptor_class_t* desc_class = NULL;
-	uint64_t event_array_size = *in_out_event_count;
+	uint64_t event_array_size = 0;
 	uint64_t processed_events = 0;
 	bool marked_outstanding = false;
+	fsyscall_monitor_event_t syscall_event;
+
+	status = ferro_uio_copy_in_noalloc((uintptr_t)user_in_out_event_count, sizeof(event_array_size), &event_array_size);
+	if (status != ferr_ok) {
+		goto out;
+	}
 
 	if (event_array_size == 0) {
 		status = ferr_invalid_argument;
@@ -1260,9 +1286,14 @@ ferr_t fsyscall_handler_monitor_poll(uint64_t monitor_handle, fsyscall_monitor_p
 				flock_semaphore_up(&monitor->triggered_items_semaphore);
 				break;
 			}
-			if (fsyscall_monitor_item_poll(monitor->items[i], &out_events[processed_events]) == ferr_ok) {
+			if (fsyscall_monitor_item_poll(monitor->items[i], &syscall_event) == ferr_ok) {
 				if ((monitor->items[i]->flags & fsyscall_monitor_item_flag_dead) == 0) {
 					fpanic("Trying to release living item?");
+				}
+
+				status = ferro_uio_copy_out(&syscall_event, sizeof(syscall_event), (uintptr_t)&user_out_events[processed_events]);
+				if (status != ferr_ok) {
+					goto out;
 				}
 
 				++processed_events;
@@ -1291,7 +1322,7 @@ ferr_t fsyscall_handler_monitor_poll(uint64_t monitor_handle, fsyscall_monitor_p
 				flock_semaphore_up(&monitor->triggered_items_semaphore);
 				break;
 			}
-			if (fsyscall_monitor_item_poll(item, &out_events[processed_events]) == ferr_ok) {
+			if (fsyscall_monitor_item_poll(item, &syscall_event) == ferr_ok) {
 				if (item->flags & fsyscall_monitor_item_flag_disable_on_trigger) {
 					fsyscall_monitor_item_disable(item);
 				}
@@ -1307,6 +1338,12 @@ ferr_t fsyscall_handler_monitor_poll(uint64_t monitor_handle, fsyscall_monitor_p
 					fsyscall_monitor_item_delete(item);
 					fsyscall_monitor_item_release(item);
 				}
+
+				status = ferro_uio_copy_out(&syscall_event, sizeof(syscall_event), (uintptr_t)&user_out_events[processed_events]);
+				if (status != ferr_ok) {
+					goto out;
+				}
+
 				++processed_events;
 			}
 		}
@@ -1328,6 +1365,6 @@ out:
 		}
 		desc_class->release(monitor);
 	}
-	*in_out_event_count = processed_events;
+	status = ferro_uio_copy_out(&processed_events, sizeof(processed_events), (uintptr_t)user_in_out_event_count);
 	return status;
 };

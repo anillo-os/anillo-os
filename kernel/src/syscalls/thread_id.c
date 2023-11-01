@@ -19,9 +19,8 @@
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/core/threads.h>
 #include <ferro/core/paging.h>
+#include <ferro/userspace/uio.h>
 
 ferr_t fsyscall_handler_thread_id(uint64_t* out_thread_id) {
-	// TODO: implement something like copyout and use it to copy to userspace addresses
-	*out_thread_id = fthread_current()->id;
-	return ferr_ok;
+	return ferro_uio_copy_out(&fthread_current()->id, sizeof(fthread_current()->id), (uintptr_t)out_thread_id);
 };

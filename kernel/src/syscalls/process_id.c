@@ -18,12 +18,29 @@
 
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/userspace/processes.h>
+#include <ferro/userspace/uio.h>
 
 extern const fproc_descriptor_class_t fsyscall_proc_class;
 
 // XXX: this should be in its own file. maybe.
 ferr_t fsyscall_handler_process_current(uint64_t* out_process_handle) {
-	return fproc_install_descriptor(fproc_current(), fproc_current(), &fsyscall_proc_class, out_process_handle);
+	uint64_t process_handle = FPROC_DID_MAX;
+	ferr_t status = ferr_ok;
+
+	status = fproc_install_descriptor(fproc_current(), fproc_current(), &fsyscall_proc_class, &process_handle);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = ferro_uio_copy_out(&process_handle, sizeof(process_handle), (uintptr_t)out_process_handle);
+
+out:
+	if (status != ferr_ok) {
+		if (process_handle != FPROC_DID_MAX) {
+			FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), process_handle));
+		}
+	}
+	return status;
 };
 
 ferr_t fsyscall_handler_process_id(uint64_t process_handle, uint64_t* out_process_id) {
@@ -41,10 +58,7 @@ ferr_t fsyscall_handler_process_id(uint64_t process_handle, uint64_t* out_proces
 		goto out;
 	}
 
-	// TODO: check that `out_process_id` is valid before using it
-	// actually, TODO: don't perform direct memory access on userspace addresses
-
-	*out_process_id = proc->id;
+	status = ferro_uio_copy_out(&proc->id, sizeof(proc->id), (uintptr_t)out_process_id);
 
 out:
 	if (proc) {

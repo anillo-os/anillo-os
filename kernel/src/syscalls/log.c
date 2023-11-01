@@ -18,8 +18,23 @@
 
 #include <gen/ferro/userspace/syscall-handlers.h>
 #include <ferro/core/console.h>
+#include <ferro/userspace/uio.h>
 
 ferr_t fsyscall_handler_log(const char* message, uint64_t message_length) {
-	fconsole_logn(message, message_length);
-	return ferr_ok;
+	char* tmp = NULL;
+	ferr_t status = ferr_ok;
+
+	status = ferro_uio_copy_in((uintptr_t)message, message_length, (void**)&tmp);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	fconsole_logn(tmp, message_length);
+
+out:
+	if (tmp) {
+		ferro_uio_copy_free(tmp, message_length);
+	}
+
+	return status;
 };

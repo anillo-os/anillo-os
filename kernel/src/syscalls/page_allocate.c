@@ -20,6 +20,7 @@
 #include <ferro/userspace/processes.h>
 #include <ferro/core/paging.h>
 #include <libsimple/libsimple.h>
+#include <ferro/userspace/uio.h>
 
 ferr_t fsyscall_handler_page_allocate(uint64_t page_count, fsyscall_page_allocate_flags_t flags, uint8_t alignment_power, void* xout_address) {
 	ferr_t status = ferr_ok;
@@ -27,6 +28,7 @@ ferr_t fsyscall_handler_page_allocate(uint64_t page_count, fsyscall_page_allocat
 	void* phys_address = NULL;
 	void** out_address = xout_address;
 	fpage_flags_t page_flags = fpage_flag_unprivileged | fpage_flag_zero;
+	bool unregister_mapping_on_fail = false;
 
 	if (!out_address) {
 		status = ferr_invalid_argument;
@@ -58,11 +60,19 @@ ferr_t fsyscall_handler_page_allocate(uint64_t page_count, fsyscall_page_allocat
 	}
 
 	status = fproc_register_mapping(fproc_current(), address, page_count, (flags & fsyscall_page_allocate_flag_contiguous) ? fproc_mapping_flag_contiguous : 0, NULL);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	unregister_mapping_on_fail = true;
+
+	status = ferro_uio_copy_out(&address, sizeof(address), (uintptr_t)out_address);
 
 out:
-	if (status == ferr_ok) {
-		*out_address = address;
-	} else {
+	if (status != ferr_ok) {
+		if (unregister_mapping_on_fail) {
+			FERRO_WUR_IGNORE(fproc_unregister_mapping(fproc_current(), address, NULL, NULL, NULL));
+		}
 		if (address) {
 			if (flags & fsyscall_page_allocate_flag_contiguous) {
 				FERRO_WUR_IGNORE(fpage_space_unmap(fpage_space_current(), address, page_count));

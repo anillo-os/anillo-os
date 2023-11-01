@@ -20,6 +20,7 @@
 #include <ferro/userspace/processes.h>
 #include <ferro/core/paging.h>
 #include <libsimple/libsimple.h>
+#include <ferro/userspace/uio.h>
 
 const fproc_descriptor_class_t fsyscall_shared_page_class = {
 	.retain = (void*)fpage_mapping_retain,
@@ -41,9 +42,13 @@ ferr_t fsyscall_handler_page_allocate_shared(uint64_t page_count, fsyscall_page_
 		goto out;
 	}
 
+	status = ferro_uio_copy_out(&mapping_id, sizeof(mapping_id), (uintptr_t)out_mapping_id);
+
 out:
-	if (status == ferr_ok) {
-		*out_mapping_id = mapping_id;
+	if (status != ferr_ok) {
+		if (mapping_id != FPROC_DID_MAX) {
+			FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), mapping_id));
+		}
 	}
 	if (mapping) {
 		fpage_mapping_release(mapping);
@@ -57,6 +62,7 @@ ferr_t fsyscall_handler_page_map_shared(uint64_t mapping_id, uint64_t page_count
 	fpage_mapping_t* mapping = NULL;
 	void* address = NULL;
 	bool remove_mapping_on_fail = false;
+	bool unregister_mapping_on_fail = false;
 
 	status = fproc_lookup_descriptor(fproc_current(), mapping_id, true, (void*)&mapping, &desc_class);
 	if (status != ferr_ok) {
@@ -76,14 +82,22 @@ ferr_t fsyscall_handler_page_map_shared(uint64_t mapping_id, uint64_t page_count
 	remove_mapping_on_fail = true;
 
 	status = fproc_register_mapping(fproc_current(), address, page_count, 0, mapping);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	unregister_mapping_on_fail = true;
+
+	status = ferro_uio_copy_out(&address, sizeof(address), (uintptr_t)out_address);
 
 out:
 	if (mapping) {
 		desc_class->release(mapping);
 	}
-	if (status == ferr_ok) {
-		*(void**)out_address = address;
-	} else {
+	if (status != ferr_ok) {
+		if (unregister_mapping_on_fail) {
+			FERRO_WUR_IGNORE(fproc_unregister_mapping(fproc_current(), address, NULL, NULL, NULL));
+		}
 		if (remove_mapping_on_fail) {
 			FERRO_WUR_IGNORE(fpage_space_remove_mapping(fpage_space_current(), address));
 		}
@@ -198,7 +212,7 @@ ferr_t fsyscall_handler_page_count_shared(uint64_t mapping_id, uint64_t* out_pag
 		goto out;
 	}
 
-	*out_page_count = page_count;
+	status = ferro_uio_copy_out(&page_count, sizeof(page_count), (uintptr_t)out_page_count);
 
 out:
 	if (mapping) {
