@@ -133,6 +133,10 @@ void farch_int_print_frame(const fint_frame_t* frame);
 
 bool farch_int_invoke_special_handler(fint_special_interrupt_common_t id);
 
+FERRO_ALWAYS_INLINE bool fint_frame_is_kernel_space(fint_frame_t* frame) {
+	return false;
+};
+
 /**
  * @}
  */

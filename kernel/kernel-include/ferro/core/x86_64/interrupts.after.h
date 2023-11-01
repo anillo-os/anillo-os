@@ -175,6 +175,10 @@ FERRO_ALWAYS_INLINE void fint_make_idt_entry(farch_int_idt_entry_t* out_entry, v
 	out_entry->reserved = 0;
 };
 
+FERRO_ALWAYS_INLINE bool fint_frame_is_kernel_space(fint_frame_t* frame) {
+	return frame->core.cs == farch_int_gdt_index_code * 8;
+};
+
 /**
  * @}
  */

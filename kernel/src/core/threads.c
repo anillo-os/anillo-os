@@ -1048,6 +1048,7 @@ uint8_t fthread_register_hook(fthread_t* thread, uint64_t owner_id, void* contex
 		private_thread->hooks[slot].floating_point_exception = callbacks->floating_point_exception;
 		private_thread->hooks[slot].illegal_instruction = callbacks->illegal_instruction;
 		private_thread->hooks[slot].debug_trap = callbacks->debug_trap;
+		private_thread->hooks[slot].division_by_zero = callbacks->division_by_zero;
 
 		flock_spin_intsafe_unlock(&thread->lock);
 		return slot;

@@ -181,6 +181,19 @@ typedef ferr_t (*fthread_hook_illegal_instruction_f)(void* context, fthread_t* t
  */
 typedef ferr_t (*fthread_hook_debug_trap_f)(void* context, fthread_t* thread);
 
+/**
+ * Allows the hook to handle a division-by-zero exception on the given thread.
+ *
+ * @note Called with the thread lock NOT held.
+ *
+ * If none of the thread's hooks are able able to handle the division-by-zero, the kernel panics.
+ *
+ * @retval ferr_ok               The request was handled and lower hooks may still be invoked.
+ * @retval ferr_permanent_outage The request was handled and lower hooks may NOT be invoked.
+ * @retval ferr_unknown          The request was not handled; lower hooks (if any) will be invoked.
+ */
+typedef ferr_t (*fthread_hook_division_by_zero_f)(void* context, fthread_t* thread);
+
 FERRO_STRUCT(fthread_hook_callbacks) {
 	fthread_hook_suspend_f suspend;
 	fthread_hook_resume_f resume;
@@ -194,6 +207,7 @@ FERRO_STRUCT(fthread_hook_callbacks) {
 	fthread_hook_floating_point_exception_f floating_point_exception;
 	fthread_hook_illegal_instruction_f illegal_instruction;
 	fthread_hook_debug_trap_f debug_trap;
+	fthread_hook_division_by_zero_f division_by_zero;
 };
 
 /**
@@ -228,6 +242,7 @@ FERRO_STRUCT(fthread_hook) {
 	fthread_hook_floating_point_exception_f floating_point_exception;
 	fthread_hook_illegal_instruction_f illegal_instruction;
 	fthread_hook_debug_trap_f debug_trap;
+	fthread_hook_division_by_zero_f division_by_zero;
 };
 
 FERRO_OPTIONS(uint64_t, fthread_private_flags) {

@@ -230,8 +230,13 @@ SPECIAL_SIGNAL_WORKER(page_fault);
 SPECIAL_SIGNAL_WORKER(floating_point_exception);
 SPECIAL_SIGNAL_WORKER(illegal_instruction);
 SPECIAL_SIGNAL_WORKER(debug);
+SPECIAL_SIGNAL_WORKER(division_by_zero);
 
 static ferr_t uthread_bus_error(void* context, fthread_t* thread, void* address) {
+	if (fint_frame_is_kernel_space(fint_current_frame())) {
+		return ferr_unsupported;
+	}
+
 	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
 	FERRO_WUR_IGNORE(fthread_retain(thread));
 	FERRO_WUR_IGNORE(fthread_block(thread, false));
@@ -241,6 +246,10 @@ static ferr_t uthread_bus_error(void* context, fthread_t* thread, void* address)
 };
 
 static ferr_t uthread_page_fault(void* context, fthread_t* thread, void* address) {
+	if (fint_frame_is_kernel_space(fint_current_frame())) {
+		return ferr_unsupported;
+	}
+
 	// DEBUGGING
 	fconsole_logf("Faulted on %p\n", address);
 	fint_log_frame(fint_current_frame());
@@ -256,6 +265,10 @@ static ferr_t uthread_page_fault(void* context, fthread_t* thread, void* address
 };
 
 static ferr_t uthread_floating_point_exception(void* context, fthread_t* thread) {
+	if (fint_frame_is_kernel_space(fint_current_frame())) {
+		return ferr_unsupported;
+	}
+
 	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
 	FERRO_WUR_IGNORE(fthread_retain(thread));
 	FERRO_WUR_IGNORE(fthread_block(thread, false));
@@ -264,6 +277,10 @@ static ferr_t uthread_floating_point_exception(void* context, fthread_t* thread)
 };
 
 static ferr_t uthread_illegal_instruction(void* context, fthread_t* thread) {
+	if (fint_frame_is_kernel_space(fint_current_frame())) {
+		return ferr_unsupported;
+	}
+
 	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
 	FERRO_WUR_IGNORE(fthread_retain(thread));
 	FERRO_WUR_IGNORE(fthread_block(thread, false));
@@ -276,10 +293,26 @@ static ferr_t uthread_illegal_instruction(void* context, fthread_t* thread) {
 };
 
 static ferr_t uthread_debug_trap(void* context, fthread_t* thread) {
+	if (fint_frame_is_kernel_space(fint_current_frame())) {
+		return ferr_unsupported;
+	}
+
 	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
 	FERRO_WUR_IGNORE(fthread_retain(thread));
 	FERRO_WUR_IGNORE(fthread_block(thread, false));
 	FERRO_WUR_IGNORE(fwork_schedule_new(uthread_debug_worker, thread, 0, NULL));
+	return ferr_permanent_outage;
+};
+
+static ferr_t uthread_division_by_zero(void* context, fthread_t* thread) {
+	if (fint_frame_is_kernel_space(fint_current_frame())) {
+		return ferr_unsupported;
+	}
+
+	futhread_data_private_t* private_data = (void*)futhread_data_for_thread(thread);
+	FERRO_WUR_IGNORE(fthread_retain(thread));
+	FERRO_WUR_IGNORE(fthread_block(thread, false));
+	FERRO_WUR_IGNORE(fwork_schedule_new(uthread_division_by_zero_worker, thread, 0, NULL));
 	return ferr_permanent_outage;
 };
 
@@ -290,6 +323,7 @@ static const fthread_hook_callbacks_t hook_callbacks = {
 	.floating_point_exception = uthread_floating_point_exception,
 	.illegal_instruction = uthread_illegal_instruction,
 	.debug_trap = uthread_debug_trap,
+	.division_by_zero = uthread_division_by_zero,
 };
 
 #if FERRO_ARCH == FERRO_ARCH_x86_64
@@ -1066,6 +1100,9 @@ ferr_t futhread_signal_special(fthread_t* uthread, futhread_special_signal_t spe
 			break;
 		case futhread_special_signal_debug:
 			signal->signal = private_data->signal_mapping.debug_signal;
+			break;
+		case futhread_special_signal_division_by_zero:
+			signal->signal = private_data->signal_mapping.division_by_zero_signal;
 			break;
 
 		default:

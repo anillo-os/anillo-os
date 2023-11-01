@@ -135,6 +135,11 @@ FERRO_ENUM(int, ferr) {
 	 * The operation was aborted and should not be tried again.
 	 */
 	ferr_aborted              = -18,
+
+	/**
+	 * One or more of the addresses provided as arguments were invalid.
+	 */
+	ferr_bad_address          = -19,
 };
 
 static const char* ferr_names[] = {
@@ -157,6 +162,7 @@ static const char* ferr_names[] = {
 	"ferr_timed_out",
 	"ferr_signaled",
 	"ferr_aborted",
+	"ferr_bad_address",
 };
 
 static const char* ferr_descriptions[] = {
@@ -179,6 +185,7 @@ static const char* ferr_descriptions[] = {
 	"A timeout was set for the given action/service/operation and it expired before the action/service/operation could be completed.",
 	"A signal arrived before or during the operation and it was not completed.",
 	"The operation was aborted and should not be tried again.",
+	"One or more of the addresses provided as arguments were invalid.",
 };
 
 FERRO_ALWAYS_INLINE const char* ferr_name(ferr_t error) {

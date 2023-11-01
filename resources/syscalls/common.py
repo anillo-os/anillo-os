@@ -182,6 +182,7 @@ structures.extend([
 		('floating_point_exception_signal', 'u64'),
 		('illegal_instruction_signal', 'u64'),
 		('debug_signal', 'u64'),
+		('division_by_zero_signal', 'u64'),
 	]),
 	Structure('signal_info', [
 		('flags', 'e:signal_info_flags'),
@@ -233,6 +234,7 @@ structures.extend([
 	.add_syscall('thread_resume', thread_id='u64')
 	.add_syscall('thread_block', thread_id='u64')
 	.add_syscall('thread_unblock', thread_id='u64')
+	.add_syscall('thread_yield', thread_id='u64')
 	.add_syscall('thread_execution_context', thread_id='u64', new_context='*c[!ferro_thread_context_t]', out_old_context='*[!ferro_thread_context_t]')
 	.add_syscall('thread_signal_configure', thread_id='u64', signal_number='u64', new_configuration='*c[s:signal_configuration]', out_old_configuration='*[s:signal_configuration]')
 	.add_syscall('thread_signal_return', info='*c[s:signal_info]')

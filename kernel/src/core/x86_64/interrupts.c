@@ -34,6 +34,7 @@
 #include <ferro/core/per-cpu.private.h>
 #include <ferro/core/x86_64/xsave.h>
 #include <ferro/core/cpu.private.h>
+#include <ferro/kasan.h>
 
 #include <stddef.h>
 
@@ -164,9 +165,9 @@ static void trace_stack(const fint_stack_frame_t* frame) {
 			break;
 		}
 
-		fconsole_logf("%p\n", frame->return_address);
+		fconsole_logf("%p\n", ferro_kasan_load_unchecked_auto(&frame->return_address));
 
-		frame = frame->previous_frame;
+		frame = ferro_kasan_load_unchecked_auto(&frame->previous_frame);
 	}
 };
 
@@ -474,6 +475,57 @@ INTERRUPT_HANDLER(simd_exception) {
 		fint_log_frame(frame);
 		fint_trace_interrupted_stack(frame);
 		fpanic("simd exception");
+	}
+
+	fint_handler_common_end(&data, frame, true);
+};
+
+INTERRUPT_HANDLER(division_error) {
+	fint_handler_common_data_t data;
+	bool handled = false;
+
+	fint_handler_common_begin(&data, frame, true);
+
+	fconsole_logf("division by zero; frame:\n");
+	fint_log_frame(frame);
+	fint_trace_interrupted_stack(frame);
+	fpanic("division by zero");
+
+	if (fint_current_frame() == fint_root_frame(fint_current_frame()) && FARCH_PER_CPU(current_thread)) {
+		fthread_t* thread = FARCH_PER_CPU(current_thread);
+		fthread_private_t* private_thread = (void*)thread;
+		uint8_t hooks_in_use;
+
+		flock_spin_intsafe_lock(&thread->lock);
+		hooks_in_use = private_thread->hooks_in_use;
+		flock_spin_intsafe_unlock(&thread->lock);
+
+		for (uint8_t slot = 0; slot < sizeof(private_thread->hooks) / sizeof(*private_thread->hooks); ++slot) {
+			if ((hooks_in_use & (1 << slot)) == 0) {
+				continue;
+			}
+
+			if (!private_thread->hooks[slot].division_by_zero) {
+				continue;
+			}
+
+			ferr_t hook_status = private_thread->hooks[slot].division_by_zero(private_thread->hooks[slot].context, thread);
+
+			if (hook_status == ferr_ok || hook_status == ferr_permanent_outage) {
+				handled = true;
+			}
+
+			if (hook_status == ferr_permanent_outage) {
+				break;
+			}
+		}
+	}
+
+	if (!handled) {
+		fconsole_logf("division by zero; frame:\n");
+		fint_log_frame(frame);
+		fint_trace_interrupted_stack(frame);
+		fpanic("division by zero");
 	}
 
 	fint_handler_common_end(&data, frame, true);
@@ -960,6 +1012,7 @@ void fint_init(void) {
 	simple_memclone(&idt, &missing_entry, sizeof(missing_entry), sizeof(idt) / sizeof(missing_entry));
 
 	// initialize the desired idt entries with actual values
+	fint_make_idt_entry(&idt.division_error, farch_int_wrapper_division_error, farch_int_gdt_index_code, farch_int_ist_index_generic_interrupt + 1, false, 0);
 	fint_make_idt_entry(&idt.debug, farch_int_wrapper_debug, farch_int_gdt_index_code, farch_int_ist_index_debug + 1, false, 0);
 	fint_make_idt_entry(&idt.breakpoint, farch_int_wrapper_breakpoint, farch_int_gdt_index_code, farch_int_ist_index_generic_interrupt + 1, false, 0);
 	fint_make_idt_entry(&idt.double_fault, farch_int_wrapper_double_fault, farch_int_gdt_index_code, farch_int_ist_index_double_fault + 1, false, 0);

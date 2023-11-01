@@ -165,6 +165,7 @@ FERRO_ENUM(uint64_t, futhread_special_signal) {
 	futhread_special_signal_floating_point_exception,
 	futhread_special_signal_illegal_instruction,
 	futhread_special_signal_debug,
+	futhread_special_signal_division_by_zero,
 };
 
 /**
