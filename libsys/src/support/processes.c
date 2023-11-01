@@ -246,6 +246,8 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 
 		if (sys_data_length(cmd_data) != dynamic_linker_header.total_command_size) {
 			status = ferr_unknown;
+			sys_release(old_cmd_data);
+			old_cmd_data = NULL;
 			goto out;
 		}
 
