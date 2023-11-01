@@ -55,6 +55,7 @@ parser = argparse.ArgumentParser(description='Run Anillo OS inside QEMU')
 
 parser.add_argument('-qd', '--qemu-debug', action='store_true', help='Enable QEMU-based debugging')
 parser.add_argument('-cr', '--cpu-reset', action='store_true', help='Enable QEMU debugging information on virtual CPU reset')
+parser.add_argument('-di', '--debug-interrupts', action='store_true', help='Enable QEMU interrupt debugging')
 parser.add_argument('-k', '--kvm', action='store_true', help='Enable hardware acceleration (if available). This is KVM on Linux and Hypervisor.framework on macOS')
 parser.add_argument('-s', '--serial', choices=['pty', 'stdio', 'none'], default='pty', help='Where to connect the serial console (or whether to connect it at all)')
 parser.add_argument('-b', '--build', action='store_true', help='Build Anillo OS automatically before running it')
@@ -225,11 +226,20 @@ elif args.arch == 'x86_64':
 	rr_snapshot = ""
 
 	if using_rr:
-		rr_snapshot = ',snapshot'
+		rr_snapshot = ',snapshot=on'
+
+	if using_rr:
+		qemu_args += [
+			'-drive', f'if=none,format=raw,file={efi_code_path},id=anillo-pflash0',
+			'-drive', f'if=none,format=raw,file={efi_vars_path},id=anillo-pflash1',
+		]
+	else:
+		qemu_args += [
+			'-drive', f'if=pflash,format=raw,unit=0,file={efi_code_path}',
+			'-drive', f'if=pflash,format=raw,unit=1,file={efi_vars_path}',
+		]
 
 	qemu_args += [
-		'-drive', f'if=pflash,format=raw,unit=0,file={efi_code_path}',
-		'-drive', f'if=pflash,format=raw,unit=1,file={efi_vars_path}',
 		'-drive', f'if=none,format=raw,file={disk_path},id=anillo-disk0{rr_snapshot}',
 		'-device', f'virtio-blk-pci,drive=anillo-disk0{"-rr" if using_rr else ""}',
 		'-machine', f'type=q35,accel={accel_name}',
@@ -241,7 +251,9 @@ elif args.arch == 'x86_64':
 
 	if using_rr:
 		qemu_args += [
-		'-drive', 'if=none,driver=blkreplay,image=anillo-disk0,id=anillo-disk0-rr',
+			'-drive', 'if=pflash,driver=blkreplay,image=anillo-pflash0,id=anillo-pflash0-rr,unit=0',
+			'-drive', 'if=pflash,driver=blkreplay,image=anillo-pflash1,id=anillo-pflash1-rr,unit=1',
+			'-drive', 'if=none,driver=blkreplay,image=anillo-disk0,id=anillo-disk0-rr',
 		]
 
 	if args.headless:
@@ -291,6 +303,9 @@ if args.qemu_debug:
 
 if args.cpu_reset:
 	qemu_debug_args += ['cpu_reset']
+
+if args.debug_interrupts:
+	qemu_debug_args += ['int']
 
 if args.hotblocks:
 	qemu_args += ['-plugin', QEMU_TCG_HOTBLOCKS_PLUGIN_PATH]
