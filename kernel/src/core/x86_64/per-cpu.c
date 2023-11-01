@@ -25,6 +25,7 @@
 #include <ferro/core/per-cpu.private.h>
 #include <ferro/core/x86_64/msr.h>
 #include <ferro/core/interrupts.h>
+#include <ferro/kasan.h>
 
 // for now, we only ever operate on a single CPU
 // however, once we enable SMP, we can extend this
@@ -37,6 +38,7 @@ static farch_int_gdt_t gdt = {0};
 
 // this function MUST be called before the interrupts subsystem is initialized
 // (because it needs to use a temporary GDT)
+FERRO_NO_KASAN
 void farch_per_cpu_init(void) {
 	farch_int_gdt_pointer_t gdt_pointer;
 

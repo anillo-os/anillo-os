@@ -40,6 +40,7 @@
 #include <libsimple/general.h>
 #include <ferro/core/x86_64/smp-init.h>
 #include <ferro/core/paging.private.h>
+#include <ferro/kasan.h>
 
 #define HZ_PER_KHZ 1000
 #define MAX_CALIBRATION_ATTEMPTS 10
@@ -761,7 +762,7 @@ void farch_apic_init(void) {
 	simple_memset(smp_init_data, 0, sizeof(*smp_init_data));
 
 	// stub the root page table by copying the root page table we use for this CPU
-	simple_memcpy(smp_init_root_table, (void*)fpage_virtual_address_for_table(0, 0, 0, 0), sizeof(*smp_init_root_table));
+	ferro_kasan_copy_unchecked(smp_init_root_table, (void*)fpage_table_recursive_address(0, 0, 0, 0), sizeof(*smp_init_root_table));
 
 	// update the recursive table pointer
 	smp_init_root_table->entries[fpage_root_recursive_index] = fpage_table_entry(FARCH_SMP_INIT_ROOT_TABLE_BASE, true);

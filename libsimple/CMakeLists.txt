@@ -102,6 +102,38 @@ set(libsimple_kernel_compile_options
 	-target "${ANILLO_TARGET_TRIPLE_KERNEL}"
 )
 
+if (FERRO_UBSAN AND FERRO_KASAN)
+	set(libsimple_kernel_compile_options
+		${libsimple_kernel_compile_options}
+
+		-fsanitize=undefined,kernel-address
+	)
+elseif(FERRO_UBSAN)
+	set(libsimple_kernel_compile_options
+		${libsimple_kernel_compile_options}
+
+		-fsanitize=undefined
+	)
+elseif(FERRO_KASAN)
+	set(libsimple_kernel_compile_options
+		${libsimple_kernel_compile_options}
+
+		-fsanitize=kernel-address
+	)
+endif()
+
+if(FERRO_KASAN)
+	# see `kernel/src/CMakeLists.txt`
+	set(libsimple_kernel_compile_options
+		${libsimple_kernel_compile_options}
+
+		"SHELL:-mllvm -asan-mapping-offset=0xe0000e8000000000"
+		"SHELL:-mllvm -asan-globals=false"
+
+		-DFERRO_KASAN=1
+	)
+endif()
+
 set(libsimple_general_compile_options
 	-fno-omit-frame-pointer
 )

@@ -48,6 +48,9 @@ endif()
 # we use `<arch>-unknown-linux-elf` instead of `<arch>-unknown-none-elf` for KASan support
 set(ANILLO_TARGET_TRIPLE_KERNEL "${ANILLO_ARCH}-unknown-linux-elf")
 
+option(FERRO_UBSAN "Enable UBSan for Ferro" OFF)
+option(FERRO_KASAN "Enable KASan for Ferro" OFF)
+
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_to_ramdisk.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_dylib.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_executable.cmake)

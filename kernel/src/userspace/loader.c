@@ -20,6 +20,7 @@
 #include <ferro/core/mempool.h>
 #include <ferro/core/paging.h>
 #include <libsimple/libsimple.h>
+#include <ferro/kasan.h>
 
 #define LOADING_ELF 0
 
@@ -270,7 +271,7 @@ ferr_t fuloader_load_file(fvfs_descriptor_t* file_descriptor, fpage_space_t* spa
 		}
 
 		// zero out uninitialized memory
-		simple_memset((char*)program_header->virtual_address + program_header->file_size, 0, program_header->memory_size - program_header->file_size);
+		ferro_kasan_fill_unchecked((char*)program_header->virtual_address + program_header->file_size, 0, program_header->memory_size - program_header->file_size);
 	}
 
 out:
@@ -535,7 +536,7 @@ ferr_t fuloader_load_file(fvfs_descriptor_t* file_descriptor, fpage_space_t* spa
 		}
 
 		// zero out uninitialized memory
-		simple_memset((char*)segment_64_load_command.memory_address + segment_64_load_command.file_size, 0, segment_64_load_command.memory_size - segment_64_load_command.file_size);
+		ferro_kasan_fill_unchecked((char*)segment_64_load_command.memory_address + segment_64_load_command.file_size, 0, segment_64_load_command.memory_size - segment_64_load_command.file_size);
 	}
 
 out:

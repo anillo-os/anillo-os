@@ -24,6 +24,35 @@ add_compile_definitions(
 	FERRO_ELF=1
 )
 
+if (FERRO_UBSAN AND FERRO_KASAN)
+	add_compile_options(
+		-fsanitize=undefined,kernel-address
+	)
+elseif(FERRO_UBSAN)
+	add_compile_options(
+		-fsanitize=undefined
+	)
+elseif(FERRO_KASAN)
+	add_compile_options(
+		-fsanitize=kernel-address
+	)
+endif()
+
+if(FERRO_KASAN)
+	# asan shadow base = 0xfffffe8000000000
+	# asan shadow scale = 8
+	# mapping offset = asan shadow base - (kernel half start / asan shadow scale)
+	#                = 0xe0000e8000000000
+	add_compile_options(
+		"SHELL:-mllvm -asan-mapping-offset=0xe0000e8000000000"
+		"SHELL:-mllvm -asan-globals=false"
+	)
+
+	add_compile_definitions(
+		FERRO_KASAN=1
+	)
+endif()
+
 set(CMAKE_EXE_LINKER_FLAGS "")
 
 include_directories(

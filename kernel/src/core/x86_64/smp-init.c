@@ -74,7 +74,7 @@ void farch_smp_init_entry(farch_smp_init_data_t* init_data) {
 	//
 
 	// first, copy the current (temporary) root table to the new (final) root table
-	simple_memcpy(init_data->cpu_info_struct->root_table, (const void*)fpage_virtual_address_for_table(0, 0, 0, 0), sizeof(*init_data->cpu_info_struct->root_table));
+	simple_memcpy(init_data->cpu_info_struct->root_table, (const void*)fpage_table_recursive_address(0, 0, 0, 0), sizeof(*init_data->cpu_info_struct->root_table));
 
 	// next, update the recursive table pointer
 	init_data->cpu_info_struct->root_table->entries[fpage_root_recursive_index] = fpage_table_entry(fpage_virtual_to_physical((uintptr_t)init_data->cpu_info_struct->root_table), true);

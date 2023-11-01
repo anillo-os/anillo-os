@@ -279,5 +279,8 @@ void fsched_preempt_thread(fthread_t* thread) {
 	} else {
 		// we're holding the thread's lock, so we know that it can't be moving between CPUs right now
 		FERRO_WUR_IGNORE(farch_apic_interrupt_cpu(thread->current_cpu, 0xfe));
+
+		// drop the thread lock (this function always has to drop it)
+		flock_spin_intsafe_unlock(&thread->lock);
 	}
 };

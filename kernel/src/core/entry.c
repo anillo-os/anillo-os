@@ -45,6 +45,7 @@
 #include <ferro/gdbstub/gdbstub.h>
 #include <ferro/core/vfs.h>
 #include <ferro/core/ramdisk.h>
+#include <ferro/kasan.h>
 
 #include <libsimple/libsimple.h>
 
@@ -66,6 +67,7 @@
 
 static fpage_table_t page_table_level_1          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_1_extra    FERRO_PAGE_ALIGNED = {0};
+static fpage_table_t page_table_level_1_extra2   FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2          FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_2_identity FERRO_PAGE_ALIGNED = {0};
 static fpage_table_t page_table_level_3          FERRO_PAGE_ALIGNED = {0};
@@ -149,6 +151,7 @@ FERRO_ALWAYS_INLINE void setup_page_tables(uint16_t* next_l2, void* image_base, 
 // maps the regions that the kernel needs early on
 //
 // NOTE!! this function assumes all boot data is allocated in the initial pool (except for the memory map)
+FERRO_NO_KASAN
 static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_regions_ptr, size_t memory_region_count, void** initial_pool_ptr, size_t initial_pool_page_count, ferro_boot_data_info_t** boot_data_ptr, size_t boot_data_count, void* image_base, size_t image_size) {
 	uintptr_t initial_pool_phys_start = 0;
 	uintptr_t initial_pool_phys_end = 0;
@@ -205,15 +208,15 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 					if (next_l1_idx >= sizeof(l1_table->entries) / sizeof(*l1_table->entries)) {
 						// we've exceeded the maximum number of L1 entries
 						//
-						// if we haven't used the L1 extra table yet, let's use it.
+						// if we haven't used the L1 extra tables yet, let's use them.
 						// otherwise, panic.
 
-						if (l1_table == &page_table_level_1_extra) {
+						if (l1_table == &page_table_level_1_extra2) {
 							// (no panic message because we can't log here yet)
 							fpanic(NULL);
 						}
 
-						l1_table = &page_table_level_1_extra;
+						l1_table = (l1_table == &page_table_level_1_extra) ? &page_table_level_1_extra2 : &page_table_level_1_extra;
 						l2_idx = (*next_l2)++;
 						page_table_level_2.entries[l2_idx] = fpage_table_entry(FERRO_KERNEL_STATIC_TO_OFFSET(l1_table) + (uintptr_t)image_base, true);
 						next_l1_idx = 0;
@@ -297,6 +300,7 @@ static void ferro_entry_threaded(void* data) {
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 __attribute__((target("xsave")))
 #endif
+FERRO_NO_KASAN
 void ferro_entry(void* initial_pool, size_t initial_pool_page_count, ferro_boot_data_info_t* boot_data, size_t boot_data_count) {
 	uint16_t next_l2 = 0;
 	ferro_memory_region_t* memory_map = NULL;
@@ -346,6 +350,12 @@ jump_here_for_virtual:;
 
 	farch_per_cpu_init();
 
+	// now that we're virtual and can use FARCH_PER_CPU, initialize the size of the XSAVE area;
+	// we must always do this before anything that uses XSAVE executes (e.g. an interrupt or context switch)
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	farch_xsave_init_size_and_mask(&FARCH_PER_CPU(xsave_area_size), &FARCH_PER_CPU(xsave_features));
+#endif
+
 	// interrupts are already disabled, but let our interrupt handler code know that
 	fint_disable();
 
@@ -382,20 +392,7 @@ jump_here_for_virtual:;
 
 	fpage_logging_mark_available();
 
-	// now that we're virtual and can use FARCH_PER_CPU, initialize the size of the XSAVE area;
-	// we must always do this before anything that uses XSAVE executes (e.g. an interrupt or context switch)
-#if FERRO_ARCH == FERRO_ARCH_x86_64
-	farch_xsave_init_size_and_mask(&FARCH_PER_CPU(xsave_area_size), &FARCH_PER_CPU(xsave_features));
-#endif
-
 	fper_cpu_init();
-
-	if (config_data) {
-		fconfig_init(config_data, config_data_length);
-	}
-
-	console_config = fconfig_get_nocopy("console", &console_config_length);
-	debug_config = fconfig_get_nocopy("debug", &debug_config_length);
 
 	// initialize the interrupts subsystem
 	fint_init();
@@ -417,6 +414,13 @@ jump_here_for_virtual:;
 	ftimers_init_per_cpu_queue();
 
 	fserial_init();
+
+	if (config_data) {
+		fconfig_init(config_data, config_data_length);
+	}
+
+	console_config = fconfig_get_nocopy("console", &console_config_length);
+	debug_config = fconfig_get_nocopy("debug", &debug_config_length);
 
 	if (console_config) {
 		fserial_t* serial_port = NULL;

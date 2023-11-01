@@ -26,6 +26,7 @@
 #include <ferro/core/vfs.backend.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/mempool.h>
+#include <ferro/kasan.h>
 
 #include <libsimple/libsimple.h>
 
@@ -479,7 +480,7 @@ static ferr_t vfs_ramdisk_read(void* context, fvfs_descriptor_t* descriptor, siz
 
 	read_count = simple_min(desc->entry->size - offset, buffer_size);;
 
-	simple_memcpy(buffer, file_contents(desc->entry) + offset, read_count);
+	ferro_kasan_copy_unchecked(buffer, file_contents(desc->entry) + offset, read_count);
 
 	if (out_read_count) {
 		*out_read_count = read_count;

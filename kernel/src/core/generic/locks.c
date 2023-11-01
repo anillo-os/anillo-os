@@ -29,6 +29,7 @@
 #include <ferro/core/entry.h>
 #include <ferro/core/panic.h>
 #include <ferro/core/cpu.private.h>
+#include <ferro/kasan.h>
 
 //
 // spin locks
@@ -48,6 +49,7 @@ bool flock_spin_try_lock(flock_spin_t* lock) {
 	return __atomic_exchange_n(&lock->flag, 1, __ATOMIC_ACQUIRE) == 0;
 };
 
+FERRO_NO_KASAN
 void flock_spin_unlock(flock_spin_t* lock) {
 	if (__atomic_exchange_n(&lock->flag, 0, __ATOMIC_RELEASE) != 1) {
 		fpanic("Lock unlocked, but was not previously locked");
@@ -58,6 +60,7 @@ void flock_spin_intsafe_init(flock_spin_intsafe_t* lock) {
 	flock_spin_init(&lock->base);
 };
 
+FERRO_NO_KASAN
 void flock_spin_intsafe_lock(flock_spin_intsafe_t* lock) {
 	fint_disable();
 
@@ -102,11 +105,13 @@ bool flock_spin_intsafe_try_lock_unsafe(flock_spin_intsafe_t* lock) {
 	return flock_spin_try_lock(&lock->base);
 };
 
+FERRO_NO_KASAN
 void flock_spin_intsafe_unlock(flock_spin_intsafe_t* lock) {
 	flock_spin_intsafe_unlock_unsafe(lock);
 	fint_enable();
 };
 
+FERRO_NO_KASAN
 void flock_spin_intsafe_unlock_unsafe(flock_spin_intsafe_t* lock) {
 	return flock_spin_unlock(&lock->base);
 };
