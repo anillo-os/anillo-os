@@ -117,6 +117,10 @@ void farch_page_invalidate_tlb_full_other_cpus(void);
 
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
 	__asm__ volatile("invlpg %0" :: "m" (address) : "memory");
+};
+
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address_all_cpus(void* address) {
+	fpage_invalidate_tlb_for_address(address);
 
 	if (fcpu_online_count() > 1) {
 		// running with SMP; defer to a helper function to flush the TLB on other CPUs
@@ -166,6 +170,10 @@ FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void) {
 	uint64_t addr;
 	__asm__ volatile("mov %%cr3, %0" : "=r" (addr));
 	__asm__ volatile("mov %0, %%cr3\n" :: "r" (addr) : "memory");
+};
+
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space_all_cpus(void) {
+	fpage_invalidate_tlb_for_active_space();
 
 	if (fcpu_online_count() > 1) {
 		// running with SMP; defer to a helper function to flush the TLB on other CPUs

@@ -209,10 +209,13 @@ FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value);
 
 /**
  * Invalidates the TLB entry/entries for the given virtual address.
- *
- * If running with SMP, flushes the TLB entry for the given virtual address from all online CPUs.
  */
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address);
+
+/**
+ * Invalidates the TLB entry/entries for the given virtual address from all online CPUs.
+ */
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address_all_cpus(void* address);
 
 /**
  * On architectures where this is necessary, triggers a synchronization. This is meant to be called after any table modification.
@@ -228,6 +231,11 @@ FERRO_ALWAYS_INLINE bool fpage_entry_is_large_page_entry(uint64_t entry);
  * Invalidates the TLB entry/entries for the given range of virtual addresses (non-inclusive).
  */
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_range(void* start, void* end);
+
+/**
+ * Invalidates the TLB entry/entries for the given range of virtual addresses (non-inclusive) from all online CPUs.
+ */
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_range_all_cpus(void* start, void* end);
 
 /**
  * Creates a modified page table entry from the given entry, disabling caching for that page.
@@ -260,6 +268,11 @@ FERRO_ALWAYS_INLINE uintptr_t fpage_fault_address(void);
  * Invalidates all TLB entries for the current address space.
  */
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void);
+
+/**
+ * Invalidates all TLB entries for the current address space on all CPUs.
+ */
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space_all_cpus(void);
 
 /**
  * Prefault the given number of stack pages (starting from the current stack page).

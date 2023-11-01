@@ -140,7 +140,7 @@ FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value) {
 	return entry_value & FARCH_PAGE_PRESENT_BIT;
 };
 
-FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address_all_cpus(void* address) {
 	uintptr_t input = (uintptr_t)address;
 	input >>= 12;
 	input &= 0xfffffffffff;
@@ -180,7 +180,7 @@ FERRO_ALWAYS_INLINE uintptr_t fpage_fault_address(void) {
 	return frame->far;
 };
 
-FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void) {
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space_all_cpus(void) {
 	__asm__ volatile(
 		"tlbi vmalle1\n"
 		"isb sy\n"

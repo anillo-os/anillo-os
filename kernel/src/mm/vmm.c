@@ -38,6 +38,10 @@
 	#define FPAGE_VMM_CLEAR_ON_REMOVE 0
 #endif
 
+#ifndef FPAGE_VMM_PRECISE_FLUSH
+	#define FPAGE_VMM_PRECISE_FLUSH 0
+#endif
+
 /**
  * @file
  *
@@ -199,7 +203,7 @@ static void break_entry(size_t levels, size_t l4_index, size_t l3_index, size_t 
 	}
 
 	// now invalidate TLB entries for all the addresses
-	fpage_invalidate_tlb_for_range((void*)start_addr, (void*)end_addr);
+	fpage_invalidate_tlb_for_range_all_cpus((void*)start_addr, (void*)end_addr);
 	fpage_synchronize_after_table_modification();
 };
 
@@ -263,14 +267,8 @@ void fpage_space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* v
 			}
 
 			// break the existing entry
-			if (fpage_space_active(space)) {
+			if (fpage_space_active(space) && fpage_entry_is_active(entry)) {
 				break_entry(2, l4_index, l3_index, 0, 0);
-
-				{
-					uintptr_t start_flush = fpage_make_virtual_address(l4_index, l3_index, 0, 0, 0);
-					uintptr_t end_flush = start_flush + FPAGE_VERY_LARGE_PAGE_SIZE;
-					fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
-				}
 			}
 
 			// now map our entry
@@ -297,14 +295,8 @@ void fpage_space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* v
 			continue;
 		}
 
-		if (fpage_entry_is_large_page_entry(entry) && fpage_space_active(space)) {
+		if (fpage_entry_is_large_page_entry(entry) && fpage_space_active(space) && fpage_entry_is_active(entry)) {
 			break_entry(2, l4_index, l3_index, 0, 0);
-
-			{
-				uintptr_t start_flush = fpage_make_virtual_address(l4_index, l3_index, 0, 0, 0);
-				uintptr_t end_flush = start_flush + FPAGE_VERY_LARGE_PAGE_SIZE;
-				fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
-			}
 
 			// NOTE: this does not currently handle the case of partially remapping a large page
 			//       e.g. if we want to map the first half to another location but keep the last half to where the large page pointed
@@ -328,14 +320,8 @@ void fpage_space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* v
 			}
 
 			// break the existing entry
-			if (fpage_space_active(space)) {
+			if (fpage_space_active(space) && fpage_entry_is_active(entry)) {
 				break_entry(3, l4_index, l3_index, l2_index, 0);
-
-				{
-					uintptr_t start_flush = fpage_make_virtual_address(l4_index, l3_index, l2_index, 0, 0);
-					uintptr_t end_flush = start_flush + FPAGE_LARGE_PAGE_SIZE;
-					fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
-				}
 			}
 
 			// now map our entry
@@ -362,14 +348,8 @@ void fpage_space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* v
 			continue;
 		}
 
-		if (fpage_entry_is_large_page_entry(entry) && fpage_space_active(space)) {
+		if (fpage_entry_is_large_page_entry(entry) && fpage_space_active(space) && fpage_entry_is_active(entry)) {
 			break_entry(3, l4_index, l3_index, l2_index, 0);
-
-			{
-				uintptr_t start_flush = fpage_make_virtual_address(l4_index, l3_index, l2_index, 0, 0);
-				uintptr_t end_flush = start_flush + FPAGE_LARGE_PAGE_SIZE;
-				fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
-			}
 
 			// same note as for the l3 large page case
 		}
@@ -383,14 +363,8 @@ void fpage_space_map_frame_fixed(fpage_space_t* space, void* phys_frame, void* v
 		table = map_phys_fixed_offset(phys_table);
 		entry = table->entries[l1_index];
 
-		if (entry && fpage_space_active(space)) {
+		if (entry && fpage_space_active(space) && fpage_entry_is_active(entry)) {
 			break_entry(4, l4_index, l3_index, l2_index, l1_index);
-
-			{
-				uintptr_t start_flush = fpage_make_virtual_address(l4_index, l3_index, l2_index, l1_index, 0);
-				uintptr_t end_flush = start_flush + FPAGE_PAGE_SIZE;
-				fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
-			}
 		}
 
 		table = map_phys_fixed_offset(phys_table);
@@ -715,12 +689,14 @@ void fpage_space_flush_mapping_internal(fpage_space_t* space, void* address, siz
 				table->entries[l3] = fpage_entry_mark_active(entry, false);
 			}
 
+#if FPAGE_VMM_PRECISE_FLUSH
 			// okay, flush the very large page and continue
 			if (needs_flush) {
 				uintptr_t start_flush = fpage_make_virtual_address(l4, l3, 0, 0, 0);
 				uintptr_t end_flush = start_flush + FPAGE_VERY_LARGE_PAGE_SIZE;
-				fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
+				fpage_invalidate_tlb_for_range_all_cpus((void*)start_flush, (void*)end_flush);
 			}
+#endif
 
 			if (also_free) {
 				fpage_pmm_free_frame((void*)fpage_entry_address(entry), FPAGE_VERY_LARGE_PAGE_COUNT);
@@ -757,12 +733,14 @@ void fpage_space_flush_mapping_internal(fpage_space_t* space, void* address, siz
 				table->entries[l2] = fpage_entry_mark_active(entry, false);
 			}
 
+#if FPAGE_VMM_PRECISE_FLUSH
 			// okay, flush the large page and continue
 			if (needs_flush) {
 				uintptr_t start_flush = fpage_make_virtual_address(l4, l3, l2, 0, 0);
 				uintptr_t end_flush = start_flush + FPAGE_LARGE_PAGE_SIZE;
-				fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
+				fpage_invalidate_tlb_for_range_all_cpus((void*)start_flush, (void*)end_flush);
 			}
+#endif
 
 			if (also_free) {
 				fpage_pmm_free_frame((void*)fpage_entry_address(entry), FPAGE_LARGE_PAGE_COUNT);
@@ -791,12 +769,14 @@ void fpage_space_flush_mapping_internal(fpage_space_t* space, void* address, siz
 			table->entries[l1] = fpage_entry_mark_active(entry, false);
 		}
 
+#if FPAGE_VMM_PRECISE_FLUSH
 		// at L1, there can only be a single page
 		if (needs_flush) {
 			uintptr_t start_flush = fpage_make_virtual_address(l4, l3, l2, l1, 0);
 			uintptr_t end_flush = start_flush + FPAGE_PAGE_SIZE;
-			fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
+			fpage_invalidate_tlb_for_range_all_cpus((void*)start_flush, (void*)end_flush);
 		}
+#endif
 
 		if (also_free) {
 			fpage_pmm_free_frame((void*)fpage_entry_address(entry), 1);
@@ -806,10 +786,12 @@ void fpage_space_flush_mapping_internal(fpage_space_t* space, void* address, siz
 		address = (void*)((uintptr_t)address + FPAGE_PAGE_SIZE);
 	}
 
+#if !FPAGE_VMM_PRECISE_FLUSH
 	if (needs_flush) {
 		// FIXME: figure out why the precise flush doesn't work
-		fpage_invalidate_tlb_for_active_space();
+		fpage_invalidate_tlb_for_active_space_all_cpus();
 	}
+#endif
 };
 
 /**
@@ -861,11 +843,15 @@ static void fpage_flush_table_internal(fpage_table_t* phys_table, size_t level_c
 				// the entry is either an L2 table or a 1GiB very large page
 				if (fpage_entry_is_large_page_entry(entry)) {
 					// the entry is a 1GiB very large page
+
+#if FPAGE_VMM_PRECISE_FLUSH
 					if (needs_flush) {
 						uintptr_t start_flush = fpage_make_virtual_address(l4, i, 0, 0, 0);
 						uintptr_t end_flush = start_flush + FPAGE_VERY_LARGE_PAGE_SIZE;
-						fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
+						fpage_invalidate_tlb_for_range_all_cpus((void*)start_flush, (void*)end_flush);
 					}
+#endif
+
 					page_count = FPAGE_VERY_LARGE_PAGE_COUNT;
 				} else {
 					// the entry is an L2 table
@@ -878,11 +864,15 @@ static void fpage_flush_table_internal(fpage_table_t* phys_table, size_t level_c
 				// the entry is either an L1 table or a 2MiB large page
 				if (fpage_entry_is_large_page_entry(entry)) {
 					// the entry is a 2MiB large page
+
+#if FPAGE_VMM_PRECISE_FLUSH
 					if (needs_flush) {
 						uintptr_t start_flush = fpage_make_virtual_address(l4, l3, i, 0, 0);
 						uintptr_t end_flush = start_flush + FPAGE_LARGE_PAGE_SIZE;
-						fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
+						fpage_invalidate_tlb_for_range_all_cpus((void*)start_flush, (void*)end_flush);
 					}
+#endif
+
 					page_count = FPAGE_LARGE_PAGE_COUNT;
 				} else {
 					// the entry is an L1 table
@@ -894,11 +884,13 @@ static void fpage_flush_table_internal(fpage_table_t* phys_table, size_t level_c
 				// the table is an L1 table
 				// the entry is a page entry
 
+#if FPAGE_VMM_PRECISE_FLUSH
 				if (needs_flush) {
 					uintptr_t start_flush = fpage_make_virtual_address(l4, l3, l2, i, 0);
 					uintptr_t end_flush = start_flush + FPAGE_PAGE_SIZE;
-					fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
+					fpage_invalidate_tlb_for_range_all_cpus((void*)start_flush, (void*)end_flush);
 				}
+#endif
 			} break;
 		}
 
@@ -907,17 +899,12 @@ static void fpage_flush_table_internal(fpage_table_t* phys_table, size_t level_c
 		}
 	}
 
-	if (flush_recursive_too) {
-		//uintptr_t start_flush = fpage_table_recursive_address(level_count, l4, l3, l2);
-		//uintptr_t end_flush = start_flush + FPAGE_PAGE_SIZE;
-		//fpage_invalidate_tlb_for_range((void*)start_flush, (void*)end_flush);
-		fpage_invalidate_tlb_for_active_space();
-	}
-
-	if (needs_flush) {
+#if !FPAGE_VMM_PRECISE_FLUSH
+	if (flush_recursive_too || needs_flush) {
 		// FIXME: the precise flush doesn't seem to work properly
-		fpage_invalidate_tlb_for_active_space();
+		fpage_invalidate_tlb_for_active_space_all_cpus();
 	}
+#endif
 };
 
 FERRO_WUR ferr_t fpage_space_init(fpage_space_t* space) {
