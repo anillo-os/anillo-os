@@ -6,4 +6,5 @@ add_library(ferro_drivers_x86_64_ps2 STATIC
 
 target_link_libraries(ferro_drivers_x86_64_ps2 PRIVATE
 	libsimple_static_kernel
+	ferro_drivers
 )

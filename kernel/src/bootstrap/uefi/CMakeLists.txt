@@ -39,10 +39,12 @@ add_executable(uefi-bootstrap
 
 target_compile_definitions(uefi-bootstrap PRIVATE
 	LIBSIMPLE_UEFI_COMPAT=1
+	FERRO_ELF=1
 )
 
 target_link_libraries(uefi-bootstrap PUBLIC
 	libmacho
+	libelf
 )
 
 set_target_properties(uefi-bootstrap PROPERTIES

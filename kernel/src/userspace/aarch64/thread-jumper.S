@@ -18,13 +18,14 @@
 
 #include <gen/ferro/offsets.h>
 #include <ferro/asm/aarch64/helpers.hS>
+#include <ferro/asm/common.hS>
 
 // arg 1 (x0) is `void* pc`
 // arg 2 (x1) is `void* sp`
 .align 4
 .text
-.global _farch_uthread_jump_user_frame
-_farch_uthread_jump_user_frame:
+.global FERRO_SYM(farch_uthread_jump_user_frame)
+FERRO_SYM(farch_uthread_jump_user_frame):
 	// load the PC into the ELR
 	msr elr_el1, x0
 
@@ -124,8 +125,8 @@ _farch_uthread_jump_user_frame:
 // arg 1 (x0) is `fthread_saved_context_t* saved_syscall_context`
 .align 4
 .text
-.global _farch_uthread_return_to_userspace
-_farch_uthread_return_to_userspace:
+.global FERRO_SYM(farch_uthread_return_to_userspace)
+FERRO_SYM(farch_uthread_return_to_userspace):
 	// load the PC into the ELR and load X30 (the link register)
 	ldp x30, x1, [x0, MAKE_IMMEDIATE(FOFFSET_fthread_saved_context_x30)]
 	msr elr_el1, x1
@@ -191,7 +192,7 @@ _farch_uthread_return_to_userspace:
 // arg 1 (x0) is the context to load
 .align 4
 .text
-.global _farch_uthread_syscall_exit_preserve_all
-_farch_uthread_syscall_exit_preserve_all:
+.global FERRO_SYM(farch_uthread_syscall_exit_preserve_all)
+FERRO_SYM(farch_uthread_syscall_exit_preserve_all):
 	// on AARCH64, this is exactly the same as farch_uthread_return_to_userspace
-	b _farch_uthread_return_to_userspace
+	b FERRO_SYM(farch_uthread_return_to_userspace)

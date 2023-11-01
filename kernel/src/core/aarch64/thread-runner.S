@@ -22,10 +22,12 @@
  * AARCH64 thread entry function.
  */
 
+#include <ferro/asm/common.hS>
+
 .align 4
 .text
-.global _farch_threads_runner
-_farch_threads_runner:
+.global FERRO_SYM(farch_threads_runner)
+FERRO_SYM(farch_threads_runner):
 	// x0 holds the user data for the initializer
 	// x19 holds the initializer
 
@@ -33,5 +35,5 @@ _farch_threads_runner:
 	blr x19
 
 	// time to die
-	b _fthread_kill_self
+	b FERRO_SYM(fthread_kill_self)
 	udf #0 // this function should never return

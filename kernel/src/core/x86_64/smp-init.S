@@ -19,6 +19,7 @@
 #include <gen/ferro/offsets.h>
 #include <ferro/asm/x86_64/helpers.hS>
 #include <ferro/core/x86_64/smp-init.h>
+#include <ferro/asm/common.hS>
 
 .text
 
@@ -29,10 +30,10 @@
 // the following code should be 16-bit code for real mode
 .code16
 
-.global _farch_smp_init_code_start
-.global _farch_smp_init_code_end
+.global FERRO_SYM(farch_smp_init_code_start)
+.global FERRO_SYM(farch_smp_init_code_end)
 
-_farch_smp_init_code_start:
+FERRO_SYM(farch_smp_init_code_start):
 
 init_16:
 	// disable (maskable) interrupts
@@ -73,13 +74,13 @@ init_16:
 	lgdt (FARCH_SMP_INIT_DATA_BASE + FOFFSET_farch_smp_init_data_gdt_pointer)
 
 	// finally, perform a far jump to enter 64-bit mode
-	jmpl $8, $((init_64 - _farch_smp_init_code_start) + FARCH_SMP_INIT_BASE)
+	jmpl $8, $((init_64 - FERRO_SYM(farch_smp_init_code_start)) + FARCH_SMP_INIT_BASE)
 
 // the following code should be for long mode
 .code64
 
 // external
-.global _farch_smp_init_entry
+.global FERRO_SYM(farch_smp_init_entry)
 
 init_64:
 	// load the segment registers with the right data segment
@@ -120,6 +121,6 @@ init_64:
 	jmp *%rax
 
 init_64_jump_addr:
-	.quad _farch_smp_init_entry
+	.quad FERRO_SYM(farch_smp_init_entry)
 
-_farch_smp_init_code_end:
+FERRO_SYM(farch_smp_init_code_end):

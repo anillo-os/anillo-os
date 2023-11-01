@@ -22,8 +22,8 @@
 // arg 1 (rdi) is the new rip
 // arg 2 (rsi) is the new rsp
 .text
-.global _farch_uthread_jump_user_frame
-_farch_uthread_jump_user_frame:
+.global FERRO_SYM(farch_uthread_jump_user_frame)
+FERRO_SYM(farch_uthread_jump_user_frame):
 	pushq %rbp
 	mov %rsp, %rbp
 
@@ -31,7 +31,7 @@ _farch_uthread_jump_user_frame:
 	pushp %rdi, %rsi
 	// zero-out rsi
 	xor %edi, %edi
-	call _farch_uthread_set_interrupt_disable_count
+	call FERRO_SYM(farch_uthread_set_interrupt_disable_count)
 	popp %rdi, %rsi
 
 	// create a fake XSAVE area that will clear out the state
@@ -43,7 +43,7 @@ _farch_uthread_jump_user_frame:
 	mov %r12, %rdi
 	xor %esi, %esi
 	mov %gs:FOFFSET_farch_per_cpu_data_xsave_area_size, %rdx
-	call _simple_memset
+	call FERRO_SYM(simple_memset)
 	popp %rdi, %rsi
 
 	// initialize MXCSR (along with the mask)
@@ -95,8 +95,8 @@ _farch_uthread_jump_user_frame:
 	sysretq
 
 .text
-.global _farch_uthread_syscall_handler_wrapper
-_farch_uthread_syscall_handler_wrapper:
+.global FERRO_SYM(farch_uthread_syscall_handler_wrapper)
+FERRO_SYM(farch_uthread_syscall_handler_wrapper):
 	// we're exiting userspace, so do a swapgs for the kernel gs
 	swapgs
 
@@ -184,14 +184,14 @@ _farch_uthread_syscall_handler_wrapper:
 	xor %r11d, %r11d
 
 	// call our C handler
-	call _farch_uthread_syscall_handler
+	call FERRO_SYM(farch_uthread_syscall_handler)
 
 	// okay, we're returning normally from the handler, so we need to head back into userspace
 
 	// load the right interrupt-disable count (0 for userspace)
 	// zero-out rsi
 	xor %edi, %edi
-	call _farch_uthread_set_interrupt_disable_count
+	call FERRO_SYM(farch_uthread_set_interrupt_disable_count)
 
 	// at this point, when we're heading back into userspace, any register can serve as our scratch register
 	// let's just keep using r11 for consistency
@@ -251,15 +251,15 @@ _farch_uthread_syscall_handler_wrapper:
 
 // arg 1 (rdi) is the context to load
 .text
-.global _farch_uthread_syscall_exit_preserve_all
-_farch_uthread_syscall_exit_preserve_all:
+.global FERRO_SYM(farch_uthread_syscall_exit_preserve_all)
+FERRO_SYM(farch_uthread_syscall_exit_preserve_all):
 	// save the context to r13
 	mov %rdi, %r13
 
 	// load the right interrupt-disable count (0 for userspace)
 	// zero-out rdi
 	xor %edi, %edi
-	call _farch_uthread_set_interrupt_disable_count
+	call FERRO_SYM(farch_uthread_set_interrupt_disable_count)
 
 	// load the XSAVE area address into a temporary register
 	lea FOFFSET_fthread_saved_context_xsave_area(%r13), %r12

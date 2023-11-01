@@ -19,6 +19,8 @@
 #ifndef _FERRO_ASM_X86_64_HELPERS_HS_
 #define _FERRO_ASM_X86_64_HELPERS_HS_
 
+#include <ferro/asm/common.hS>
+
 #define MAKE_IMMEDIATE_HELPER(x) $ ## x
 #define MAKE_IMMEDIATE(x) MAKE_IMMEDIATE_HELPER(x)
 

@@ -101,7 +101,7 @@ LIBELF_PACKED_STRUCT(elf_symbol) {
 
 LIBELF_PACKED_STRUCT(elf_relocation_short) {
 	uint64_t offset;
-#if ELF_ENDIANNESS == ELF_ENDIANNESS_BIG
+#if LIBELF_ENDIANNESS == LIBELF_ENDIANNESS_BIG
 	uint32_t symbol_table_index;
 	uint32_t type;
 #else
@@ -112,7 +112,7 @@ LIBELF_PACKED_STRUCT(elf_relocation_short) {
 
 LIBELF_PACKED_STRUCT(elf_relocation_long) {
 	uint64_t offset;
-#if ELF_ENDIANNESS == ELF_ENDIANNESS_BIG
+#if LIBELF_ENDIANNESS == LIBELF_ENDIANNESS_BIG
 	uint32_t symbol_table_index;
 	uint32_t type;
 #else
@@ -160,7 +160,7 @@ LIBELF_PACKED_STRUCT(elf_gnu_hash_table) {
 };
 
 // the magic value as an integer is endian-dependent
-#if ELF_ENDIANNESS == ELF_ENDIANNESS_BIG
+#if LIBELF_ENDIANNESS == LIBELF_ENDIANNESS_BIG
 	#define ELF_MAGIC 0x7f454c46
 #else
 	#define ELF_MAGIC 0x464c457f

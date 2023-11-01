@@ -24,6 +24,7 @@
 
 #include <gen/ferro/offsets.h>
 #include <ferro/asm/x86_64/helpers.hS>
+#include <ferro/asm/common.hS>
 
 #define FERRO_GDT_OFFSET_KERNEL_CS $8
 
@@ -31,8 +32,8 @@
 
 .macro wrapper func, has_code
 	.text
-	.global _farch_int_wrapper_\()\func
-	_farch_int_wrapper_\()\func\():
+	.global FERRO_SYM(farch_int_wrapper_\()\func)
+	FERRO_SYM(farch_int_wrapper_\()\func\()):
 		# check if we need to perform a swapgs
 		.if \has_code == 0
 			cmpq FERRO_GDT_OFFSET_KERNEL_CS, FOFFSET_farch_int_frame_core_cs(%rsp)
@@ -106,7 +107,7 @@
 		xsave64 (%rsp)
 
 		pushs <%rdi>
-		call _farch_int_\()\func\()_handler
+		call FERRO_SYM(farch_int_\()\func\()_handler)
 		pops <%rdi>
 
 		// now let's perform an XRSTOR
@@ -157,6 +158,7 @@
 // processor-reserved interrupts
 //
 
+wrapper division_error, 0
 wrapper debug, 0
 wrapper breakpoint, 0
 wrapper double_fault, 1

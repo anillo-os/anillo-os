@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2023 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,23 +16,17 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-/**
- * @file
- *
- * x86_64 thread entry function.
- */
+#ifndef _FERRO_ASM_COMMON_HS_
+#define _FERRO_ASM_COMMON_HS_
 
-#include <ferro/asm/common.hS>
+#ifdef FERRO
+	#ifdef FERRO_ELF
+		#define FERRO_SYM(x) x
+	#elif defined(FERRO_MACHO)
+		#define FERRO_SYM(x) _ ## x
+	#else
+		#error Unknown object format!
+	#endif
+#endif
 
-.text
-.global FERRO_SYM(farch_threads_runner)
-FERRO_SYM(farch_threads_runner):
-	// rdi holds user data for the initializer
-	// r10 holds the initializer
-
-	// rdi already holds the user data
-	call *%r10
-
-	// time to die
-	call FERRO_SYM(fthread_kill_self)
-	ud2 // this function should never return
+#endif // _FERRO_ASM_COMMON_HS_

@@ -19,6 +19,8 @@
 #ifndef _FERRO_ASM_AARCH64_HELPERS_HS_
 #define _FERRO_ASM_AARCH64_HELPERS_HS_
 
+#include <ferro/asm/common.hS>
+
 #define MAKE_IMMEDIATE_HELPER(x, y) x ## y
 #define MAKE_IMMEDIATE_HELPER2(x, y) MAKE_IMMEDIATE_HELPER(x, y)
 #define MAKE_IMMEDIATE_HASH #

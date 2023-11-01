@@ -18,13 +18,14 @@
 
 #include <gen/ferro/offsets.h>
 #include <ferro/asm/aarch64/helpers.hS>
+#include <ferro/asm/common.hS>
 
 // arg 1 (x0) is `void* handler`
 // arg 2 (x1) is `fthread_saved_context_t* user_context`
 .align 4
 .text
-.global _farch_syscall_handler_invoke
-_farch_syscall_handler_invoke:
+.global FERRO_SYM(farch_syscall_handler_invoke)
+FERRO_SYM(farch_syscall_handler_invoke):
 	// save the handler address to x9
 	mov x9, x0
 	// and the saved context pointer to x10

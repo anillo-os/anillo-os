@@ -23,6 +23,7 @@
  */
 
 #include <gen/ferro/offsets.h>
+#include <ferro/asm/common.hS>
 
 #define MAKE_IMMEDIATE_HELPER(x, y) x ## y
 #define MAKE_IMMEDIATE_HELPER2(x, y) MAKE_IMMEDIATE_HELPER(x, y)
@@ -40,7 +41,7 @@
 .macro ivt_block prefix
 	.irp type, sync, irq, fiq, serror
 		.balign 0x80
-			b _\()\prefix\()_\type
+			b FERRO_SYM(\()\prefix\()_\type)
 	.endr
 .endm
 
@@ -48,7 +49,7 @@
 	.irp type, sync, irq, fiq, serror
 		.align 4
 		.text
-		_\()\prefix\()_\type\():
+		FERRO_SYM(\()\prefix\()_\type\()):
 			b .
 	.endr
 .endm
@@ -57,7 +58,7 @@
 .macro handler_stub prefix, type, c_func_name
 	.align 4
 	.text
-	_\()\prefix\()_\type\():
+	FERRO_SYM(\()\prefix\()_\type\()):
 		// we should already be using the exception stack right here
 
 		// allocate the stack space we need
@@ -124,7 +125,7 @@
 		// move a pointer to the structure (the stack pointer) into the first argument register
 		// and then call the function
 		mov x0, sp
-		bl _\()\c_func_name
+		bl FERRO_SYM(\()\c_func_name)
 
 		//
 		// great, now let's load stuff
@@ -200,9 +201,9 @@
 
 .align 4
 .text
-.global _fint_ivt
+.global FERRO_SYM(fint_ivt)
 .balign 0x800
-_fint_ivt:
+FERRO_SYM(fint_ivt):
 	ivt_block current_with_sp0
 	ivt_block current_with_spx
 	ivt_block lower_with_aarch64

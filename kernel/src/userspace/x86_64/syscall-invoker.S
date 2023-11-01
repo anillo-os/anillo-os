@@ -18,12 +18,13 @@
 
 #include <gen/ferro/offsets.h>
 #include <ferro/asm/x86_64/helpers.hS>
+#include <ferro/asm/common.hS>
 
 // arg 1 (rdi) is the handler to invoke (void*)
 // arg 2 (rsi) is the saved userspace context (fthread_saved_context*)
 .text
-.global _farch_syscall_handler_invoke
-_farch_syscall_handler_invoke:
+.global FERRO_SYM(farch_syscall_handler_invoke)
+FERRO_SYM(farch_syscall_handler_invoke):
 	pushq %rbp
 	movq %rsp, %rbp
 

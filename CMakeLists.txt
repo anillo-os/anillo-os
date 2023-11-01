@@ -45,6 +45,9 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 	)
 endif()
 
+# we use `<arch>-unknown-linux-elf` instead of `<arch>-unknown-none-elf` for KASan support
+set(ANILLO_TARGET_TRIPLE_KERNEL "${ANILLO_ARCH}-unknown-linux-elf")
+
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_to_ramdisk.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_dylib.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_executable.cmake)
@@ -54,8 +57,8 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/calculate_offsets.cmake)
 
 find_dsymutil()
 
-set(COMPILER_RT_FLAGS "-ffreestanding -U__APPLE__ -D__ANILLO__=1 -mmacosx-version-min=10.15")
-set(COMPILER_RT_LDFLAGS "--ld-path=${LD_PATH} -Wl,-platform_version,macos,10.15,10.15 -nostdlib -ffreestanding -mmacosx-version-min=10.15")
+set(COMPILER_RT_FLAGS "-ffreestanding -D__ELF__=1 -fno-stack-protector")
+set(COMPILER_RT_LDFLAGS "--ld-path=${LD_PATH} -nostdlib -ffreestanding")
 
 find_program(LLVM_CONFIG_PATH llvm-config REQUIRED)
 
@@ -66,13 +69,13 @@ ExternalProject_Add(compiler-rt
 	BINARY_DIR "${CMAKE_BINARY_DIR}/anillo-compiler-rt"
 	CMAKE_ARGS
 		"-DCMAKE_AR=${CMAKE_AR}"
-		"-DCMAKE_ASM_COMPILER_TARGET=${ANILLO_TARGET_TRIPLE}"
+		"-DCMAKE_ASM_COMPILER_TARGET=${ANILLO_TARGET_TRIPLE_KERNEL}"
 		"-DCMAKE_ASM_FLAGS=${COMPILER_RT_FLAGS}"
 		"-DCMAKE_C_COMPILER=${CMAKE_C_COMPILER}"
-		"-DCMAKE_C_COMPILER_TARGET=${ANILLO_TARGET_TRIPLE}"
+		"-DCMAKE_C_COMPILER_TARGET=${ANILLO_TARGET_TRIPLE_KERNEL}"
 		"-DCMAKE_C_FLAGS=${COMPILER_RT_FLAGS}"
 		"-DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}"
-		"-DCMAKE_CXX_COMPILER_TARGET=${ANILLO_TARGET_TRIPLE}"
+		"-DCMAKE_CXX_COMPILER_TARGET=${ANILLO_TARGET_TRIPLE_KERNEL}"
 		"-DCMAKE_CXX_FLAGS=${COMPILER_RT_FLAGS}"
 		"-DCMAKE_EXE_LINKER_FLAGS=${COMPILER_RT_LDFLAGS}"
 		"-DCMAKE_NM=${CMAKE_NM}"
@@ -93,12 +96,12 @@ ExternalProject_Add(compiler-rt
 		-DCMAKE_CXX_COMPILER_FORCED=TRUE
 		-DCMAKE_C_COMPILER_FORCED=TRUE
 	INSTALL_COMMAND ""
-	BUILD_BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_TARGET_TRIPLE}/libclang_rt.builtins.a"
+	BUILD_BYPRODUCTS "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_TARGET_TRIPLE_KERNEL}/libclang_rt.builtins.a"
 )
 
 add_library(compiler-rt-builtins STATIC IMPORTED GLOBAL)
 set_target_properties(compiler-rt-builtins PROPERTIES
-	IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_TARGET_TRIPLE}/libclang_rt.builtins.a"
+	IMPORTED_LOCATION "${CMAKE_CURRENT_BINARY_DIR}/anillo-compiler-rt/lib/${ANILLO_TARGET_TRIPLE_KERNEL}/libclang_rt.builtins.a"
 )
 add_dependencies(compiler-rt-builtins compiler-rt)
 

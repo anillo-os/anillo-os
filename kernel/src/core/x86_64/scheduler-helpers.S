@@ -24,14 +24,15 @@
 
 #include <gen/ferro/offsets.h>
 #include <ferro/asm/x86_64/helpers.hS>
+#include <ferro/asm/common.hS>
 
 #define FERRO_GDT_OFFSET_KERNEL_CS $8
 
 // arg 1 (rdi) is a `fthread_saved_context_t*` (which may be `NULL`)
 // arg 2 (rsi) is a `fint_frame_t*`
 .text
-.global _farch_sched_immediate_switch
-_farch_sched_immediate_switch:
+.global FERRO_SYM(farch_sched_immediate_switch)
+FERRO_SYM(farch_sched_immediate_switch):
 	pushq %rbp
 	mov %rsp, %rbp
 
@@ -90,7 +91,7 @@ _farch_sched_immediate_switch:
 	// let's arm the timer
 	//
 	pushs %rsi
-	call _fsched_arm_timer
+	call FERRO_SYM(fsched_arm_timer)
 	pops %rsi
 
 	//
@@ -100,7 +101,7 @@ _farch_sched_immediate_switch:
 	// load the right interrupt-disable count
 	pushs %rsi
 	mov FOFFSET_fint_frame_interrupt_disable(%rsi), %rdi
-	call _farch_sched_set_interrupt_disable_count
+	call FERRO_SYM(farch_sched_set_interrupt_disable_count)
 	pops %rsi
 
 	// load the XSAVE area address into a temporary register
@@ -176,10 +177,10 @@ _farch_sched_immediate_switch:
 // arg 1 (rdi) is the new frame to load (it's a `fint_frame_t*`)
 // but it's also rsp, which is more useful since the call to fsched_arm_timer() can overwrite rdi
 .text
-.global _farch_sched_delayed_switch
-_farch_sched_delayed_switch:
+.global FERRO_SYM(farch_sched_delayed_switch)
+FERRO_SYM(farch_sched_delayed_switch):
 	// arm the timer
-	call _fsched_arm_timer
+	call FERRO_SYM(fsched_arm_timer)
 
 	//
 	// start loading registers
@@ -187,7 +188,7 @@ _farch_sched_delayed_switch:
 
 	// load the right interrupt-disable count
 	mov FOFFSET_fint_frame_interrupt_disable(%rsp), %rdi
-	call _farch_sched_set_interrupt_disable_count
+	call FERRO_SYM(farch_sched_set_interrupt_disable_count)
 
 	// load the XSAVE area address into a temporary register
 	mov FOFFSET_fint_frame_xsave_area(%rsp), %r11
@@ -234,15 +235,15 @@ _farch_sched_delayed_switch:
 //
 // arg 1 (rdi) is the new frame to load (it's a `fint_frame_t*`)
 .text
-.global _farch_sched_bootstrap_switch
-_farch_sched_bootstrap_switch:
+.global FERRO_SYM(farch_sched_bootstrap_switch)
+FERRO_SYM(farch_sched_bootstrap_switch):
 	pushq %rbp
 	mov %rsp, %rbp
 
 	// arm the timer
 	// (remember to keep the stack 16-byte aligned)
 	pushs %rdi
-	call _fsched_arm_timer
+	call FERRO_SYM(fsched_arm_timer)
 	pops %rdi
 
 	//
@@ -252,7 +253,7 @@ _farch_sched_bootstrap_switch:
 	// load the right interrupt-disable count
 	pushs %rdi
 	mov FOFFSET_fint_frame_interrupt_disable(%rdi), %rdi
-	call _farch_sched_set_interrupt_disable_count
+	call FERRO_SYM(farch_sched_set_interrupt_disable_count)
 	pops %rdi
 
 	// load the XSAVE area address into a temporary register

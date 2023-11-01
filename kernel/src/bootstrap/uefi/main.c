@@ -30,7 +30,13 @@
 
 #include <ferro/bootstrap/uefi/wrappers.h>
 
-#include <libmacho/libmacho.h>
+#if FERRO_ELF
+	#include <libelf/libelf.h>
+#elif FERRO_MACHO
+	#include <libmacho/libmacho.h>
+#else
+	#error Unknown object format!
+#endif
 
 #define DEFAULT_KERNEL_PATH  "EFI\\anillo\\ferro"
 #define DEFAULT_RAMDISK_PATH "EFI\\anillo\\ramdisk"
@@ -146,7 +152,11 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 	FILE* kernel_file = NULL;
 	ferro_kernel_image_info_t* kernel_image_info = NULL;
+#if FERRO_ELF
+	elf_header_t kernel_header = {0};
+#elif FERRO_MACHO
 	macho_header_t kernel_header = {0};
+#endif
 	size_t kernel_segment_index = 0;
 	size_t kernel_loadable_segment_count = 0;
 	uintptr_t kernel_start_phys = UINTPTR_MAX;
@@ -172,7 +182,11 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	fuefi_sysctl_bs_memory_map_info_t mm_info = {0};
 	fuefi_sysctl_bs_populate_memory_map_t populate_mm_info = {0};
 
+#if FERRO_ELF
+	elf_program_header_t pheader = {0};
+#elif FERRO_MACHO
 	macho_load_command_t load_command = {0};
+#endif
 	size_t kernel_file_offset = 0;
 	uintptr_t entry_address = 0;
 
@@ -253,27 +267,38 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	ferro_pool_size += sizeof(ferro_kernel_image_info_t);
 	++ferro_boot_data_count;
 
-	// read in the Mach-O header
+	// read in the header
 	if (fread(&kernel_header, sizeof(kernel_header), 1, kernel_file) != sizeof(kernel_header)) {
 		status = errstat;
 		err = errno;
 		printf("Error: Failed to read kernel header (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
 		return status;
 	}
-	printf("Info: Read kernel Mach-O header\n");
+	printf("Info: Read kernel header\n");
 
 	// verify the kernel image
-	// TODO: support fat kernel binaries
 	if (
+#if FERRO_ELF
+		kernel_header.magic != ELF_MAGIC ||
+	#if FERRO_ARCH == FERRO_ARCH_x86_64
+		kernel_header.machine != elf_machine_amd64 ||
+	#elif FERRO_ARCH == FERRO_ARCH_aarch64
+		kernel_header.machine != elf_machine_arm64 ||
+	#endif
+		kernel_header.type != elf_type_executable ||
+		kernel_header.abi != elf_abi_sysv ||
+		kernel_header.bits != elf_bits_64
+#elif FERRO_MACHO
 		kernel_header.magic != MACHO_MAGIC_64 ||
-#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#if FERRO_ARCH == FERRO_ARCH_x86_64
 		kernel_header.cpu_type != macho_cpu_type_x86_64 ||
 		kernel_header.cpu_subtype != macho_cpu_subtype_x86_64_all ||
-#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#elif FERRO_ARCH == FERRO_ARCH_aarch64
 		kernel_header.cpu_type != macho_cpu_type_aarch64 ||
-#endif
+	#endif
 		kernel_header.file_type != macho_file_type_exectuable ||
 		kernel_header.flags != macho_header_flag_no_undefined_symbols
+#endif
 	) {
 		status = errstat;
 		err = errno;
@@ -283,6 +308,34 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	printf("Info: Found valid kernel image\n");
 
 	// determine the number of loadable segments, the size of the memory block to allocate, and the entry address
+#if FERRO_ELF
+	kernel_file_offset = kernel_header.program_header_table_offset;
+	for (size_t i = 0; i < kernel_header.program_header_entry_count; (++i), (kernel_file_offset += kernel_header.program_header_entry_size)) {
+		if (read_at(kernel_file, kernel_file_offset, &pheader, sizeof(pheader)) != 0) {
+			status = errstat;
+			err = errno;
+			printf("Error: Failed to read program header (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
+			return status;
+		}
+
+		if (pheader.type != elf_program_header_type_loadable) {
+			continue;
+		}
+
+		++kernel_loadable_segment_count;
+		ferro_pool_size += sizeof(ferro_kernel_segment_t);
+
+		printf("Info: phys = 0x%zx, end = 0x%zx\n", pheader.physical_address, pheader.physical_address + pheader.memory_size);
+
+		if (pheader.physical_address < kernel_start_phys) {
+			kernel_start_phys = pheader.physical_address;
+		}
+
+		if (pheader.physical_address + pheader.memory_size > kernel_end_phys) {
+			kernel_end_phys = pheader.physical_address + pheader.memory_size;
+		}
+	}
+#elif FERRO_MACHO
 	kernel_file_offset = sizeof(kernel_header);
 	for (size_t i = 0; i < kernel_header.command_count; (++i), (kernel_file_offset += load_command.size)) {
 		if (read_at(kernel_file, kernel_file_offset, &load_command, sizeof(load_command)) != 0) {
@@ -331,13 +384,13 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 			// 4 * sizeof(uint32_t) for the command type, command size, flavor, and count fields
 			// 16 * sizeof(uint64_t) because `rip` is the 16th entry in the array
-#if FERRO_ARCH == FERRO_ARCH_x86_64
+	#if FERRO_ARCH == FERRO_ARCH_x86_64
 			if (read_at(kernel_file, kernel_file_offset + (4 * sizeof(uint32_t)) + (16 * sizeof(uint64_t)), &entry_address, sizeof(entry_address)) != 0) {
-#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	#elif FERRO_ARCH == FERRO_ARCH_aarch64
 			if (read_at(kernel_file, kernel_file_offset + (4 * sizeof(uint32_t)) + (32 * sizeof(uint64_t)), &entry_address, sizeof(entry_address))) {
-#else
+	#else
 			#error Unimplemented on this architecture
-#endif
+	#endif
 				status = errstat;
 				err = errno;
 				printf("Error: Failed to read kernel entry address (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
@@ -345,6 +398,12 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 			}
 		}
 	}
+#endif
+
+#if FERRO_ELF
+	entry_address = kernel_header.entry;
+#endif
+
 	printf("Info: Number of loadable kernel segments: %zu\n", kernel_loadable_segment_count);
 
 	printf("Info: Kernel entry address offset: %zu\n", entry_address);
@@ -518,6 +577,42 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 	kernel_image_info->physical_base_address = kernel_image_base;
 
 	// actually read in the segments
+#if FERRO_ELF
+	kernel_file_offset = kernel_header.program_header_table_offset;
+	for (size_t i = 0; i < kernel_header.program_header_entry_count; (++i), (kernel_file_offset += kernel_header.program_header_entry_size)) {
+		ferro_kernel_segment_t* segment = &kernel_image_info->segments[kernel_segment_index];
+
+		if (read_at(kernel_file, kernel_file_offset, &pheader, sizeof(pheader)) != 0) {
+			status = errstat;
+			err = errno;
+			printf("Error: Failed to read program header (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
+			return status;
+		}
+
+		if (pheader.type != elf_program_header_type_loadable) {
+			continue;
+		}
+
+		segment->size = pheader.memory_size;
+		segment->physical_address = (void*)(uintptr_t)(pheader.physical_address - kernel_start_phys + kernel_image_base);
+		segment->virtual_address = (void*)(uintptr_t)(pheader.physical_address - kernel_start_phys + FERRO_KERNEL_VIRTUAL_START);
+
+		// read in the segment
+		if (read_at(kernel_file, pheader.offset, segment->physical_address, pheader.file_size) != 0) {
+			status = errstat;
+			err = errno;
+			printf("Error: Failed to set read kernel segment (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
+			return status;
+		}
+
+		// zero out the rest of the memory
+		simple_memset(&((char*)segment->physical_address)[pheader.file_size], 0, segment->size - pheader.file_size);
+
+		printf("Info: Read in section to physical address %p and virtual address %p.\n", segment->physical_address, segment->virtual_address);
+
+		++kernel_segment_index;
+	}
+#elif FERRO_MACHO
 	kernel_file_offset = sizeof(kernel_header);
 	for (size_t i = 0; i < kernel_header.command_count; (++i), (kernel_file_offset += load_command.size)) {
 		macho_load_command_segment_64_t segment_64_load_command = {0};
@@ -560,6 +655,8 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 		++kernel_segment_index;
 	}
+#endif
+
 	printf("Info: Loaded %zu kernel segments\n", kernel_segment_index);
 
 	fclose(kernel_file);

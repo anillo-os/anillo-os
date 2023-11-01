@@ -62,6 +62,7 @@ add_anillo_dylib(libsimple
 add_library(libsimple_static STATIC ${libsimple_sources})
 add_library(libsimple_static_kernel STATIC ${libsimple_sources})
 add_library(libsimple_static_compat INTERFACE)
+add_library(libsimple_static_kernel_compat INTERFACE)
 
 # setting the property using set_source_files_properties("${libsimple_force_optimization_sources}" ...) doesn't work properly
 foreach(forced_opt IN LISTS libsimple_force_optimization_sources)
@@ -77,6 +78,13 @@ target_link_options(libsimple_static_compat INTERFACE
 	-Wl,-alias,_simple_bzero,___bzero
 )
 
+target_link_options(libsimple_static_kernel_compat INTERFACE
+	-Wl,--defsym,memset=simple_memset
+	-Wl,--defsym,memcpy=simple_memcpy
+	-Wl,--defsym,bzero=simple_bzero
+	-Wl,--defsym,__bzero=simple_bzero
+)
+
 target_link_libraries(libsimple PRIVATE
 	libsimple_static_compat
 	libdymple
@@ -90,6 +98,8 @@ set(libsimple_kernel_compile_options
 	-fno-stack-protector
 	-fno-stack-check
 	-mno-red-zone
+
+	-target "${ANILLO_TARGET_TRIPLE_KERNEL}"
 )
 
 set(libsimple_general_compile_options

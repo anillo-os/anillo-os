@@ -3,6 +3,8 @@ project(ferro C ASM)
 add_link_options(
 	-static
 	-pie
+
+	-target "${ANILLO_TARGET_TRIPLE_KERNEL}"
 )
 
 add_compile_options(
@@ -13,7 +15,16 @@ add_compile_options(
 	-fno-stack-protector
 	-fno-stack-check
 	-mno-red-zone
+
+	-target "${ANILLO_TARGET_TRIPLE_KERNEL}"
 )
+
+add_compile_definitions(
+	FERRO=1
+	FERRO_ELF=1
+)
+
+set(CMAKE_EXE_LINKER_FLAGS "")
 
 include_directories(
 	include
@@ -48,15 +59,21 @@ target_link_libraries(ferro PUBLIC
 
 target_link_libraries(ferro PRIVATE
 	libsimple_static_kernel
-	libsimple_static_compat
+	libsimple_static_kernel_compat
 )
 
+#target_link_options(ferro PUBLIC
+#	-Wl,-dead_strip
+#	-Wl,-e,_ferro_entry
+#	-Wl,-pagezero_size,0
+#	-Wl,-image_base,0xffff800000000000
+#	-Wl,-execute
+#)
+
 target_link_options(ferro PUBLIC
-	-Wl,-dead_strip
-	-Wl,-e,_ferro_entry
-	-Wl,-pagezero_size,0
-	-Wl,-image_base,0xffff800000000000
-	-Wl,-execute
+	-Wl,--strip-discarded
+	-Wl,-e,ferro_entry
+	-Wl,-Ttext-segment=0xffff800000000000
 )
 
 add_library(ferro_headers_base INTERFACE)
