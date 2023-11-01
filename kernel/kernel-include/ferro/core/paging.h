@@ -47,7 +47,7 @@ FERRO_DECLARATIONS_BEGIN;
  * @{
  */
 
-#define FERRO_KERNEL_VIRTUAL_START  ((uintptr_t)0xffff800000000000)
+#define FERRO_KERNEL_VIRTUAL_START  ((uintptr_t)0xffff800000000000ULL)
 
 #define FERRO_KERNEL_IMAGE_BASE FERRO_KERNEL_VIRTUAL_START
 
@@ -89,7 +89,7 @@ struct fpage_table {
 	uint64_t entries[512];
 };
 
-#define FPAGE_USER_MAX 0x7fffffffffff
+#define FPAGE_USER_MAX 0x7fffffffffffull
 #define FPAGE_USER_L4_MAX FPAGE_VIRT_L4(FPAGE_USER_MAX)
 
 FERRO_STRUCT_FWD(fpage_mapping);

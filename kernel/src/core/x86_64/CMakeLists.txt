@@ -1,7 +1,6 @@
 project(ferro-core-x86_64 C ASM)
 
 add_library(ferro_core_x86_64 STATIC
-	paging.c
 	interrupts.c
 	per-cpu.c
 	apic.c
@@ -25,4 +24,5 @@ add_dependencies(ferro_core_x86_64
 
 target_link_libraries(ferro_core_x86_64 PRIVATE
 	libsimple_static_kernel
+	compiler-rt-builtins
 )

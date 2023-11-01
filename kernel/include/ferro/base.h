@@ -128,6 +128,12 @@ FERRO_ALWAYS_INLINE void fassert_helper(int result, const char* expr) {
 
 #define FERRO_NO_OPTIMIZE __attribute__((optnone))
 
+#define FERRO_NO_KASAN __attribute__((no_sanitize("kernel-address")))
+
+#define FERRO_NO_UBSAN __attribute__((no_sanitize("undefined")))
+
+#define FERRO_NO_SAN __attribute__((no_sanitize("undefined", "kernel-address")))
+
 /**
  * @}
  */

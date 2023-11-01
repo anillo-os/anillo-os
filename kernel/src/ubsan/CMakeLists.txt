@@ -1,5 +1,9 @@
 project(ferro-ubsan C)
 
+add_compile_options(
+	-fno-sanitize=undefined
+)
+
 add_library(ferro_ubsan STATIC
 	ubsan.c
 )

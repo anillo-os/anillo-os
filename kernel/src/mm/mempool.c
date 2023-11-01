@@ -31,6 +31,7 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/locks.h>
 #include <libsimple/libsimple.h>
+#include <ferro/kasan.h>
 
 // for fpage_prefault_stack
 #include <ferro/core/paging.private.h>
@@ -166,6 +167,8 @@ static const simple_mempool_allocator_t main_allocator = {
 	.free_header = fmempool_main_free_header,
 	.is_aligned = NULL,
 	.panic = fpanic,
+	.poison = ferro_kasan_poison,
+	.unpoison = ferro_kasan_unpoison,
 };
 
 static const simple_mempool_allocator_t physically_contiguous_allocator = {
@@ -175,6 +178,8 @@ static const simple_mempool_allocator_t physically_contiguous_allocator = {
 	.free_header = fmempool_physically_contiguous_free_header,
 	.is_aligned = fmempool_physically_contiguous_is_aligned,
 	.panic = fpanic,
+	.poison = ferro_kasan_poison,
+	.unpoison = ferro_kasan_unpoison,
 };
 
 static const simple_mempool_allocator_t prebound_allocator = {
@@ -184,6 +189,8 @@ static const simple_mempool_allocator_t prebound_allocator = {
 	.free_header = fmempool_prebound_free_header,
 	.is_aligned = NULL,
 	.panic = fpanic,
+	.poison = ferro_kasan_poison,
+	.unpoison = ferro_kasan_unpoison,
 };
 
 static const simple_mempool_instance_options_t options = {
@@ -192,6 +199,7 @@ static const simple_mempool_instance_options_t options = {
 	.min_leaf_size = LEAF_SIZE,
 	.min_leaf_alignment = LEAF_MIN_ALIGNMENT,
 	.max_kept_region_count = KEPT_REGION_COUNT,
+	.optimal_min_region_order = 8, // this corresponds to a minimum region size of 4096 bytes with the current leaf size (16 bytes)
 };
 
 void fmempool_init(void) {

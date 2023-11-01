@@ -39,31 +39,17 @@ FERRO_DECLARATIONS_BEGIN;
  */
 
 // free blocks are doubly-linked list nodes
+//
+// TODO: we always keep block lists ordered in ascending address order.
+//       for more efficiency, we can turn this into an RB or AVL tree instead.
 FERRO_STRUCT(fpage_free_block) {
 	fpage_free_block_t** prev;
 	fpage_free_block_t* next;
+	size_t page_count;
 };
 
 #define FPAGE_MAX_ORDER 32
 #define FPAGE_MIN_ALIGNMENT 12
-
-FERRO_STRUCT(fpage_region_header) {
-	fpage_region_header_t** prev;
-	fpage_region_header_t* next;
-	size_t page_count;
-	void* start;
-	fpage_free_block_t* buckets[FPAGE_MAX_ORDER];
-
-	// this lock protects the region and all of its blocks from reads and writes (for the bookkeeping info; not the actual content itself, obviously)
-	flock_spin_intsafe_t lock;
-
-	// padding to ensure the address of #bitmap is at the end of structure
-	char reserved[7];
-
-	// if a bit is 0, the block corresponding to that bit is free.
-	// if a bit is 1, the block corresponding to that bit is in use.
-	uint8_t bitmap[];
-};
 
 FERRO_OPTIONS(uint32_t, fpage_mapping_portion_flags) {
 	// The physical memory backing this portion has been allocated and
@@ -140,14 +126,14 @@ FERRO_STRUCT(fpage_space) {
 	 */
 	fpage_table_t* l4_table;
 
-	flock_spin_intsafe_t regions_head_lock;
+	flock_spin_intsafe_t lock;
 
 	/**
-	 * The head of the list of buddy allocator regions for this address space.
+	 * The head of the list of VMM blocks for this address space.
 	 */
-	fpage_region_header_t* regions_head;
-
-	flock_spin_intsafe_t l4_table_lock;
+	fpage_free_block_t* blocks;
+	uintptr_t vmm_allocator_start;
+	uint64_t vmm_allocator_page_count;
 
 	/**
 	 * A waitq to wait for the address space to be destroyed.
@@ -156,32 +142,33 @@ FERRO_STRUCT(fpage_space) {
 	 */
 	fwaitq_t space_destruction_waiters;
 
-	/**
-	 * @note It is not necessary to acquire the L4 table lock in order to acquire this lock.
-	 *       HOWEVER, if you ARE going to acquire the L4 table lock, you MUST acquire it before
-	 *       acquiring this lock (to avoid deadlocks).
-	 */
-	flock_spin_intsafe_t mappings_lock;
 	fpage_space_mapping_t* mappings;
 };
+
+typedef bool (*fpage_root_table_iterator)(void* context, uintptr_t virtual_address, uintptr_t physical_address, uint64_t page_count);
 
 extern uint16_t fpage_root_recursive_index;
 
 /**
- * Calculates the recursive virtual address for accessing a page table.
+ * Loads a page table entry.
  *
  * Examples:
- *   * `levels = 0` returns the virtual addres of the level 4 page table (a.k.a. `l4`).
- *   * `levels = 1, l4_index = 5` returns the virtual address of the level 3 page table at index 5 in the level 4 page table (a.k.a. `l4[5] -> l3`).
- *   * `levels = 2, l4_index = 5, l3_index = 2` returns the virtual address of the level 2 page table at `l4[5] -> l3, l3[2] -> l2`.
- *   * `levels = 3, l4_index = 5, l3_index = 2, l2_index = 18` returns the virtual address of the level 1 page table at `l4[5] -> l3, l3[2] -> l2, l2[18] -> l1`.
+ *   * `levels = 1, l4_index = 5` returns the entry of the level 4 page table (a.k.a. `l4[5]`).
+ *   * `levels = 2, l4_index = 5, l3_index = 2` returns the entry of the level 3 page table at index 5 in the level 4 page table (a.k.a. `l4[5] -> l3[2]`).
+ *   * `levels = 3, l4_index = 5, l3_index = 2, l2_index = 18` returns the entry of the level 2 page table at `l4[5] -> l3, l3[2] -> l2[18]`.
+ *   * `levels = 4, l4_index = 5, l3_index = 2, l2_index = 18, l1_index = 3` returns the entry of the level 1 page table at `l4[5] -> l3, l3[2] -> l2, l2[18] -> l1[3]`.
  *
- * @param levels   The number of non-recursive indicies to use. Must be between 0-3 (inclusive).
- * @param l4_index The non-recursive L4 index to use when `levels > 0`.
- * @param l3_index The non-recursive L3 index to use when `levels > 1`.
- * @param l2_index The non-recursive L2 index to use when `levels > 2`.
+ * @param levels   The number of indicies to use. Must be between 1-4 (inclusive).
+ * @param l4_index The L4 index to use when `levels >= 1`.
+ * @param l3_index The L3 index to use when `levels >= 2`.
+ * @param l2_index The L2 index to use when `levels >= 3`.
+ * @param l1_index The L1 index to use when `levels >= 4`.
  */
-uintptr_t fpage_virtual_address_for_table(size_t levels, uint16_t l4_index, uint16_t l3_index, uint16_t l2_index);
+uint64_t fpage_table_load(size_t levels, uint16_t l4_index, uint16_t l3_index, uint16_t l2_index, uint16_t l1_index);
+void fpage_table_store(size_t levels, uint16_t l4_index, uint16_t l3_index, uint16_t l2_index, uint16_t l1_index, uint64_t entry);
+uintptr_t fpage_table_recursive_address(size_t levels, uint16_t l4_index, uint16_t l3_index, uint16_t l2_index);
+
+ferr_t fpage_root_table_iterate(uintptr_t start_address, uint64_t page_count, void* context, fpage_root_table_iterator iterator);
 
 // these are arch-dependent functions we expect all architectures to implement
 
@@ -261,6 +248,8 @@ FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_active(uint64_t entry, bool active
  * Creates a modified entry from the given entry, marking it either as privileged or unprivileged (depending on @p privileged).
  */
 FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_privileged(uint64_t entry, bool privileged);
+
+FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_global(uint64_t entry, bool global);
 
 /**
  * Returns the address of the most recent page fault.

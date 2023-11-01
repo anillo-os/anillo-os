@@ -1,7 +1,6 @@
 project(ferro-core-aarch64 C ASM)
 
 add_library(ferro_core_aarch64 STATIC
-	paging.c
 	interrupts.c
 	per-cpu.c
 	generic-timer.c

@@ -24,9 +24,7 @@ add_library(ferro_core STATIC
 	entry.c
 	console.c
 	framebuffer.c
-	paging.c
 	panic.c
-	mempool.c
 	acpi.c
 	timers.c
 	scheduler.c

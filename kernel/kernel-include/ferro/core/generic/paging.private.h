@@ -45,9 +45,12 @@ FERRO_DECLARATIONS_BEGIN;
 FERRO_ALWAYS_INLINE void generic_fpage_invalidate_tlb_for_range(void* start, void* end) {
 	uintptr_t start_addr = (uintptr_t)start;
 	uintptr_t end_addr = (uintptr_t)end;
-	for (uintptr_t addr = start_addr; addr < end_addr; addr += FPAGE_PAGE_SIZE) {
-		fpage_invalidate_tlb_for_address((void*)addr);
+	if (end_addr - start_addr > FPAGE_PAGE_SIZE) {
+		// it's faster to just invalidate all entries
+		fpage_invalidate_tlb_for_active_space();
 	}
+
+	fpage_invalidate_tlb_for_address((void*)start_addr);
 };
 
 #if USE_GENERIC_FPAGE_INVALIDATE_TLB_FOR_RANGE

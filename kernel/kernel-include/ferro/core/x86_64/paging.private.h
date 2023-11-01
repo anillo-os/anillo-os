@@ -113,6 +113,7 @@ FERRO_ALWAYS_INLINE uint64_t fpage_table_entry(uintptr_t physical_address, bool 
 };
 
 void farch_page_invalidate_tlb_for_address_other_cpus(void* address);
+void farch_page_invalidate_tlb_full_other_cpus(void);
 
 FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
 	__asm__ volatile("invlpg %0" :: "m" (address) : "memory");
@@ -151,6 +152,10 @@ FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_privileged(uint64_t entry, bool pr
 	return (entry & ~FARCH_PAGE_USER_BIT) | (privileged ? 0 : FARCH_PAGE_USER_BIT);
 };
 
+FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_global(uint64_t entry, bool global) {
+	return (entry & ~FARCH_PAGE_GLOBAL_BIT) | (global ? FARCH_PAGE_GLOBAL_BIT : 0);
+};
+
 FERRO_ALWAYS_INLINE uintptr_t fpage_fault_address(void) {
 	uintptr_t faulting_address = 0;
 	__asm__ volatile("mov %%cr2, %0" : "=r" (faulting_address));
@@ -161,6 +166,11 @@ FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void) {
 	uint64_t addr;
 	__asm__ volatile("mov %%cr3, %0" : "=r" (addr));
 	__asm__ volatile("mov %0, %%cr3\n" :: "r" (addr) : "memory");
+
+	if (fcpu_online_count() > 1) {
+		// running with SMP; defer to a helper function to flush the TLB on other CPUs
+		farch_page_invalidate_tlb_full_other_cpus();
+	}
 };
 
 FERRO_ALWAYS_INLINE void fpage_prefault_stack(size_t page_count) {
