@@ -346,3 +346,27 @@ out:
 
 	return status;
 };
+
+ferr_t fsyscall_handler_process_close(uint64_t process_handle) {
+	ferr_t status = ferr_ok;
+	fproc_t* proc = NULL;
+	const fproc_descriptor_class_t* desc_class = NULL;
+
+	status = fproc_lookup_descriptor(fproc_current(), process_handle, true, (void*)&proc, &desc_class);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (desc_class != &fsyscall_proc_class) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), process_handle));
+
+out:
+	if (proc) {
+		desc_class->release(proc);
+	}
+	return status;
+};

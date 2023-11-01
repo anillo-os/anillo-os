@@ -42,8 +42,12 @@ LIBSYS_OBJECT_CLASS_GETTER(proc, proc_class);
 static void sys_proc_destroy(sys_proc_t* object) {
 	sys_proc_object_t* proc = (void*)object;
 
-	if (proc->id != SYS_PROC_ID_INVALID && !proc->detached) {
-		sys_abort_status(libsyscall_wrapper_process_kill(proc->handle));
+	if (proc->id != SYS_PROC_ID_INVALID) {
+		if (proc->detached) {
+			sys_abort_status(libsyscall_wrapper_process_close(proc->handle));
+		} else {
+			sys_abort_status(libsyscall_wrapper_process_kill(proc->handle));
+		}
 	}
 
 	sys_object_destroy(object);

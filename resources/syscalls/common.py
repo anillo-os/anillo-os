@@ -250,6 +250,7 @@ structures.extend([
 	.add_syscall('process_kill', process_handle='u64')
 	.add_syscall('process_suspend', process_handle='u64')
 	.add_syscall('process_resume', process_handle='u64')
+	.add_syscall('process_close', process_handle='u64')
 	.add_syscall('server_channel_create', channel_name='string', channel_name_length='u64', realm='e:channel_realm', out_server_channel_id='*[u64]')
 	.add_syscall('server_channel_accept', server_channel_id='u64', flags='!fchannel_server_accept_flags_t', out_channel_id='*[u64]')
 	.add_syscall('server_channel_close', server_channel_id='u64', release_descriptor='u8')
