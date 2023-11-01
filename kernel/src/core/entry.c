@@ -116,7 +116,7 @@ FERRO_ALWAYS_INLINE void setup_page_tables(uint16_t* next_l2, void* image_base, 
 
 	// set up 2MiB pages for the kernel image
 	for (char* ptr = (char*)FERRO_KERNEL_VIRTUAL_START; (uintptr_t)ptr < FERRO_KERNEL_VIRTUAL_START + image_size; ptr += FPAGE_LARGE_PAGE_SIZE) {
-		pt2->entries[next_l2_idx = FPAGE_VIRT_L2(ptr)] = fpage_large_page_entry(((uintptr_t)ptr - FERRO_KERNEL_VIRTUAL_START) + (uintptr_t)image_base, true);
+		pt2->entries[next_l2_idx = FPAGE_VIRT_L2(ptr)] = fpage_entry_mark_global(fpage_large_page_entry(((uintptr_t)ptr - FERRO_KERNEL_VIRTUAL_START) + (uintptr_t)image_base, true), true);
 	}
 	++next_l2_idx; // assumes the kernel image will never occupy 1GiB
 
@@ -197,7 +197,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 					if (j == 0) {
 						region->virtual_start = fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), *next_l2, 0, 0);
 					}
-					page_table_level_2.entries[(*next_l2)++] = fpage_large_page_entry((uintptr_t)region->physical_start + (j * FPAGE_LARGE_PAGE_SIZE), true);
+					page_table_level_2.entries[(*next_l2)++] = fpage_entry_mark_global(fpage_large_page_entry((uintptr_t)region->physical_start + (j * FPAGE_LARGE_PAGE_SIZE), true), true);
 				}
 			} else {
 #else
@@ -224,7 +224,7 @@ static void map_regions(uint16_t* next_l2, ferro_memory_region_t** memory_region
 					if (j == 0) {
 						region->virtual_start = fpage_make_virtual_address(FPAGE_VIRT_L4(FERRO_KERNEL_VIRTUAL_START), FPAGE_VIRT_L3(FERRO_KERNEL_VIRTUAL_START), l2_idx, next_l1_idx, 0);
 					}
-					l1_table->entries[next_l1_idx++] = fpage_page_entry((uintptr_t)region->physical_start + (j * FPAGE_PAGE_SIZE), true);
+					l1_table->entries[next_l1_idx++] = fpage_entry_mark_global(fpage_page_entry((uintptr_t)region->physical_start + (j * FPAGE_PAGE_SIZE), true), true);
 				}
 			}
 		}

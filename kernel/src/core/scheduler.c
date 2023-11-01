@@ -214,6 +214,11 @@ static void add_to_queue(fthread_t* thread, fsched_info_t* new_queue, bool new_q
 
 	sched_private->queue = new_queue;
 
+	if (new_queue->count == 0 && new_queue != fsched_per_cpu_info() && new_queue->cpu) {
+		// send the CPU an interrupt to wake it up early and start doing work
+		fsched_preempt_cpu(new_queue->cpu);
+	}
+
 	++new_queue->count;
 
 	if (!new_queue_is_locked) {

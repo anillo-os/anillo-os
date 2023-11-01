@@ -29,15 +29,26 @@
 #include <libsimple/libsimple.h>
 #include <ferro/core/paging.h>
 #include <ferro/core/x86_64/apic.h>
+#include <ferro/core/cpu.h>
 
 // 4 pages should be enough, right?
 #define SWITCHING_STACK_SIZE (FPAGE_PAGE_SIZE * 4)
 
+#define FARCH_SCHED_SELF_INTERRUPT 0xfe
+#define FARCH_SCHED_PEER_INTERRUPT 0xfd
+
 static void ignore_interrupt(void* data, fint_frame_t* frame) {};
+static void ignore_interrupt_apic(void* data, fint_frame_t* frame) {
+	farch_apic_signal_eoi();
+};
 
 void farch_sched_init(void) {
-	if (farch_int_register_handler(0xfe, ignore_interrupt, NULL, 0) != ferr_ok) {
+	if (farch_int_register_handler(FARCH_SCHED_SELF_INTERRUPT, ignore_interrupt, NULL, 0) != ferr_ok) {
 		fpanic("Failed to register scheduler auxillary interrupt");
+	}
+
+	if (farch_int_register_handler(FARCH_SCHED_PEER_INTERRUPT, ignore_interrupt_apic, NULL, 0) != ferr_ok) {
+		fpanic("Failed to register scheduler auxillary peer interrupt");
 	}
 
 	if (fpage_allocate_kernel(fpage_round_up_to_page_count(SWITCHING_STACK_SIZE), &FARCH_PER_CPU(switching_stack), fpage_flag_prebound) != ferr_ok) {
@@ -275,12 +286,21 @@ void fsched_preempt_thread(fthread_t* thread) {
 
 		// now trigger the auxillary interrupt
 		// (the threading subsystem's interrupt hooks will take care of the rest)
-		__asm__ volatile("int $0xfe");
+		__asm__ volatile("int %0" :: "i" (FARCH_SCHED_SELF_INTERRUPT));
 	} else {
 		// we're holding the thread's lock, so we know that it can't be moving between CPUs right now
-		FERRO_WUR_IGNORE(farch_apic_interrupt_cpu(thread->current_cpu, 0xfe));
+		FERRO_WUR_IGNORE(farch_apic_interrupt_cpu(thread->current_cpu, FARCH_SCHED_PEER_INTERRUPT));
 
 		// drop the thread lock (this function always has to drop it)
 		flock_spin_intsafe_unlock(&thread->lock);
+	}
+};
+
+void fsched_preempt_cpu(fcpu_t* cpu) {
+	if (cpu == fcpu_current()) {
+		// trigger the auxillary interrupt
+		__asm__ volatile("int %0" :: "i" (FARCH_SCHED_SELF_INTERRUPT));
+	} else {
+		FERRO_WUR_IGNORE(farch_apic_interrupt_cpu(cpu, FARCH_SCHED_PEER_INTERRUPT));
 	}
 };

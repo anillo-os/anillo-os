@@ -146,9 +146,9 @@ void fcpu_interrupt_work_item_checkout(fcpu_interrupt_work_item_t* work_item) {
 };
 
 // broadcast another IPI if we're waiting and the work hasn't completed within this amount of time
-// (currently 1ms)
+// (currently 5ms)
 #define IPI_DO_TIMEOUT 0
-#define IPI_TIMEOUT 1ull * 1000 * 1000
+#define IPI_TIMEOUT 5ull * 1000 * 1000
 
 ferr_t fcpu_interrupt_all(fcpu_interrupt_work_f work, void* context, bool include_current, bool wait) {
 	ferr_t status = ferr_ok;

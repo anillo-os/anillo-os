@@ -119,7 +119,7 @@ retry:
 				//       we're probably going to have to add a generation counter to do this safely.
 				flock_mutex_unlock(&table->mutex);
 
-				fpanic("LOOPING IN futex_lookup");
+				//fpanic("LOOPING IN futex_lookup");
 
 				goto retry;
 			}

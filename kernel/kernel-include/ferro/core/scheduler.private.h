@@ -163,6 +163,8 @@ void farch_sched_init_secondary_cpu(void);
  */
 void fsched_preempt_thread(fthread_t* thread);
 
+void fsched_preempt_cpu(fcpu_t* cpu);
+
 /**
  * Invokes the given callback for every thread currently being managed by the scheduler.
  *
