@@ -34,16 +34,22 @@ EFI_SIZE_MB = 64
 DISK_SIZE_MB = 1024
 
 mount_dir = tempfile.TemporaryDirectory()
+disk_name = '' # macOS
 
 if os.path.exists(OUTPUT_IMAGE_PATH):
 	os.remove(OUTPUT_IMAGE_PATH)
 
 def partfs_mount():
-	anillo_util.run_or_fail(['partfs', '-o', 'dev=' + OUTPUT_IMAGE_PATH, mount_dir.name])
+	if platform.system() == 'Darwin':
+		global disk_name
+		hdiutil_output = subprocess.check_output(['hdiutil', 'attach', '-nomount', OUTPUT_IMAGE_PATH], stderr=subprocess.STDOUT).decode()
+		disk_name = hdiutil_output.split()[0]
+	else:
+		anillo_util.run_or_fail(['partfs', '-o', 'dev=' + OUTPUT_IMAGE_PATH, mount_dir.name])
 
 def partfs_unmount():
 	if platform.system() == 'Darwin':
-		anillo_util.run_or_fail(['umount', mount_dir.name])
+		anillo_util.run_or_fail(['hdiutil', 'detach', disk_name])
 	else:
 		anillo_util.run_or_fail(['fusermount', '-u', mount_dir.name])
 
@@ -75,7 +81,10 @@ anillo_util.run_or_fail(['sgdisk', '-o', '-n', '1:' + str(first_aligned_sector) 
 
 partfs_mount()
 
-efi_image_path = os.path.join(mount_dir.name, 'p1')
+if platform.system() == 'Darwin':
+	efi_image_path = disk_name + 's1'
+else:
+	efi_image_path = os.path.join(mount_dir.name, 'p1')
 
 anillo_util.run_or_fail(['mkfs.fat', efi_image_path])
 
