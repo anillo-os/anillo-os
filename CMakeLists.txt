@@ -60,7 +60,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/calculate_offsets.cmake)
 
 find_dsymutil()
 
-set(COMPILER_RT_FLAGS "-ffreestanding -D__ELF__=1 -fno-stack-protector")
+set(COMPILER_RT_FLAGS "-ffreestanding -D__ELF__=1 -D__ANILLO__=1 -fno-stack-protector")
 set(COMPILER_RT_LDFLAGS "--ld-path=${LD_PATH} -nostdlib -ffreestanding")
 
 find_program(LLVM_CONFIG_PATH llvm-config REQUIRED)

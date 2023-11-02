@@ -1,10 +1,15 @@
 project(ferro C ASM)
 
+find_program(LD_LLD_PATH ld.lld REQUIRED)
+
 add_link_options(
 	-static
 	-pie
 
 	-target "${ANILLO_TARGET_TRIPLE_KERNEL}"
+
+	-fuse-ld=lld
+	"--ld-path=${LD_LLD_PATH}"
 )
 
 add_compile_options(
@@ -104,9 +109,9 @@ target_link_libraries(ferro PRIVATE
 #)
 
 target_link_options(ferro PUBLIC
-	-Wl,--strip-discarded
+	#-Wl,--strip-discarded
 	-Wl,-e,ferro_entry
-	-Wl,-Ttext-segment=0xffff800000000000
+	-Wl,--image-base=0xffff800000000000
 )
 
 add_library(ferro_headers_base INTERFACE)
