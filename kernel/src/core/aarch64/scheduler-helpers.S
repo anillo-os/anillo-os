@@ -24,6 +24,7 @@
 
 #include <gen/ferro/offsets.h>
 #include <ferro/asm/common.hS>
+#include <ferro/asm/aarch64/helpers.hS>
 
 // arg 1 (x0) is a `fthread_saved_context_t*` (which may be NULL)
 // arg 2 (x1) is a `fthread_saved_context_t*`

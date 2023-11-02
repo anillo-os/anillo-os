@@ -194,7 +194,7 @@ void fint_trace_interrupted_stack(const fint_frame_t* frame) {
 };
 
 bool farch_int_invoke_special_handler(fint_special_interrupt_common_t id) {
-	farch_int_special_handler_entry_t* entry = &special_handlers[fint_special_interrupt_page_fault];
+	farch_int_special_handler_entry_t* entry = &special_handlers[id];
 	fint_special_handler_f handler = NULL;
 	void* handler_data = NULL;
 
