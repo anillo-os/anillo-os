@@ -240,27 +240,25 @@ static void rotate_queue_forward(fsched_info_t* queue, bool queue_is_locked) {
 };
 
 // this is guaranteed to be called from within an interrupt context
-static void timed_context_switch(void* data) {
+//
+// @pre the queue's lock is held
+static fthread_t* switch_threads(fsched_info_t* queue, fthread_t* old_thread) {
 	// we'll take care of pending deaths or suspensions later, when we're about to return from the interrupt
-	fsched_info_t* queue = fsched_per_cpu_info();
 	fthread_t* idle_thread = idle_threads[fcpu_current_id()];
-	fthread_t* old_thread = fthread_current();
-
-	flock_spin_intsafe_lock(&queue->lock);
+	fthread_t* new_thread;
 
 	fsched_per_cpu_info()->last_timer_id = FTIMERS_ID_INVALID;
 
 	// this should be impossible, but just in case
 	if (queue->count == 0 && old_thread != idle_thread) {
+		new_thread = idle_thread;
 		fsched_switch(NULL, idle_thread);
 	} else if (queue->count > 1) {
-		fthread_t* new_thread;
-
 		flock_spin_intsafe_lock(&old_thread->lock);
 		if (fthread_state_execution_read_locked(old_thread) == fthread_state_execution_interrupted) {
 			// only if it was previously the active thread does it need to be rotated out
 			rotate_queue_forward(queue, true);
-		} else if (queue->head != old_thread) {
+		} else if (queue->head != old_thread && old_thread != idle_thread) {
 			fpanic("Scheduler state inconsistency (expected new thread to equal old thread)");
 		}
 		new_thread = queue->head;
@@ -277,7 +275,7 @@ static void timed_context_switch(void* data) {
 			fsched_switch(old_thread, new_thread);
 		}
 	} else if (queue->count == 1 && old_thread == idle_thread) {
-		fthread_t* new_thread = queue->head;
+		new_thread = queue->head;
 
 		flock_spin_intsafe_lock(&old_thread->lock);
 		fthread_state_execution_write_locked(old_thread, fthread_state_execution_not_running);
@@ -290,9 +288,17 @@ static void timed_context_switch(void* data) {
 		fsched_switch(old_thread, new_thread);
 	} else {
 		// switching to the same thread arms the timer on return.
-		fsched_switch(old_thread, old_thread);
+		new_thread = old_thread;
+		fsched_switch(old_thread, new_thread);
 	}
 
+	return new_thread;
+};
+
+static void timed_context_switch(void* data) {
+	fsched_info_t* queue = fsched_per_cpu_info();
+	flock_spin_intsafe_lock(&queue->lock);
+	switch_threads(queue, fthread_current());
 	flock_spin_intsafe_unlock(&queue->lock);
 };
 
@@ -821,6 +827,14 @@ static fthread_t* clear_pending_death_or_suspension(fthread_t* thread) {
 	fsched_info_t* queue = fsched_per_cpu_info();
 
 	flock_spin_intsafe_lock(&queue->lock);
+
+	if (queue->count > 0 && thread == idle_threads[fcpu_current_id()]) {
+		// we were running the idle thread, but we now have some actual threads to run;
+		// let's immediately stop the idle thread and switch to an actual thread.
+		flock_spin_intsafe_unlock(&thread->lock);
+		thread = switch_threads(queue, thread);
+		flock_spin_intsafe_lock(&thread->lock);
+	}
 
 	// we should only have at most a single thread waiting for death, suspension, or blocking, and it should only be the active thread.
 	// all other threads aren't running, so when they're asked to be killed, suspended, or blocked, they can do it immediately.
