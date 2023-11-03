@@ -35,6 +35,7 @@ static fuefi_loaded_image_protocol_t* fuefi_image_protocol = NULL;
 static fuefi_simple_filesystem_protocol_t* fuefi_efi_fs = NULL;
 static fuefi_file_protocol_t* fuefi_efi_root = NULL;
 static fuefi_graphics_output_protocol_t* fuefi_graphics_protocol = NULL;
+static fuefi_memory_attribute_protocol_t* fuefi_memory_attribute_protocol = NULL;
 
 void* malloc(size_t byte_size) {
 	void* addr = NULL;
@@ -69,6 +70,41 @@ void* mmap(void* address, size_t length, int protection, int flags, int fd, off_
 int munmap(void* address, size_t length) {
 	errstat = fuefi_system_table->boot_services->free_pages(address, (length + 0xfff) / 0x1000);
 	return (errstat == fuefi_status_ok) ? 0 : -1;
+};
+
+#define FUEFI_MEMORY_ATTRIBUTE_PROTECTION_MASK (fuefi_memory_attribute_no_read | fuefi_memory_attribute_no_write | fuefi_memory_attribute_no_execute)
+
+int mprotect(void* address, size_t length, int protection) {
+	if (fuefi_memory_attribute_protocol) {
+		fuefi_memory_attribute_t attrs = FUEFI_MEMORY_ATTRIBUTE_PROTECTION_MASK;
+		fuefi_memory_attribute_t invert_attrs;
+
+		if (protection & PROT_READ) {
+			attrs &= ~fuefi_memory_attribute_no_read;
+		}
+
+		if (protection & PROT_WRITE) {
+			attrs &= ~fuefi_memory_attribute_no_write;
+		}
+
+		if (protection & PROT_EXEC) {
+			attrs &= ~fuefi_memory_attribute_no_execute;
+		}
+
+		invert_attrs = ~attrs & FUEFI_MEMORY_ATTRIBUTE_PROTECTION_MASK;
+
+		errstat = fuefi_memory_attribute_protocol->set_memory_attributes(fuefi_memory_attribute_protocol, address, ((length + 0xfff) / 0x1000) * 0x1000, attrs);
+		if (errstat != ferr_ok) {
+			return -1;
+		}
+
+		errstat = fuefi_memory_attribute_protocol->clear_memory_attributes(fuefi_memory_attribute_protocol, address, ((length + 0xfff) / 0x1000) * 0x1000, invert_attrs);
+		if (errstat != ferr_ok) {
+			return -1;
+		}
+	}
+
+	return 0;
 };
 
 int putchar(int character) {
@@ -651,6 +687,14 @@ static int sysctl_init_wrappers(fuefi_sysctl_wrappers_init_t* info) {
 		}
 	} else {
 		fuefi_graphics_protocol = NULL;
+		errstat = fuefi_status_ok;
+	}
+
+	errstat = fuefi_system_table->boot_services->locate_protocol(fuefi_guid_memory_attribute_protocol, NULL, (void**)&fuefi_memory_attribute_protocol);
+	if (errstat == fuefi_status_ok) {
+		// do nothing
+	} else {
+		fuefi_memory_attribute_protocol = NULL;
 		errstat = fuefi_status_ok;
 	}
 

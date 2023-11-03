@@ -133,6 +133,7 @@ void free(void* memory);
 
 void* mmap(void* address, size_t length, int protection, int flags, int fd, off_t offset);
 int munmap(void* address, size_t length);
+int mprotect(void* address, size_t length, int protection);
 
 int putchar(int character);
 int vprintf(const char* format, va_list args) FUEFI_PRINTF(1, 0);

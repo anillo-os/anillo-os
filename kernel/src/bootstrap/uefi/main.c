@@ -27,6 +27,7 @@
 #include <ferro/core/ramdisk.h>
 #include <ferro/core/entry.h>
 #include <ferro/bits.h>
+#include <ferro/core/paging.private.h>
 
 #include <ferro/bootstrap/uefi/wrappers.h>
 
@@ -51,9 +52,6 @@
 		__typeof__(multiple) _multiple = (multiple); \
 		(_value + (_multiple - 1)) / _multiple; \
 	})
-
-// TODO: de-duplicate this (it's primarily defined in ferro/core/paging.h)
-#define FERRO_KERNEL_VIRTUAL_START  ((uintptr_t)0xffff800000000000)
 
 FERRO_ALWAYS_INLINE ferro_memory_region_type_t uefi_to_ferro_memory_region_type(fuefi_memory_type_t uefi) {
 	switch (uefi) {
@@ -106,6 +104,9 @@ static ferr_t ferro_memory_pool_init(ferro_memory_pool_t* pool, size_t pool_size
 static void* ferro_memory_pool_allocate(ferro_memory_pool_t* pool, size_t bytes) {
 	void* ret = pool->next_address;
 	pool->next_address = (void*)((uintptr_t)pool->next_address + bytes);
+	if ((uintptr_t)(pool->next_address - pool->base_address) > pool->page_count * 0x1000) {
+		return NULL;
+	}
 	return ret;
 };
 
@@ -194,7 +195,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 
 	// 2MiB stack
 	size_t stack_size = 2ULL * 1024 * 1024;
-	uintptr_t stack_base = round_down_power_of_2((uintptr_t)__builtin_frame_address(0), stack_size);
+	void* stack_base = 0;
 	//ferro_memory_region_type_kernel_stack
 
 	mib[0] = CTL_WRAPPERS;
@@ -210,6 +211,37 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 #if PRINT_BASE
 	printf("Info: UEFI image base: %p\n", (void*)(uintptr_t)sysconf(_SC_IMAGE_BASE));
 #endif
+
+	// allocate the stack
+	// this is a little more complicated than just allocating some pages because our kernel stack requires 2MiB alignment
+	// if we request almost an entire 2MiB page more than what we really need, we're guaranteed to have a 2MiB boundary somewhere in there
+	if ((stack_base = mmap(NULL, stack_size + 0x1fffffULL, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON, -1, 0)) == MAP_FAILED) {
+		status = errstat;
+		err = errno;
+		printf("Error: Failed to allocate memory for kernel stack (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
+		return status;
+	}
+
+	printf("Info: got stack region at %p; going to unmap and try getting %p\n", stack_base, (void*)round_up_power_of_2((uintptr_t)stack_base, 0x200000ULL));
+
+	// now unmap the region...
+	if (munmap(stack_base, stack_size + 0x1fffffULL) != 0) {
+		status = errstat;
+		err = errno;
+		printf("Error: Failed to unmap temporary memory for kernel stack (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
+		return status;
+	}
+
+	// ...align the address...
+	stack_base = (void*)round_up_power_of_2((uintptr_t)stack_base, 0x200000ULL);
+
+	// ...and allocate one at the address we want with exactly the size we want
+	if ((stack_base = mmap(stack_base, stack_size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON | MAP_FIXED, -1, 0)) == MAP_FAILED) {
+		status = errstat;
+		err = errno;
+		printf("Error: Failed to allocate 2MiB-aligned memory for kernel stack (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
+		return status;
+	}
 
 	printf("Info: Kernel stack physical address: %p\n", (void*)stack_base);
 
@@ -608,6 +640,14 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 		// zero out the rest of the memory
 		simple_memset(&((char*)segment->physical_address)[pheader.file_size], 0, segment->size - pheader.file_size);
 
+		// set the protection
+		if (mprotect(segment->physical_address, segment->size, pheader.flags) != 0) {
+			status = errstat;
+			err = errno;
+			printf("Error: Failed to set segment protection attributes (status=" FUEFI_STATUS_FORMAT "; err=%d).\n", status, err);
+			return status;
+		}
+
 		printf("Info: Read in section to physical address %p and virtual address %p.\n", segment->physical_address, segment->virtual_address);
 
 		++kernel_segment_index;
@@ -747,7 +787,7 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 			physical_address = (uintptr_t)kernel_image_base;
 			page_count = ROUND_UP_PAGE(kernel_image_info->size);
 		} else if (i == 3) {
-			physical_address = stack_base;
+			physical_address = (uintptr_t)stack_base;
 			page_count = ROUND_UP_PAGE(stack_size);
 			new_type = ferro_memory_region_type_kernel_stack;
 		}
@@ -908,8 +948,49 @@ fuefi_status_t FUEFI_API efi_main(fuefi_handle_t image_handle, fuefi_system_tabl
 #endif
 
 	// finally, jump into our kernel
-	kernel_entry(ferro_pool.base_address, ferro_pool.page_count, ferro_boot_data, ferro_boot_data_count);
+	void* stack_top = stack_base + stack_size;
+	void* pool_base = ferro_pool.base_address;
+	size_t pool_page_count = ferro_pool.page_count;
 
-	// if we get here, we failed to load the kernel
-	return fuefi_status_load_error;
+#if FERRO_ARCH == FERRO_ARCH_x86_64
+	register void* pool_base_rdi asm("rdi") = pool_base;
+	register size_t pool_page_count_rsi asm("rsi") = pool_page_count;
+	register ferro_boot_data_info_t* boot_data_rdx asm("rdx") = ferro_boot_data;
+	register size_t boot_data_count_rcx asm("rcx") = ferro_boot_data_count;
+
+	__asm__ volatile(
+		"mov %[stack], %%rsp\n"
+		"push $0\n"
+		"mov $0, %%rbp\n"
+		"jmp *%[entry]"
+		::
+		[entry] "r" (kernel_entry),
+		[stack] "r" (stack_top),
+		"r" (pool_base_rdi),
+		"r" (pool_page_count_rsi),
+		"r" (boot_data_rdx),
+		"r" (boot_data_count_rcx)
+	);
+#elif FERRO_ARCH == FERRO_ARCH_aarch64
+	register void* pool_base_x0 asm("x0") = pool_base;
+	register size_t pool_page_count_x1 asm("x1") = pool_page_count;
+	register ferro_boot_data_info_t* boot_data_x2 asm("x2") = ferro_boot_data;
+	register size_t boot_data_count_x3 asm("x3") = ferro_boot_data_count;
+
+	__asm__ volatile(
+		"mov sp, %[stack]\n"
+		"mov lr, %[zero]\n"
+		"br %[entry]"
+		::
+		[entry] "r" (kernel_entry),
+		[stack] "r" (stack_top),
+		[zero] "i" (0),
+		"r" (pool_base_x0),
+		"r" (pool_page_count_x1),
+		"r" (boot_data_x2),
+		"r" (boot_data_count_x3)
+	);
+#endif
+
+	__builtin_unreachable();
 };

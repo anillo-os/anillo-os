@@ -122,6 +122,21 @@ FERRO_ENUM(uint32_t, fuefi_memory_type) {
 	fuefi_memory_type_nvram,
 };
 
+FERRO_ENUM(uint64_t, fuefi_memory_attribute) {
+	fuefi_memory_attribute_uncacheable              = 1ull << 0,
+	fuefi_memory_attribute_write_combining          = 1ull << 1,
+	fuefi_memory_attribute_write_through            = 1ull << 2,
+	fuefi_memory_attribute_write_back               = 1ull << 3,
+	fuefi_memory_attribute_uncacheable_export       = 1ull << 4,
+	fuefi_memory_attribute_write_protected_cache    = 1ull << 12,
+	fuefi_memory_attribute_no_read                  = 1ull << 13,
+	fuefi_memory_attribute_no_execute               = 1ull << 14,
+	fuefi_memory_attribute_nonvolatile              = 1ull << 15,
+	fuefi_memory_attribute_more_reliable            = 1ull << 16,
+	fuefi_memory_attribute_no_write                 = 1ull << 17,
+	fuefi_memory_attribute_requires_runtime_mapping = 1ull << 63,
+};
+
 //
 // simple text input protocol
 //
@@ -581,6 +596,12 @@ FERRO_STRUCT(fuefi_graphics_output_protocol) {
 	fuefi_graphics_output_protocol_mode_t* mode;
 };
 
+FERRO_STRUCT(fuefi_memory_attribute_protocol) {
+	FUEFI_STATUS_METHOD(fuefi_memory_attribute_protocol_t, get_memory_attributes, void* base_address, uint64_t byte_size, fuefi_memory_attribute_t* out_attribute_mask);
+	FUEFI_STATUS_METHOD(fuefi_memory_attribute_protocol_t, set_memory_attributes, void* base_address, uint64_t byte_size, fuefi_memory_attribute_t attribute_mask);
+	FUEFI_STATUS_METHOD(fuefi_memory_attribute_protocol_t, clear_memory_attributes, void* base_address, uint64_t byte_size, fuefi_memory_attribute_t attribute_mask);
+};
+
 //
 // GUIDs
 //
@@ -588,6 +609,7 @@ FERRO_STRUCT(fuefi_graphics_output_protocol) {
 FUEFI_GUID(     fuefi_guid_loaded_image_protocol, 0xa1, 0x31, 0x1b, 0x5b, 0x62, 0x95, 0xd2, 0x11, 0x8e, 0x3f, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b);
 FUEFI_GUID(fuefi_guid_simple_filesystem_protocol, 0x22, 0x5b, 0x4e, 0x96, 0x59, 0x64, 0xd2, 0x11, 0x8e, 0x39, 0x00, 0xa0, 0xc9, 0x69, 0x72, 0x3b);
 FUEFI_GUID(  fuefi_guid_graphics_output_protocol, 0xde, 0xa9, 0x42, 0x90, 0xdc, 0x23, 0x38, 0x4a, 0x96, 0xfb, 0x7a, 0xde, 0xd0, 0x80, 0x51, 0x6a);
+FUEFI_GUID( fuefi_guid_memory_attribute_protocol, 0xf6, 0x0c, 0x56, 0xf4, 0xec, 0x40, 0x4a, 0x4b, 0xa1, 0x92, 0xbf, 0x1d, 0x57, 0xd0, 0xb1, 0x89);
 FUEFI_GUID(             fuefi_guid_acpi_20_table, 0x71, 0xe8, 0x68, 0x88, 0xf1, 0xe4, 0xd3, 0x11, 0xbc, 0x22, 0x00, 0x80, 0xc7, 0x3c, 0x88, 0x81);
 FUEFI_GUID(             fuefi_guid_acpi_10_table, 0x30, 0x2d, 0x9d, 0xeb, 0x88, 0x2d, 0xd3, 0x11, 0x9a, 0x16, 0x00, 0x90, 0x27, 0x3f, 0xc1, 0x4d);
 

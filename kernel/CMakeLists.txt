@@ -112,6 +112,7 @@ target_link_options(ferro PUBLIC
 	#-Wl,--strip-discarded
 	-Wl,-e,ferro_entry
 	-Wl,--image-base=0xffff800000000000
+	-Wl,-z,separate-loadable-segments
 )
 
 add_library(ferro_headers_base INTERFACE)
