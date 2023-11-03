@@ -30,6 +30,9 @@
 #include <ferro/core/paging.h>
 #include <ferro/core/locks.h>
 #include <libsimple/libsimple.h>
+#include <ferro/core/cpu.private.h>
+
+#define FARCH_GIC_IPI_SGI_NUM 0
 
 #define RESERVED_HELPER2(x, y) uint8_t reserved ## y [x]
 #define RESERVED_HELPER(x, y) RESERVED_HELPER2(x, y)
@@ -332,6 +335,12 @@ FERRO_STRUCT(farch_gic_msi_frame) {
 	volatile farch_gic_msi_block_t* physical_block;
 	uint32_t spi_base;
 	uint32_t spi_count;
+};
+
+FERRO_ENUM(uint32_t, farch_gic_sgi_target_list) {
+	farch_gic_sgi_target_list_mask   = 0x00ull << 24,
+	farch_gic_sgi_target_list_others = 0x01ull << 24,
+	farch_gic_sgi_target_list_self   = 0x02ull << 24,
 };
 
 static bool needs_separate_deactivate = false;
@@ -651,6 +660,10 @@ out_unlocked:
 	return status;
 };
 
+static void farch_gic_ipi_work_handler(void* context, fint_frame_t* frame) {
+	fcpu_do_work();
+};
+
 void farch_gic_init(void) {
 	facpi_madt_t* madt = NULL;
 
@@ -771,6 +784,32 @@ void farch_gic_init(void) {
 	}
 
 	farch_int_set_irq_handler(irq_handler);
+
+	// NOTE: when we start doing SMP on AARCH64, we have to remember to set up the SGIs when bringing up a core
+
+	if (farch_gic_interrupt_priority_write(FARCH_GIC_IPI_SGI_NUM, 0) != ferr_ok) {
+		fpanic("Failed to set IPI work interrupt priority");
+	}
+
+	if (farch_gic_interrupt_target_core_write(FARCH_GIC_IPI_SGI_NUM, farch_gic_current_core_id()) != ferr_ok) {
+		fpanic("Failed to set IPI work interrupt target core");
+	}
+
+	if (farch_gic_interrupt_configuration_write(FARCH_GIC_IPI_SGI_NUM, farch_gic_interrupt_configuration_edge_triggered) != ferr_ok) {
+		fpanic("Failed to set IPI work interrupt configuration");
+	}
+
+	if (farch_gic_interrupt_pending_write(FARCH_GIC_IPI_SGI_NUM, false) != ferr_ok) {
+		fpanic("Failed to clear IPI work interrupt pending status");
+	}
+
+	if (farch_gic_register_handler(FARCH_GIC_IPI_SGI_NUM, true, farch_gic_ipi_work_handler, NULL) != ferr_ok) {
+		fpanic("Failed to register IPI work interrupt");
+	}
+
+	if (farch_gic_interrupt_enabled_write(FARCH_GIC_IPI_SGI_NUM, true) != ferr_ok) {
+		fpanic("Failed to enable IPI work interrupt");
+	}
 };
 
 ferr_t farch_gic_allocate_msi_interrupt(uint64_t* out_interrupt, uint32_t* out_msi_data, uint64_t* out_msi_address) {
@@ -828,4 +867,31 @@ ferr_t farch_gic_allocate_msi_interrupt(uint64_t* out_interrupt, uint32_t* out_m
 
 out:
 	return status;
+};
+
+static ferr_t farch_gic_trigger_sgi(uint8_t sgi_num, bool include_self, bool include_others) {
+	if (sgi_num > 15) {
+		return ferr_invalid_argument;
+	}
+
+	// FIXME: if not using legacy controllers (i.e. GICv1 and GICv2), the distributor SGI register may not be accessible
+
+	if (include_others) {
+		gicd->sgi = farch_gic_sgi_target_list_others | sgi_num;
+	}
+
+	if (include_self) {
+		gicd->sgi = farch_gic_sgi_target_list_self | sgi_num;
+	}
+
+	return ferr_ok;
+};
+
+uint64_t fcpu_online_count(void) {
+	// no SMP for now
+	return 1;
+};
+
+ferr_t fcpu_arch_interrupt_all(bool include_current) {
+	farch_gic_trigger_sgi(FARCH_GIC_IPI_SGI_NUM, include_current, true);
 };

@@ -94,20 +94,12 @@ FERRO_ALWAYS_INLINE void setup_page_tables(uint16_t* next_l2, void* image_base, 
 	void* stack_page = NULL;
 	void* virt_stack_bottom = NULL;
 
-#if FERRO_ARCH == FERRO_ARCH_aarch64
-	fpage_table_t* const pt2          = &page_table_level_2;
-	fpage_table_t* const pt2_identity = &page_table_level_2_identity;
-	fpage_table_t* const pt3          = &page_table_level_3;
-	fpage_table_t* const pt3_identity = &page_table_level_3_identity;
-	fpage_table_t* const pt4          = &page_table_level_4;
-#else
 	// we have to access the physical addresses directly here
 	fpage_table_t* const pt2          = (fpage_table_t*)(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_2)          + image_base);
 	fpage_table_t* const pt2_identity = (fpage_table_t*)(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_2_identity) + image_base);
 	fpage_table_t* const pt3          = (fpage_table_t*)(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_3)          + image_base);
 	fpage_table_t* const pt3_identity = (fpage_table_t*)(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_3_identity) + image_base);
 	fpage_table_t* const pt4          = (fpage_table_t*)(FERRO_KERNEL_STATIC_TO_OFFSET(&page_table_level_4)          + image_base);
-#endif
 	size_t next_l2_idx = 0;
 
 	// read the physical frame address

@@ -27,6 +27,7 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/paging.h>
 #include <libsimple/libsimple.h>
+#include <ferro/core/cpu.h>
 
 // 4 pages should be enough, right?
 #define SWITCHING_STACK_SIZE (FPAGE_PAGE_SIZE * 4)
@@ -244,4 +245,16 @@ void fsched_preempt_thread(fthread_t* thread) {
 	} else {
 		fpanic("Yielding thread is not current thread (this is impossible in the current non-SMP implementation)");
 	}
+};
+
+void fsched_preempt_cpu(fcpu_t* cpu) {
+	if (cpu == fcpu_current()) {
+		__asm__ volatile("svc \0430xfffe");
+	} else {
+		fpanic("Preempting CPU other than self (this is impossible in the current non-SMP implementation)");
+	}
+};
+
+void farch_sched_init_secondary_cpu(void) {
+	fpanic("TODO");
 };

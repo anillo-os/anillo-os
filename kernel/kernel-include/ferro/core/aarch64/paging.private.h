@@ -27,6 +27,7 @@
 
 #include <ferro/core/paging.private.h>
 #include <ferro/core/interrupts.h>
+#include <ferro/core/cpu.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -140,11 +141,19 @@ FERRO_ALWAYS_INLINE bool fpage_entry_is_active(uint64_t entry_value) {
 	return entry_value & FARCH_PAGE_PRESENT_BIT;
 };
 
-FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address_all_cpus(void* address) {
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address(void* address) {
 	uintptr_t input = (uintptr_t)address;
 	input >>= 12;
 	input &= 0xfffffffffff;
 	__asm__ volatile("tlbi vale1is, %0" :: "r" (input) : "memory");
+};
+
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_address_all_cpus(void* address) {
+	fpage_invalidate_tlb_for_address(address);
+
+	if (fcpu_online_count() > 1) {
+		fpanic("impossible");
+	}
 };
 
 FERRO_ALWAYS_INLINE void fpage_synchronize_after_table_modification(void) {
@@ -172,6 +181,11 @@ FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_privileged(uint64_t entry, bool pr
 	return (entry & ~FARCH_PAGE_ALLOW_UNPRIVILEGED_ACCESS_BIT) | (privileged ? 0 : FARCH_PAGE_ALLOW_UNPRIVILEGED_ACCESS_BIT);
 };
 
+FERRO_ALWAYS_INLINE uint64_t fpage_entry_mark_global(uint64_t entry, bool global) {
+	// no-op for now
+	return entry;
+};
+
 FERRO_ALWAYS_INLINE uintptr_t fpage_fault_address(void) {
 	fint_frame_t* frame = fint_current_frame();
 	if (!frame) {
@@ -180,13 +194,21 @@ FERRO_ALWAYS_INLINE uintptr_t fpage_fault_address(void) {
 	return frame->far;
 };
 
-FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space_all_cpus(void) {
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space(void) {
 	__asm__ volatile(
 		"tlbi vmalle1\n"
 		"isb sy\n"
 		:::
 		"memory"
 	);
+};
+
+FERRO_ALWAYS_INLINE void fpage_invalidate_tlb_for_active_space_all_cpus(void) {
+	fpage_invalidate_tlb_for_active_space();
+
+	if (fcpu_online_count() > 1) {
+		fpanic("impossible");
+	}
 };
 
 FERRO_ALWAYS_INLINE void fpage_prefault_stack(size_t page_count) {
