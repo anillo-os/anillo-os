@@ -39,6 +39,7 @@ LIBSPOOKY_WUR ferr_t spooky_serializer_encode_data(spooky_serializer_t* serializ
 LIBSPOOKY_WUR ferr_t spooky_serializer_encode_data_object(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, size_t* out_length, sys_data_t* data);
 // consumes the caller's reference on the channel (which should be the only reference to it)
 LIBSPOOKY_WUR ferr_t spooky_serializer_encode_channel(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, size_t* out_length, sys_channel_t* channel);
+LIBSPOOKY_WUR ferr_t spooky_serializer_encode_server_channel(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, size_t* out_length, sys_server_channel_t* server_channel);
 
 LIBSPOOKY_DECLARATIONS_END;
 

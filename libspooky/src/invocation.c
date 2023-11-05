@@ -83,6 +83,19 @@ static ferr_t spooky_invocation_serialize_object(spooky_invocation_object_t* inv
 		return ferr_ok;
 	}
 
+	if (type_obj == spooky_type_server_channel()) {
+		sys_server_channel_t* server_channel = *(sys_server_channel_t**)object;
+		size_t offset = UINT64_MAX;
+		ferr_t status = spooky_serializer_encode_server_channel(serializer, offset, &offset, NULL, server_channel);
+		if (status != ferr_ok) {
+			return status;
+		}
+		// successfully attaching a server channel to a message consumes that reference (which should be the only one).
+		// TODO: detach the server channel if something later on in the invocation fails, so that we can keep the reference.
+		*(sys_server_channel_t**)object = NULL;
+		return ferr_ok;
+	}
+
 	if (spooky_object_class(type_obj) == spooky_object_class_structure()) {
 		spooky_structure_object_t* structure = (void*)type_obj;
 		size_t offset = 0;
@@ -174,6 +187,17 @@ static ferr_t spooky_invocation_deserialize_object(spooky_invocation_object_t* i
 			return status;
 		}
 		*(sys_channel_t**)object = channel;
+		return status;
+	}
+
+	if (type_obj == spooky_type_server_channel()) {
+		sys_server_channel_t* server_channel = NULL;
+		size_t offset = UINT64_MAX;
+		ferr_t status = spooky_deserializer_decode_server_channel(deserializer, offset, &offset, NULL, &server_channel);
+		if (status != ferr_ok) {
+			return status;
+		}
+		*(sys_server_channel_t**)object = server_channel;
 		return status;
 	}
 
@@ -1426,6 +1450,88 @@ ferr_t spooky_invocation_set_channel(spooky_invocation_t* obj, size_t index, sys
 
 	if (old_channel) {
 		sys_release(old_channel);
+	}
+
+out:
+	return status;
+};
+
+ferr_t spooky_invocation_get_server_channel(spooky_invocation_t* obj, size_t index, bool retain, sys_server_channel_t** out_server_channel) {
+	ferr_t status = ferr_ok;
+	spooky_invocation_object_t* invocation = (void*)obj;
+	spooky_function_object_t* func = (void*)invocation->function_type;
+	bool is_incoming = false;
+	sys_server_channel_t* server_channel = NULL;
+
+	if (index >= func->parameter_count) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (func->parameters[index].type != spooky_type_server_channel()) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (invocation->incoming) {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_in;
+	} else {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_out;
+		if (is_incoming && !invocation->incoming_data) {
+			status = ferr_resource_unavailable;
+			goto out;
+		}
+	}
+
+	server_channel = *(sys_server_channel_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
+
+	if (retain) {
+		status = sys_retain(server_channel);
+		if (status != ferr_ok) {
+			goto out;
+		}
+	}
+
+	*out_server_channel = server_channel;
+
+out:
+	return status;
+};
+
+ferr_t spooky_invocation_set_server_channel(spooky_invocation_t* obj, size_t index, sys_server_channel_t* server_channel) {
+	ferr_t status = ferr_ok;
+	spooky_invocation_object_t* invocation = (void*)obj;
+	spooky_function_object_t* func = (void*)invocation->function_type;
+	bool is_incoming = false;
+	sys_server_channel_t** server_channel_ptr = NULL;
+	sys_server_channel_t* old_server_channel = NULL;
+
+	if (index >= func->parameter_count) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (func->parameters[index].type != spooky_type_server_channel()) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (invocation->incoming) {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_in;
+	} else {
+		is_incoming = func->parameters[index].direction == spooky_function_parameter_direction_out;
+		if (is_incoming && !invocation->incoming_data) {
+			status = ferr_resource_unavailable;
+			goto out;
+		}
+	}
+
+	server_channel_ptr = (sys_server_channel_t**)(&(is_incoming ? invocation->incoming_data : invocation->outgoing_data)[func->parameters[index].offset]);
+	old_server_channel = *server_channel_ptr;
+	*server_channel_ptr = server_channel;
+
+	if (old_server_channel) {
+		sys_release(old_server_channel);
 	}
 
 out:

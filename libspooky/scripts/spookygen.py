@@ -99,6 +99,7 @@ class BasicTypeTag(IntEnum):
 	data  = 11
 	proxy = 12,
 	channel = 13,
+	server_channel = 14,
 
 BASIC_TYPE_TAG_TO_NATIVE_TYPE = {
 	BasicTypeTag.u8    : 'uint8_t',
@@ -115,10 +116,17 @@ BASIC_TYPE_TAG_TO_NATIVE_TYPE = {
 	BasicTypeTag.data  : 'sys_data_t*',
 	BasicTypeTag.proxy : 'spooky_proxy_t*',
 	BasicTypeTag.channel : 'sys_channel_t*',
+	BasicTypeTag.server_channel : 'sys_server_channel_t*',
 }
 
 def type_is_refcounted(type: BasicTypeTag) -> bool:
-	return type == BasicTypeTag.data or type == BasicTypeTag.proxy or type == BasicTypeTag.channel
+	return type == BasicTypeTag.data or type == BasicTypeTag.proxy or type == BasicTypeTag.channel or type == BasicTypeTag.server_channel
+
+def type_is_consumed(type: BasicTypeTag) -> bool:
+	return type == BasicTypeTag.channel or type == BasicTypeTag.server_channel
+
+def type_is_libsys(type: BasicTypeTag) -> bool:
+	return type == BasicTypeTag.channel or type == BasicTypeTag.server_channel
 
 def type_to_native_for_source(type: Type) -> str:
 	if isinstance(type, BasicType):
@@ -710,8 +718,8 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 				'\t\tgoto out;\n',
 				'\t}\n',
 			])
-			if param.type.tag == BasicTypeTag.channel:
-				# channels are consumed upon successfully setting them
+			if type_is_consumed(param.type.tag):
+				# consumed upon successfully setting it
 				source_file.write(f'\targ{index} = NULL;\n')
 		elif isinstance(param.type, StructureType):
 			source_file.writelines([
@@ -759,7 +767,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 				if type_is_refcounted(param.type.tag):
 					source_file.writelines([
 						f'\tif (arg{index}) {{\n',
-						f'\t\t{"sys" if param.type.tag == BasicTypeTag.channel else "spooky"}_release(arg{index});\n',
+						f'\t\t{"sys" if type_is_libsys(param.type.tag) else "spooky"}_release(arg{index});\n',
 						'\t}\n',
 					])
 			elif isinstance(param.type, StructureType):
@@ -883,8 +891,8 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 				'\t\tgoto out;\n',
 				'\t}\n',
 			])
-			if param.type.tag == BasicTypeTag.channel:
-				# channels are consumed upon successfully setting them
+			if type_is_consumed(param.type.tag):
+				# consumed upon successfully setting it
 				source_file.write(f'\targ{index} = NULL;\n')
 		elif isinstance(param.type, StructureType):
 			source_file.writelines([
@@ -967,7 +975,7 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 				if type_is_refcounted(param.type.tag):
 					source_file.writelines([
 						f'\t\tif (arg{index} && arg{index}_should_cleanup_on_fail) {{\n',
-						f'\t\t\t{"sys" if param.type.tag == BasicTypeTag.channel else "spooky"}_release(*arg{index});\n',
+						f'\t\t\t{"sys" if type_is_libsys(param.type.tag) else "spooky"}_release(*arg{index});\n',
 						'\t\t}\n',
 					])
 			elif isinstance(param.type, StructureType):

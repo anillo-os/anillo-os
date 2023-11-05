@@ -193,6 +193,7 @@ ferr_t spooky_serializer_encode_type(spooky_serializer_t* serializer, size_t off
 	BASIC_TYPE_TAG(f64)
 	BASIC_TYPE_TAG(proxy)
 	BASIC_TYPE_TAG(channel)
+	BASIC_TYPE_TAG(server_channel)
 
 	// TODO: optimize for space-efficiency by de-duplicating types
 
@@ -333,6 +334,38 @@ ferr_t spooky_serializer_encode_channel(spooky_serializer_t* serializer, size_t 
 	}
 
 	status = sys_channel_message_attach_channel(serializer->message, channel, &index);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// can't use spooky_serializer_encode_integer() because we don't want to attach the channel until we know
+	// that we have space in the message data buffer to store the index (and we would need to know the index before
+	// calling spooky_serializer_encode_integer())
+	msg_data = sys_channel_message_data(serializer->message);
+	simple_memcpy(msg_data + offset, &index, sizeof(index));
+
+	if (out_offset) {
+		*out_offset = offset;
+	}
+
+	if (out_length) {
+		*out_length = sizeof(sys_channel_message_attachment_index_t);
+	}
+
+out:
+	return status;
+};
+
+ferr_t spooky_serializer_encode_server_channel(spooky_serializer_t* serializer, size_t offset, size_t* out_offset, size_t* out_length, sys_server_channel_t* server_channel) {
+	ferr_t status = spooky_serializer_reserve(serializer, offset, &offset, sizeof(sys_channel_message_attachment_index_t));
+	sys_channel_message_attachment_index_t index = sys_channel_message_attachment_index_invalid;
+	char* msg_data = NULL;
+
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = sys_channel_message_attach_server_channel(serializer->message, server_channel, &index);
 	if (status != ferr_ok) {
 		goto out;
 	}

@@ -43,6 +43,7 @@ LIBSPOOKY_ENUM(uint8_t, spooky_type_tag) {
 	spooky_type_tag_nowait_function = 16,
 	spooky_type_tag_proxy           = 17,
 	spooky_type_tag_channel         = 18,
+	spooky_type_tag_server_channel  = 19,
 };
 
 LIBSPOOKY_STRUCT(spooky_type_object) {

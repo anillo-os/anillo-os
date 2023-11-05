@@ -184,6 +184,7 @@ ferr_t spooky_deserializer_decode_type(spooky_deserializer_t* deserializer, size
 		BASIC_TAG_CASE(f64);
 		BASIC_TAG_CASE(proxy);
 		BASIC_TAG_CASE(channel);
+		BASIC_TAG_CASE(server_channel);
 
 		case spooky_type_tag_function:
 		case spooky_type_tag_nowait_function: {
@@ -346,6 +347,33 @@ ferr_t spooky_deserializer_decode_channel(spooky_deserializer_t* deserializer, s
 	simple_memcpy(&index, deserializer->data + offset, sizeof(index));
 
 	status = sys_channel_message_detach_channel(deserializer->message, index, out_channel);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (out_offset) {
+		*out_offset = offset;
+	}
+
+	if (out_length) {
+		*out_length = sizeof(index);
+	}
+
+out:
+	return status;
+};
+
+ferr_t spooky_deserializer_decode_server_channel(spooky_deserializer_t* deserializer, size_t offset, size_t* out_offset, size_t* out_length, sys_server_channel_t** out_server_channel) {
+	sys_channel_message_attachment_index_t index = sys_channel_message_attachment_index_invalid;
+	ferr_t status = spooky_deserializer_skip(deserializer, offset, &offset, sizeof(index));
+
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	simple_memcpy(&index, deserializer->data + offset, sizeof(index));
+
+	status = sys_channel_message_detach_server_channel(deserializer->message, index, out_server_channel);
 	if (status != ferr_ok) {
 		goto out;
 	}
