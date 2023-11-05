@@ -100,7 +100,7 @@ ferr_t fsyscall_handler_channel_connect(char const* user_server_channel_name, ui
 				goto out;
 		}
 
-		status = fproc_get_channel_realm(fproc_current(), realm_id, &realm);
+		status = fproc_get_channel_realm(fproc_current(), proc_realm_id, &realm);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -904,7 +904,7 @@ ferr_t fsyscall_handler_server_channel_create(char const* user_channel_name, uin
 				goto out;
 		}
 
-		status = fproc_get_channel_realm(fproc_current(), realm_id, &realm);
+		status = fproc_get_channel_realm(fproc_current(), proc_realm_id, &realm);
 		if (status != ferr_ok) {
 			goto out;
 		}
