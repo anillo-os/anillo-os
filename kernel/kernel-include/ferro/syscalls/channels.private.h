@@ -29,14 +29,6 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
-FERRO_STRUCT(fsyscall_channel_server_context) {
-	frefcount_t refcount;
-	fchannel_server_t* server;
-	fchannel_realm_t* realm;
-	size_t name_length;
-	char name[];
-};
-
 extern const fproc_descriptor_class_t fsyscall_channel_descriptor_class;
 extern const fproc_descriptor_class_t fsyscall_channel_server_context_descriptor_class;
 

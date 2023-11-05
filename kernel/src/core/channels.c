@@ -114,6 +114,22 @@ static void fchannel_server_destroy(fchannel_server_private_t* private_server) {
 	FERRO_WUR_IGNORE(fmempool_free(private_server));
 };
 
+static void fchannel_server_context_destroy(fchannel_server_context_t* server_context) {
+	if (server_context->realm && server_context->name_length > 0) {
+		FERRO_WUR_IGNORE(fchannel_realm_unpublish(server_context->realm, server_context->name, server_context->name_length));
+	}
+
+	if (server_context->realm) {
+		fchannel_realm_release(server_context->realm);
+	}
+
+	if (server_context->server) {
+		fchannel_server_release(server_context->server);
+	}
+
+	FERRO_WUR_IGNORE(fmempool_free(server_context));
+};
+
 ferr_t fchannel_retain(fchannel_t* channel) {
 	fchannel_private_t* private_channel = (void*)channel;
 	return frefcount_increment(&private_channel->closure_refcount);
@@ -159,6 +175,16 @@ void fchannel_server_release(fchannel_server_t* server) {
 	fchannel_server_private_t* private_server = (void*)server;
 	if (frefcount_decrement(&private_server->refcount) == ferr_permanent_outage) {
 		fchannel_server_destroy(private_server);
+	}
+};
+
+ferr_t fchannel_server_context_retain(fchannel_server_context_t* server_context) {
+	return frefcount_increment(&server_context->refcount);
+};
+
+void fchannel_server_context_release(fchannel_server_context_t* server_context) {
+	if (frefcount_decrement(&server_context->refcount) == ferr_permanent_outage) {
+		fchannel_server_context_destroy(server_context);
 	}
 };
 
@@ -1098,6 +1124,14 @@ void fchannel_message_destroy(fchannel_message_t* message) {
 					}
 				} break;
 
+				case fchannel_message_attachment_type_server_context: {
+					const fchannel_message_attachment_server_context_t* server_context_attachment = (const void*)header;
+
+					if (server_context_attachment->server_context) {
+						fchannel_server_context_release(server_context_attachment->server_context);
+					}
+				} break;
+
 				case fchannel_message_attachment_type_null:
 				default:
 					// no special processing for this attachment type
@@ -1142,4 +1176,60 @@ retry:
 	}
 
 	return message_id;
+};
+
+ferr_t fchannel_server_context_new(fchannel_realm_t* realm, const char* channel_name, size_t channel_name_length, fchannel_server_context_t** out_server_context) {
+	ferr_t status = ferr_ok;
+	fchannel_server_context_t* server_context = NULL;
+	fchannel_server_t* server = NULL;
+
+	status = fchannel_realm_retain(realm);
+	if (status != ferr_ok) {
+		realm = NULL;
+		goto out;
+	}
+
+	status = fmempool_allocate(sizeof(*server_context) + channel_name_length, NULL, (void*)&server_context);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	simple_memset(server_context, 0, sizeof(*server_context));
+
+	frefcount_init(&server_context->refcount);
+
+	status = fchannel_server_new(&server);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = fchannel_realm_publish(realm, channel_name, channel_name_length, server);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// move our references into the context
+	server_context->realm = realm;
+	realm = NULL;
+	server_context->server = server;
+	server = NULL;
+
+	server_context->name_length = channel_name_length;
+	simple_memcpy(server_context->name, channel_name, channel_name_length);
+
+out:
+	if (status == ferr_ok) {
+		*out_server_context = server_context;
+	} else {
+		if (server_context) {
+			fchannel_server_context_release(server_context);
+		}
+	}
+	if (server) {
+		fchannel_server_release(server);
+	}
+	if (realm) {
+		fchannel_realm_release(realm);
+	}
+	return status;
 };

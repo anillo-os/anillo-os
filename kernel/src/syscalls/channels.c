@@ -30,22 +30,6 @@
 
 // TODO: actually support timeouts
 
-static ferr_t server_context_retain(void* ctx) {
-	fsyscall_channel_server_context_t* context = ctx;
-	return frefcount_increment(&context->refcount);
-};
-
-static void server_context_release(void* ctx) {
-	fsyscall_channel_server_context_t* context = ctx;
-
-	if (frefcount_decrement(&context->refcount) == ferr_permanent_outage) {
-		FERRO_WUR_IGNORE(fchannel_realm_unpublish(context->realm, context->name, context->name_length));
-		fchannel_realm_release(context->realm);
-		fchannel_server_release(context->server);
-		FERRO_WUR_IGNORE(fmempool_free(context));
-	}
-};
-
 void fsyscall_init_channels(void) {
 
 };
@@ -56,8 +40,8 @@ const fproc_descriptor_class_t fsyscall_channel_descriptor_class = {
 };
 
 const fproc_descriptor_class_t fsyscall_channel_server_context_descriptor_class = {
-	.retain = server_context_retain,
-	.release = server_context_release,
+	.retain = (void*)fchannel_server_context_retain,
+	.release = (void*)fchannel_server_context_release,
 };
 
 extern const fproc_descriptor_class_t fsyscall_shared_page_class;
@@ -272,6 +256,10 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 				kernel_attachments_length += sizeof(fchannel_message_attachment_data_t);
 			} break;
 
+			case fchannel_message_attachment_type_server_context: {
+				kernel_attachments_length += sizeof(fchannel_message_attachment_server_context_t);
+			} break;
+
 			default:
 				status = ferr_invalid_argument;
 				goto out;
@@ -313,7 +301,7 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 		simple_memset(message.attachments, 0, message.attachments_length);
 
 		kernel_attachment_header = (void*)message.attachments;
-		for (const fsyscall_channel_message_attachment_header_t* header = copied_attachments; header != NULL && (uintptr_t)header - (uintptr_t)copied_attachments < in_message.attachments_length; (header = (header->next_offset == 0) ? NULL : (const void*)((const char*)header + header->next_offset)), (previous_kernel_attachment_header = kernel_attachment_header), (kernel_attachment_header = (void*)((char*)kernel_attachment_header + kernel_attachment_header->length))) {
+		for (fsyscall_channel_message_attachment_header_t* header = copied_attachments; header != NULL && (uintptr_t)header - (uintptr_t)copied_attachments < in_message.attachments_length; (header = (header->next_offset == 0) ? NULL : (void*)((char*)header + header->next_offset)), (previous_kernel_attachment_header = kernel_attachment_header), (kernel_attachment_header = (void*)((char*)kernel_attachment_header + kernel_attachment_header->length))) {
 			if (previous_kernel_attachment_header) {
 				previous_kernel_attachment_header->next_offset = (uintptr_t)kernel_attachment_header - (uintptr_t)previous_kernel_attachment_header;
 			}
@@ -408,6 +396,29 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 					data_attachment->header.length = sizeof(*data_attachment);
 				} break;
 
+				case fchannel_message_attachment_type_server_context: {
+					const fsyscall_channel_message_attachment_server_channel_t* syscall_server_channel_attachment = (const void*)header;
+					fchannel_message_attachment_server_context_t* server_context_attachment = (void*)kernel_attachment_header;
+					fchannel_server_context_t* attached_server_context = NULL;
+					const fproc_descriptor_class_t* desc_class = NULL;
+
+					status = fproc_lookup_descriptor(fproc_current(), syscall_server_channel_attachment->server_channel_id, true, (void*)&attached_server_context, &desc_class);
+					if (status != ferr_ok) {
+						status = ferr_invalid_argument;
+						goto out;
+					}
+
+					if (desc_class != &fsyscall_channel_server_context_descriptor_class) {
+						desc_class->release(attached_server_context);
+						status = ferr_invalid_argument;
+						goto out;
+					}
+
+					server_context_attachment->server_context = attached_server_context;
+					server_context_attachment->header.type = fchannel_message_attachment_type_server_context;
+					server_context_attachment->header.length = sizeof(*server_context_attachment);
+				} break;
+
 				case fchannel_message_attachment_type_null: {
 					const fsyscall_channel_message_attachment_null_t* syscall_null_attachment = (const void*)header;
 					fchannel_message_attachment_null_t* null_attachment = (void*)kernel_attachment_header;
@@ -430,7 +441,7 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 	// if we got here, we can definitely send the message.
 	// we can now clean up resources from userspace because we know we can no longer fail.
 
-	for (const fsyscall_channel_message_attachment_header_t* header = copied_attachments; header != NULL && (uintptr_t)header - (uintptr_t)copied_attachments < in_message.attachments_length; header = (header->next_offset == 0) ? NULL : (const void*)((const char*)header + header->next_offset)) {
+	for (fsyscall_channel_message_attachment_header_t* header = copied_attachments; header != NULL && (uintptr_t)header - (uintptr_t)copied_attachments < in_message.attachments_length; header = (header->next_offset == 0) ? NULL : (void*)((char*)header + header->next_offset)) {
 		switch (header->type) {
 			case fchannel_message_attachment_type_channel: {
 				const fsyscall_channel_message_attachment_channel_t* syscall_channel_attachment = (const void*)header;
@@ -448,6 +459,12 @@ ferr_t fsyscall_handler_channel_send(uint64_t channel_id, fchannel_send_flags_t 
 				// shared mapping or original data
 			case fchannel_message_attachment_type_null:
 				break;
+
+			case fchannel_message_attachment_type_server_context: {
+				const fsyscall_channel_message_attachment_server_channel_t* syscall_server_channel_attachment = (const void*)header;
+
+				FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), syscall_server_channel_attachment->server_channel_id));
+			} break;
 
 			// this actually can't happen because we've already checked for this earlier
 			default:
@@ -491,6 +508,12 @@ out:
 						} else {
 							FERRO_WUR_IGNORE(fmempool_free(data_attachment->copied_data));
 						}
+					} break;
+
+					case fchannel_message_attachment_type_server_context: {
+						fchannel_message_attachment_server_context_t* server_context_attachment = (void*)header;
+
+						fchannel_server_context_release(server_context_attachment->server_context);
 					} break;
 
 					case fchannel_message_attachment_type_null:
@@ -589,6 +612,10 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 
 			case fchannel_message_attachment_type_null: {
 				required_attachments_size += sizeof(fsyscall_channel_message_attachment_null_t);
+			} break;
+
+			case fchannel_message_attachment_type_server_context: {
+				required_attachments_size += sizeof(fsyscall_channel_message_attachment_server_channel_t);
 			} break;
 		}
 	}
@@ -701,6 +728,25 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 					syscall_data_attachment->header.length = sizeof(*syscall_data_attachment);
 				} break;
 
+				case fchannel_message_attachment_type_server_context: {
+					fchannel_message_attachment_server_context_t* kernel_server_context_attachment = (void*)kernel_attachment_header;
+					fsyscall_channel_message_attachment_server_channel_t* syscall_server_channel_attachment = (void*)syscall_attachment_header;
+
+					simple_memset(syscall_server_channel_attachment, 0, sizeof(*syscall_server_channel_attachment));
+
+					if (pre_receive_peek) {
+						syscall_server_channel_attachment->server_channel_id = FPROC_DID_MAX;
+					} else {
+						status = fproc_install_descriptor(fproc_current(), kernel_server_context_attachment->server_context, &fsyscall_channel_descriptor_class, &syscall_server_channel_attachment->server_channel_id);
+						if (status != ferr_ok) {
+							goto out;
+						}
+					}
+
+					syscall_server_channel_attachment->header.type = fchannel_message_attachment_type_server_context;
+					syscall_server_channel_attachment->header.length = sizeof(*syscall_server_channel_attachment);
+				} break;
+
 				case fchannel_message_attachment_type_null: {
 					fchannel_message_attachment_null_t* kernel_null_attachment = (void*)kernel_attachment_header;
 					fsyscall_channel_message_attachment_null_t* syscall_null_attachment = (void*)syscall_attachment_header;
@@ -769,6 +815,13 @@ ferr_t fsyscall_handler_channel_receive(uint64_t channel_id, fsyscall_channel_re
 					}
 				} break;
 
+				case fchannel_message_attachment_type_server_context: {
+					fchannel_message_attachment_server_context_t* kernel_server_context_attachment = (void*)kernel_attachment_header;
+
+					// the process retains the server context in the descriptor, so we don't need this reference anymore
+					fchannel_server_context_release(kernel_server_context_attachment->server_context);
+				} break;
+
 				case fchannel_message_attachment_type_null:
 				default:
 					// nothing to clean up here
@@ -816,6 +869,12 @@ out:
 					} else {
 						// the data was just copied into a user-provided buffer, so there's nothing to clean up here
 					}
+				} break;
+
+				case fchannel_message_attachment_type_server_context: {
+					fsyscall_channel_message_attachment_server_channel_t* syscall_server_channel_attachment = (void*)syscall_attachment_header;
+
+					FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), syscall_server_channel_attachment->server_channel_id));
 				} break;
 
 				case fchannel_message_attachment_type_null:
@@ -872,11 +931,9 @@ out:
 
 ferr_t fsyscall_handler_server_channel_create(char const* user_channel_name, uint64_t channel_name_length, fsyscall_channel_realm_t realm_id, uint64_t* out_server_channel_id) {
 	ferr_t status = ferr_ok;
-	fchannel_server_t* server = NULL;
 	uint64_t descriptor_id = FPROC_DID_MAX;
 	fchannel_realm_t* realm = NULL;
-	bool unpublish_on_fail = false;
-	fsyscall_channel_server_context_t* server_context = NULL;
+	fchannel_server_context_t* server_context = NULL;
 	char* channel_name = NULL;
 
 	status = ferro_uio_copy_in((uintptr_t)user_channel_name, channel_name_length, (void*)&channel_name);
@@ -910,39 +967,10 @@ ferr_t fsyscall_handler_server_channel_create(char const* user_channel_name, uin
 		}
 	}
 
-	status = fchannel_server_new(&server);
+	status = fchannel_server_context_new(realm, channel_name, channel_name_length, &server_context);
 	if (status != ferr_ok) {
 		goto out;
 	}
-
-	status = fchannel_realm_publish(realm, channel_name, channel_name_length, server);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	unpublish_on_fail = true;
-
-	status = fmempool_allocate(sizeof(*server_context) + channel_name_length, NULL, (void*)&server_context);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	simple_memset(server_context, 0, sizeof(*server_context));
-
-	// move our references into the context
-	server_context->realm = realm;
-	realm = NULL;
-	server_context->server = server;
-	server = NULL;
-
-	server_context->name_length = channel_name_length;
-	simple_memcpy(server_context->name, channel_name, channel_name_length);
-
-	frefcount_init(&server_context->refcount);
-
-	// don't unpublish on failure anymore;
-	// the server context is now in charge of that.
-	unpublish_on_fail = false;
 
 	status = fproc_install_descriptor(fproc_current(), server_context, &fsyscall_channel_server_context_descriptor_class, &descriptor_id);
 	if (status != ferr_ok) {
@@ -956,15 +984,9 @@ out:
 		if (descriptor_id != FPROC_DID_MAX) {
 			FERRO_WUR_IGNORE(fproc_uninstall_descriptor(fproc_current(), descriptor_id));
 		}
-		if (unpublish_on_fail) {
-			FERRO_WUR_IGNORE(fchannel_realm_unpublish(realm, channel_name, channel_name_length));
-		}
 	}
 	if (server_context) {
-		server_context_release(server_context);
-	}
-	if (server) {
-		fchannel_server_release(server);
+		fchannel_server_context_release(server_context);
 	}
 	if (realm) {
 		fchannel_realm_release(realm);
@@ -977,7 +999,7 @@ out:
 
 ferr_t fsyscall_handler_server_channel_accept(uint64_t server_channel_id, fchannel_server_accept_flags_t flags, uint64_t* out_channel_id) {
 	ferr_t status = ferr_ok;
-	fsyscall_channel_server_context_t* server_context = NULL;
+	fchannel_server_context_t* server_context = NULL;
 	const fproc_descriptor_class_t* desc_class = NULL;
 	uint64_t accepted_channel_id = FPROC_DID_MAX;
 	fchannel_t* accepted_channel = NULL;
@@ -1021,7 +1043,7 @@ out:
 
 ferr_t fsyscall_handler_server_channel_close(uint64_t server_channel_id, uint8_t release_descriptor) {
 	ferr_t status = ferr_ok;
-	fsyscall_channel_server_context_t* server_context = NULL;
+	fchannel_server_context_t* server_context = NULL;
 	const fproc_descriptor_class_t* desc_class = NULL;
 
 	status = fproc_lookup_descriptor(fproc_current(), server_channel_id, true, (void*)&server_context, &desc_class);

@@ -651,7 +651,7 @@ static ferr_t fsyscall_monitor_item_create(const fsyscall_monitor_item_header_t*
 
 		case fsyscall_monitor_item_type_server_channel: {
 			fsyscall_monitor_item_server_channel_t* server_channel_item = (void*)item;
-			server_channel_item->server_channel = ((fsyscall_channel_server_context_t*)descriptor)->server;
+			server_channel_item->server_channel = ((fchannel_server_context_t*)descriptor)->server;
 		} break;
 
 		case fsyscall_monitor_item_type_futex: {

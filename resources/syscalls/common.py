@@ -143,6 +143,10 @@ structures.extend([
 		# descriptor (for shared data) or pointer (for non-shared data)
 		('target', 'u64'),
 	]),
+	Structure('channel_message_attachment_server_channel', [
+		('header', 's:channel_message_attachment_header'),
+		('server_channel_id', 'u64'),
+	]),
 	Structure('channel_message', [
 		('conversation_id', '!fchannel_conversation_id_t'),
 		('message_id', '!fchannel_message_id_t'),

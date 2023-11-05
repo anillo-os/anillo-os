@@ -69,6 +69,7 @@ LIBSYS_ENUM(uint64_t, sys_channel_message_attachment_type) {
 	sys_channel_message_attachment_type_channel,
 	sys_channel_message_attachment_type_shared_memory,
 	sys_channel_message_attachment_type_data,
+	sys_channel_message_attachment_type_server_channel,
 };
 
 LIBSYS_ENUM(uint64_t, sys_channel_message_attachment_index) {
@@ -164,6 +165,8 @@ LIBSYS_WUR ferr_t sys_channel_message_attach_shared_memory(sys_channel_message_t
 
 LIBSYS_WUR ferr_t sys_channel_message_attach_data(sys_channel_message_t* message, sys_data_t* data, bool copy, sys_channel_message_attachment_index_t* out_attachment_index);
 
+LIBSYS_WUR ferr_t sys_channel_message_attach_server_channel(sys_channel_message_t* message, sys_server_channel_t* server_channel, sys_channel_message_attachment_index_t* out_attachment_index);
+
 size_t sys_channel_message_attachment_count(sys_channel_message_t* message);
 
 sys_channel_message_attachment_type_t sys_channel_message_attachment_type(sys_channel_message_t* message, sys_channel_message_attachment_index_t attachment_index);
@@ -178,6 +181,8 @@ LIBSYS_WUR ferr_t sys_channel_message_detach_channel(sys_channel_message_t* mess
 LIBSYS_WUR ferr_t sys_channel_message_detach_shared_memory(sys_channel_message_t* message, sys_channel_message_attachment_index_t attachment_index, sys_shared_memory_t** out_shared_memory);
 
 LIBSYS_WUR ferr_t sys_channel_message_detach_data(sys_channel_message_t* message, sys_channel_message_attachment_index_t attachment_index, sys_data_t** out_data);
+
+LIBSYS_WUR ferr_t sys_channel_message_detach_server_channel(sys_channel_message_t* message, sys_channel_message_attachment_index_t attachment_index, sys_server_channel_t** out_server_channel);
 
 sys_channel_conversation_id_t sys_channel_message_get_conversation_id(sys_channel_message_t* message);
 void sys_channel_message_set_conversation_id(sys_channel_message_t* message, sys_channel_conversation_id_t conversation_id);
