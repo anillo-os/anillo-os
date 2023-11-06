@@ -55,7 +55,7 @@ void ferro_userspace_entry(void) {
 	fpanic_status(fpage_space_remove_mapping(fpage_space_current(), ramdisk_copy_tmp));
 
 	fvfs_descriptor_t* vfsman_desc = NULL;
-	fpanic_status(fvfs_open("/sys/vfsman/vfsman", fvfs_descriptor_flag_read | fvfs_descriptor_flags_execute, &vfsman_desc));
+	fpanic_status(fvfs_open("/sys/vfsman/vfsman_bootstrap", fvfs_descriptor_flag_read | fvfs_descriptor_flags_execute, &vfsman_desc));
 
 	fproc_t* proc = NULL;
 	fpanic_status(fproc_new(vfsman_desc, NULL, &proc));

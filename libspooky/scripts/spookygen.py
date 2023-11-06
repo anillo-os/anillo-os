@@ -1038,7 +1038,8 @@ if args.server:
 	header_file.write(f'spooky_interface_t* {root_interface_name}_interface(void);\n')
 	if default_server_name != None:
 		header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
-	header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_serve_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
+	header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_serve_explicit(eve_loop_t* loop, sys_server_channel_t* server_channel);\n')
+	header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_detach(eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
 
 	source_file.writelines([
 		'static void _spookygen_server_handler(void* context, eve_server_channel_t* server_channel, sys_channel_t* channel) {\n',
@@ -1049,17 +1050,78 @@ if args.server:
 	if default_server_name != None:
 		source_file.writelines([
 			f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
-			f'\treturn {root_interface_name}_serve_explicit({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, loop, out_server_channel);\n',
+			'\tferr_t status = ferr_ok;\n',
+			'\tsys_server_channel_t* sys_server_channel = NULL;\n',
+			'\n',
+			f'\tstatus = sys_server_channel_create_n({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, &sys_server_channel);\n',
+			'\tif (status != ferr_ok) {\n',
+			'\t\tgoto out;\n'
+			'\t}\n',
+			'\n',
+			f'\tstatus = {root_interface_name}_serve_explicit(loop, sys_server_channel);\n',
+			'\tif (status != ferr_ok) {\n',
+			'\t\tgoto out;\n'
+			'\t}\n',
+			'\n',
+			'\tif (out_server_channel) {\n',
+			'\t\t// this cannot fail\n',
+			'\t\tsys_abort_status_log(eve_retain(_spookygen_server_channel));\n',
+			'\t\t*out_server_channel = _spookygen_server_channel;\n',
+			'\t}\n',
+			'\n',
+			'out:\n',
+			'\tif (sys_server_channel) {\n',
+			'\t\tsys_release(sys_server_channel);\n',
+			'\t}\n',
+			'\n',
+			'\treturn status;\n',
 			'};\n\n',
 		])
 
 	source_file.writelines([
-		f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_serve_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
+		f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_detach(eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
 		'\tferr_t status = ferr_ok;\n',
-		f'\tspooky_interface_entry_t entries[{len(root_interface.functions)}];\n',
-		'\tsys_server_channel_t* sys_server_channel = NULL;\n',
 		'\n',
 		'\t_spookygen_ensure_init();\n',
+		'\n',
+		'\tsys_mutex_lock(&_spookygen_server_mutex);\n',
+		'\n',
+		'\tif (_spookygen_server_channel == NULL) {\n',
+		'\t\tstatus = ferr_already_in_progress;\n',
+		'\t\tgoto out;\n'
+		'\t}\n',
+		'\n',
+		'\tstatus = eve_loop_remove_item(loop, _spookygen_server_channel);\n',
+		'\tif (status != ferr_ok) {\n',
+		'\t\tgoto out;\n',
+		'\t}\n',
+		'\n',
+		'\tif (out_server_channel) {\n',
+		'\t\t*out_server_channel = _spookygen_server_channel;\n',
+		'\t} else {\n',
+		'\t\teve_release(_spookygen_server_channel);\n',
+		'\t}\n',
+		'\n',
+		'\t_spookygen_server_channel = NULL;\n',
+		'\n',
+		'out:\n',
+		'\tsys_mutex_unlock(&_spookygen_server_mutex);\n',
+		'\treturn status;\n',
+		'};\n\n',
+	])
+
+	source_file.writelines([
+		f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_serve_explicit(eve_loop_t* loop, sys_server_channel_t* sys_server_channel) {{\n',
+		'\tferr_t status = ferr_ok;\n',
+		f'\tspooky_interface_entry_t entries[{len(root_interface.functions)}];\n',
+		'\n',
+		'\t_spookygen_ensure_init();\n',
+		'\n',
+		'\tstatus = sys_retain(sys_server_channel);\n',
+		'\tif (status != ferr_ok) {\n',
+		'\t\tsys_server_channel = NULL;\n',
+		'\t\tgoto out;\n'
+		'\t}\n',
 		'\n',
 		'\tsys_mutex_lock(&_spookygen_server_mutex);\n',
 		'\n',
@@ -1088,11 +1150,6 @@ if args.server:
 		'\t\tgoto out;\n'
 		'\t}\n',
 		'\n',
-		'\tstatus = sys_server_channel_create_n(name, name_length, realm, &sys_server_channel);\n',
-		'\tif (status != ferr_ok) {\n',
-		'\t\tgoto out;\n'
-		'\t}\n',
-		'\n',
 		'\tstatus = eve_server_channel_create(sys_server_channel, NULL, &_spookygen_server_channel);\n',
 		'\tif (status != ferr_ok) {\n',
 		'\t\tgoto out;\n'
@@ -1110,19 +1167,11 @@ if args.server:
 		'\t\tgoto out;\n'
 		'\t}\n',
 		'\n',
-		'\tif (out_server_channel) {\n',
-		'\t\t// this cannot fail\n',
-		'\t\tsys_abort_status_log(eve_retain(_spookygen_server_channel));\n',
-		'\t\t*out_server_channel = _spookygen_server_channel;\n',
-		'\t}\n',
-		'\n',
 		'out:\n',
 		'\tsys_mutex_unlock(&_spookygen_server_mutex);\n',
 		'\n',
-		'\tif (status != ferr_ok) {\n',
-		'\t\tif (sys_server_channel) {\n',
-		'\t\t\tsys_release(sys_server_channel);\n',
-		'\t\t}\n',
+		'\tif (sys_server_channel) {\n',
+		'\t\tsys_release(sys_server_channel);\n',
 		'\t}\n',
 		'\n',
 		'\treturn status;\n'
