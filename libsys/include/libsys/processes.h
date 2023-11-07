@@ -48,13 +48,22 @@ LIBSYS_OPTIONS(uint64_t, sys_proc_flags) {
 	sys_proc_flag_detach = 1ULL << 1,
 };
 
-LIBSYS_WUR ferr_t sys_proc_create(sys_file_t* file, void* context_block, size_t context_block_size, sys_proc_flags_t flags, sys_proc_t** out_proc);
+/**
+ * Note that, in the case of failure, some objects in the `attached_objects` array MAY be replaced with identical objects with different addresses.
+ * In such a case, the old objects are invalid and you must use the new (identical) objects! This only applies to channel and server channel objects
+ * because such objects are consumed if the process creation succeeds.
+ */
+LIBSYS_WUR ferr_t sys_proc_create(sys_file_t* file, sys_object_t** attached_objects, size_t attached_object_count, sys_proc_flags_t flags, sys_proc_t** out_proc);
 LIBSYS_WUR ferr_t sys_proc_resume(sys_proc_t* proc);
 LIBSYS_WUR ferr_t sys_proc_suspend(sys_proc_t* proc);
 sys_proc_t* sys_proc_current(void);
 LIBSYS_WUR ferr_t sys_proc_detach(sys_proc_t* proc);
 
 sys_proc_id_t sys_proc_id(sys_proc_t* proc);
+
+uint64_t sys_proc_init_context_object_count(void);
+LIBSYS_WUR ferr_t sys_proc_init_context_object_class(uint64_t object_index, const sys_object_class_t** out_object_class);
+LIBSYS_WUR ferr_t sys_proc_init_context_detach_object(uint64_t object_index, sys_object_t** out_object);
 
 LIBSYS_DECLARATIONS_END;
 

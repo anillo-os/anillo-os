@@ -27,6 +27,7 @@
 #include <libvfs/libvfs.private.h>
 #include <libspooky/proxy.private.h>
 #include <libsys/channels.private.h>
+#include <libsys/pages.private.h>
 
 static sys_proc_object_t* this_process = NULL;
 
@@ -35,6 +36,26 @@ static void sys_proc_destroy(sys_proc_t* object);
 static const sys_object_class_t proc_class = {
 	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
 	.destroy = sys_proc_destroy,
+};
+
+static sys_channel_object_t proc_init_channel = {
+	.object = {
+		.object_class = &__sys_object_class_channel,
+		.reference_count = 0,
+		.flags = sys_object_flag_immortal,
+	},
+
+	// the process initialization channel is *always* DID 1
+	// (just like the VFS binary descriptor is always DID 0)
+	.channel_did = 1,
+};
+
+static sys_once_t proc_init_channel_once = SYS_ONCE_INITIALIZER;
+static sys_channel_message_t* proc_init_message = NULL;
+static sys_mutex_t proc_init_message_mutex = SYS_MUTEX_INIT;
+
+static void sys_proc_init_receive_message(void* context) {
+	sys_abort_status_log(sys_channel_receive((void*)&proc_init_channel, sys_channel_receive_flag_no_wait, &proc_init_message));
 };
 
 LIBSYS_OBJECT_CLASS_GETTER(proc, proc_class);
@@ -70,6 +91,10 @@ ferr_t sys_proc_init(void) {
 	if (status != ferr_ok) {
 		goto out;
 	}
+
+#if !defined(BUILDING_DYMPLE) && !defined(BUILDING_STATIC)
+	sys_once(&proc_init_channel_once, sys_proc_init_receive_message, NULL, 0);
+#endif
 
 out:
 	if (status != ferr_ok) {
@@ -398,7 +423,7 @@ static ferr_t sys_uloader_unload_file(sys_uloader_info_t* info) {
 	return ferr_ok;
 };
 
-ferr_t sys_proc_create(sys_file_t* file, void* context_block, size_t context_block_size, sys_proc_flags_t flags, sys_proc_t** out_proc) {
+ferr_t sys_proc_create(sys_file_t* file, sys_object_t** attached_objects, size_t attached_object_count, sys_proc_flags_t flags, sys_proc_t** out_proc) {
 	ferr_t status = ferr_ok;
 	sys_proc_object_t* proc = NULL;
 	bool release_file_on_exit = false;
@@ -409,8 +434,13 @@ ferr_t sys_proc_create(sys_file_t* file, void* context_block, size_t context_blo
 	libsyscall_process_memory_region_t* regions = NULL;
 	size_t region_count = 0;
 	sys_uloader_info_t* loader_info = NULL;
-	uint64_t descriptors[1] = {UINT64_MAX};
+	uint64_t descriptors[2] = {UINT64_MAX, UINT64_MAX};
 	sys_channel_t* binary_desc = NULL;
+	sys_channel_t* our_channel = NULL;
+	sys_channel_t* their_channel = NULL;
+	sys_channel_message_t* init_message = NULL;
+	size_t successfully_attached_object_count = 0;
+	bool receive_message_on_fail = false;
 
 	if (
 		(!out_proc && ((flags & sys_proc_flag_resume) == 0 || (flags & sys_proc_flag_detach) == 0))
@@ -481,6 +511,58 @@ ferr_t sys_proc_create(sys_file_t* file, void* context_block, size_t context_blo
 
 	descriptors[0] = ((sys_channel_object_t*)binary_desc)->channel_did;
 
+	status = sys_channel_create_pair(&our_channel, &their_channel);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	descriptors[1] = ((sys_channel_object_t*)their_channel)->channel_did;
+
+	status = sys_channel_message_create(0, &init_message);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	for (; successfully_attached_object_count < attached_object_count; ++successfully_attached_object_count) {
+		sys_object_t** object_ptr = &attached_objects[successfully_attached_object_count];
+		sys_object_t* object = *object_ptr;
+		sys_channel_message_attachment_index_t attachment_index;
+		const sys_object_class_t* obj_class = sys_object_class(object);
+
+		if (obj_class == sys_object_class_channel()) {
+			status = sys_channel_message_attach_channel(init_message, object, &attachment_index);
+			if (status == ferr_ok) {
+				*object_ptr = NULL;
+			}
+		} else if (obj_class == sys_object_class_server_channel()) {
+			status = sys_channel_message_attach_server_channel(init_message, object, &attachment_index);
+			if (status == ferr_ok) {
+				*object_ptr = NULL;
+			}
+		} else if (obj_class == sys_object_class_data()) {
+			status = sys_channel_message_attach_data(init_message, object, false, &attachment_index);
+		} else if (obj_class == sys_object_class_shared_memory()) {
+			status = sys_channel_message_attach_shared_memory(init_message, object, &attachment_index);
+		} else {
+			status = ferr_invalid_argument;
+		}
+
+		if (status != ferr_ok) {
+			goto out;
+		}
+
+		fassert(attachment_index == successfully_attached_object_count);
+	}
+
+	status = sys_channel_send(our_channel, sys_channel_send_flag_no_wait, init_message, NULL);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	// successfully sending the message consumes it; if we fail from now on, we have to receive the message from the other side and detach the items from that message instead.
+	init_message = NULL;
+	receive_message_on_fail = true;
+
 	// create the process
 
 	info.flags = libsyscall_process_create_flag_use_default_stack;
@@ -497,11 +579,10 @@ ferr_t sys_proc_create(sys_file_t* file, void* context_block, size_t context_blo
 
 	// assigning the descriptor to the new process consumes it
 	((sys_channel_object_t*)binary_desc)->channel_did = SYS_CHANNEL_DID_INVALID;
+	((sys_channel_object_t*)their_channel)->channel_did = SYS_CHANNEL_DID_INVALID;
 
-	status = libsyscall_wrapper_process_id(proc_handle, &proc_id);
-	if (status != ferr_ok) {
-		goto out;
-	}
+	// this should never fail
+	sys_abort_status(libsyscall_wrapper_process_id(proc_handle, &proc_id));
 
 	if (proc) {
 		proc->handle = proc_handle;
@@ -509,8 +590,6 @@ ferr_t sys_proc_create(sys_file_t* file, void* context_block, size_t context_blo
 	}
 
 	if (flags & sys_proc_flag_resume) {
-		// TODO: add a `flags` argument to the syscall to allow the thread to be started immediately in the kernel and avoid an extra syscall
-
 		// this should never fail
 		sys_abort_status(libsyscall_wrapper_process_resume(proc_handle));
 	}
@@ -527,6 +606,9 @@ out:
 		if (proc) {
 			sys_release((void*)proc);
 		}
+		if (receive_message_on_fail) {
+			sys_abort_status(sys_channel_receive(their_channel, sys_channel_receive_flag_no_wait, &init_message));
+		}
 	}
 	if (release_file_on_exit) {
 		sys_release(file);
@@ -536,6 +618,28 @@ out:
 	}
 	if (binary_desc) {
 		sys_release(binary_desc);
+	}
+	if (init_message) {
+		for (size_t i = 0; i < successfully_attached_object_count; ++i) {
+			switch (sys_channel_message_attachment_type(init_message, i)) {
+				case sys_channel_message_attachment_type_channel:
+					sys_abort_status(sys_channel_message_detach_channel(init_message, i, &attached_objects[i]));
+					break;
+				case sys_channel_message_attachment_type_server_channel:
+					sys_abort_status(sys_channel_message_detach_server_channel(init_message, i, &attached_objects[i]));
+					break;
+				default:
+					break;
+			}
+		}
+
+		sys_release(init_message);
+	}
+	if (our_channel) {
+		sys_release(our_channel);
+	}
+	if (their_channel) {
+		sys_release(their_channel);
 	}
 	return status;
 };
@@ -564,4 +668,81 @@ ferr_t sys_proc_detach(sys_proc_t* object) {
 	bool prev = proc->detached;
 	proc->detached = true;
 	return prev ? ferr_already_in_progress : ferr_ok;
+};
+
+uint64_t sys_proc_init_context_object_count(void) {
+	return sys_channel_message_attachment_count(proc_init_message);
+};
+
+ferr_t sys_proc_init_context_object_class(uint64_t object_index, const sys_object_class_t** out_object_class) {
+	ferr_t status = ferr_ok;
+	sys_channel_message_attachment_type_t type = sys_channel_message_attachment_type_invalid;
+	const sys_object_class_t* object_class = NULL;
+
+	sys_mutex_lock(&proc_init_message_mutex);
+
+	status = sys_channel_message_attachment_type(proc_init_message, object_index);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	switch (type) {
+		case sys_channel_message_attachment_type_channel:
+			object_class = sys_object_class_channel();
+			break;
+		case sys_channel_message_attachment_type_shared_memory:
+			object_class = sys_object_class_shared_memory();
+			break;
+		case sys_channel_message_attachment_type_data:
+			object_class = sys_object_class_data();
+			break;
+		case sys_channel_message_attachment_type_server_channel:
+			object_class = sys_object_class_server_channel();
+			break;
+		default:
+			status = ferr_invalid_argument;
+			goto out;
+	}
+
+	if (out_object_class) {
+		*out_object_class = object_class;
+	}
+
+out:
+	sys_mutex_unlock(&proc_init_message_mutex);
+	return status;
+};
+
+ferr_t sys_proc_init_context_detach_object(uint64_t object_index, sys_object_t** out_object) {
+	ferr_t status = ferr_ok;
+	sys_channel_message_attachment_type_t type = sys_channel_message_attachment_type_invalid;
+
+	sys_mutex_lock(&proc_init_message_mutex);
+
+	status = sys_channel_message_attachment_type(proc_init_message, object_index);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	switch (type) {
+		case sys_channel_message_attachment_type_channel:
+			status = sys_channel_message_detach_channel(proc_init_message, object_index, out_object);
+			break;
+		case sys_channel_message_attachment_type_shared_memory:
+			status = sys_channel_message_detach_channel(proc_init_message, object_index, out_object);
+			break;
+		case sys_channel_message_attachment_type_data:
+			status = sys_channel_message_detach_channel(proc_init_message, object_index, out_object);
+			break;
+		case sys_channel_message_attachment_type_server_channel:
+			status = sys_channel_message_detach_server_channel(proc_init_message, object_index, out_object);
+			break;
+		default:
+			status = ferr_invalid_argument;
+			goto out;
+	}
+
+out:
+	sys_mutex_unlock(&proc_init_message_mutex);
+	return status;
 };
