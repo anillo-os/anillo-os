@@ -27,6 +27,11 @@ FERRO_NO_KASAN
 ferr_t ferro_uio_copy_in(uintptr_t user_address, size_t size, void** out_copy) {
 	ferr_t status = ferr_ok;
 
+	if (size == 0) {
+		*out_copy = NULL;
+		return ferr_ok;
+	}
+
 	if (!fpage_address_is_canonical(user_address)) {
 		fpanic("DEBUGGING: NONCANONICAL COPY IN ADDRESS");
 	}
@@ -47,6 +52,10 @@ FERRO_NO_KASAN
 ferr_t ferro_uio_copy_in_noalloc(uintptr_t user_address, size_t size, void* out_buffer) {
 	// TODO: check if the address is valid
 
+	if (size == 0) {
+		return ferr_ok;
+	}
+
 	if (!fpage_address_is_canonical(user_address)) {
 		fpanic("DEBUGGING: NONCANONICAL COPY IN ADDRESS");
 	}
@@ -63,6 +72,10 @@ FERRO_NO_KASAN
 ferr_t ferro_uio_copy_out(const void* buffer, size_t size, uintptr_t user_address) {
 	// TODO: check if the address is valid
 
+	if (size == 0) {
+		return ferr_ok;
+	}
+
 	if (!fpage_address_is_canonical(user_address)) {
 		fpanic("DEBUGGING: NONCANONICAL COPY OUT ADDRESS");
 	}
@@ -76,6 +89,10 @@ ferr_t ferro_uio_copy_out(const void* buffer, size_t size, uintptr_t user_addres
 };
 
 void ferro_uio_copy_free(void* copy, size_t size) {
+	if (size == 0) {
+		return;
+	}
+
 	fpanic_status(fmempool_free(copy));
 };
 
