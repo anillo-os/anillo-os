@@ -75,6 +75,10 @@ void sys_object_release(sys_object_t* object) {
 };
 
 LIBSYS_WUR ferr_t sys_retain(sys_object_t* object) {
+	if (object->flags & sys_object_flag_immortal) {
+		return ferr_ok;
+	}
+
 	if (object->object_class->retain) {
 		return object->object_class->retain(object);
 	} else {
@@ -83,6 +87,10 @@ LIBSYS_WUR ferr_t sys_retain(sys_object_t* object) {
 };
 
 void sys_release(sys_object_t* object) {
+	if (object->flags & sys_object_flag_immortal) {
+		return;
+	}
+
 	if (object->object_class->release) {
 		return object->object_class->release(object);
 	} else {

@@ -54,6 +54,7 @@ LIBSYS_STRUCT(sys_object_class) {
 
 LIBSYS_OPTIONS(uint64_t, sys_object_flags) {
 	sys_object_flag_free_on_destroy = 1ULL << 0,
+	sys_object_flag_immortal        = 1ULL << 1,
 };
 
 LIBSYS_STRUCT(sys_object) {
