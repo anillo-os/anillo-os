@@ -23,8 +23,15 @@ ferr_t fsyscall_handler_futex_wake(uint64_t* address, uint64_t channel, uint64_t
 	fproc_t* proc = fproc_current();
 	futex_t* futex = NULL;
 	ferr_t status = ferr_ok;
+	uintptr_t phys_address = UINTPTR_MAX;
 
-	if (futex_lookup(&proc->futex_table, (uintptr_t)address, channel, &futex) != ferr_ok) {
+	phys_address = fpage_virtual_to_physical((uintptr_t)address);
+	if (phys_address == UINTPTR_MAX) {
+		status = ferr_bad_address;
+		goto out;
+	}
+
+	if (futex_lookup(&proc->futex_table, phys_address, channel, &futex) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;
 	}

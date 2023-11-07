@@ -28,6 +28,13 @@ ferr_t fsyscall_handler_futex_wait(uint64_t* address, uint64_t channel, uint64_t
 	ferr_t status = ferr_ok;
 	fthread_timeout_type_t thread_timeout_type;
 	uint64_t current_value;
+	uintptr_t phys_address = UINTPTR_MAX;
+
+	phys_address = fpage_virtual_to_physical((uintptr_t)address);
+	if (phys_address == UINTPTR_MAX) {
+		status = ferr_bad_address;
+		goto out;
+	}
 
 	switch (timeout_type) {
 		case fsyscall_timeout_type_none:
@@ -44,7 +51,7 @@ ferr_t fsyscall_handler_futex_wait(uint64_t* address, uint64_t channel, uint64_t
 			goto out;
 	}
 
-	if (futex_lookup(&proc->futex_table, (uintptr_t)address, channel, &futex) != ferr_ok) {
+	if (futex_lookup(&proc->futex_table, phys_address, channel, &futex) != ferr_ok) {
 		status = ferr_temporary_outage;
 		goto out;
 	}

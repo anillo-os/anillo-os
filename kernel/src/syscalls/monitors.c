@@ -25,6 +25,7 @@
 #include <ferro/syscalls/channels.private.h>
 #include <ferro/core/waitq.private.h>
 #include <ferro/userspace/uio.h>
+#include <ferro/core/mm.private.h>
 
 // TODO: modularize this and allow monitor items to be managed in separate sources
 
@@ -530,7 +531,7 @@ static ferr_t fsyscall_monitor_item_enable(fsyscall_monitor_item_t* item) {
 
 			// see futex_wait.c for why we check the value and add ourselves while holding the waitq lock
 			fwaitq_lock(&futex_item->futex->waitq);
-			if (ferro_uio_atomic_load_8_relaxed(futex_item->futex->address, &curr_val) == ferr_ok && curr_val == futex_item->expected_value) {
+			if (ferro_uio_atomic_load_8_relaxed((uintptr_t)map_phys_fixed_offset((void*)futex_item->futex->address), &curr_val) == ferr_ok && curr_val == futex_item->expected_value) {
 				fwaitq_add_locked(&futex_item->futex->waitq, &futex_item->waiter);
 			}
 			fwaitq_unlock(&futex_item->futex->waitq);
@@ -581,7 +582,13 @@ static ferr_t fsyscall_monitor_item_create(const fsyscall_monitor_item_header_t*
 			size = sizeof(fsyscall_monitor_item_futex_t);
 			// descriptor_id is actually an address, so no expected_desc_class.
 			// instead, let's look up the futex
-			status = futex_lookup(&fproc_current()->futex_table, header->descriptor_id, data1, &futex);
+			uintptr_t phys_address = fpage_virtual_to_physical(header->descriptor_id);
+			if (phys_address == UINTPTR_MAX) {
+				status = ferr_bad_address;
+				goto out;
+			}
+
+			status = futex_lookup(&fproc_current()->futex_table, phys_address, data1, &futex);
 			if (status != ferr_ok) {
 				goto out;
 			}
