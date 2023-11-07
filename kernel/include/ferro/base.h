@@ -66,9 +66,19 @@
 #define FERRO_STRUCT_FWD(name) \
 	typedef struct name name ## _t;
 
+#define FERRO_UNION(name) \
+	typedef union name name ## _t; \
+	struct name
+
+#define FERRO_UNION_FWD(name) \
+	typedef union name name ## _t;
+
 #define FERRO_OPTIONS(type, name) \
 	typedef type name ## _t; \
 	enum __attribute__((flag_enum)) name
+
+#define FERRO_TYPED_FUNC(return_type, name, ...) \
+	typedef return_type (*name ## _f)(__VA_ARGS__);
 
 /**
  * Mark a function with `warn-unused-result`, to produce a warning when the function's return value is unused.
