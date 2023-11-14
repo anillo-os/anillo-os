@@ -73,6 +73,10 @@ target_compile_definitions(libsys_support_dymple PRIVATE
 	BUILDING_DYMPLE=1
 )
 
+target_compile_definitions(libsys_core_static PRIVATE
+	BUILDING_STATIC=1
+)
+
 target_compile_definitions(libsys_support_static PRIVATE
 	BUILDING_STATIC=1
 )
@@ -109,6 +113,7 @@ target_link_libraries(libsys_support_static PUBLIC
 	libeve_static
 	libspooky_static
 	libmacho
+	libconman_static
 )
 target_link_libraries(libsys_core_dymple PUBLIC
 	${libsys_libs}
@@ -135,6 +140,7 @@ target_link_libraries(libsys_support PRIVATE
 	libspooky
 	libeve
 	libmacho
+	libconman_static
 )
 
 target_link_options(libsys_core PRIVATE

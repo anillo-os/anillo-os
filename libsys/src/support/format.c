@@ -19,6 +19,44 @@
 #include <libsys/format.private.h>
 #include <libsimple/general.h>
 
+#if !BUILDING_DYMPLE
+#include <libconman/libconman.h>
+
+static ferr_t sys_format_out_console_handler(const void* buffer, size_t buffer_length) {
+	ferr_t status = ferr_ok;
+	ferr_t status2 = ferr_ok;
+	sys_data_t* data = NULL;
+
+	// this data won't be modified, so this is safe
+	status = sys_data_create_nocopy((void*)buffer, buffer_length, &data);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = conman_log_string(NULL, data, &status2);
+	if (status == ferr_ok) {
+		status = status2;
+	}
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+out:
+	if (data) {
+		sys_release(data);
+	}
+	return status;
+};
+#endif
+
+ferr_t sys_support_format_init(void) {
+#if !BUILDING_DYMPLE
+	__sys_format_out_console_hook = sys_format_out_console_handler;
+#endif
+
+	return ferr_ok;
+};
+
 SYS_FORMAT_VARIANT_WRAPPER(file, { sys_file_t* file; uint64_t offset; }, SYS_FORMAT_CONTEXT_INIT(file, offset), sys_file_t* file, uint64_t offset) {
 	SYS_FORMAT_WRITE_HEADER(file);
 

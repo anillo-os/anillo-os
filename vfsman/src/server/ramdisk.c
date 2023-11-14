@@ -173,6 +173,54 @@ void vfsman_ramdisk_init(sys_shared_memory_t* memory) {
 		sys_console_log("Failed to mount ramdisk");
 		sys_abort();
 	}
+
+#if 0
+	// DEBUGGING
+	vfsman_ramdisk_directory_entry_t* entry_stack[32] = {
+		&entry_array[0],
+	};
+	size_t index_stack[32] = {0};
+	size_t stack_size = 1;
+
+	while (stack_size > 0) {
+		vfsman_ramdisk_directory_entry_t* entry = NULL;
+
+		if (index_stack[stack_size - 1] >= entry_stack[stack_size - 1]->size) {
+			index_stack[stack_size - 1] = 0;
+			entry_stack[stack_size - 1] = NULL;
+			--stack_size;
+			continue;
+		}
+
+		entry = &directory_children(entry_stack[stack_size - 1])[index_stack[stack_size - 1]++];
+
+		for (size_t i = 0; i < stack_size; ++i) {
+			vfsman_ramdisk_directory_entry_t* path_entry = entry_stack[i];
+
+			if (entry_name(path_entry)) {
+				sys_console_log(entry_name(path_entry));
+			}
+
+			sys_console_log("/");
+		}
+
+		if (entry_name(entry)) {
+			sys_console_log(entry_name(entry));
+		}
+
+		if (entry_is_directory(entry)) {
+			++stack_size;
+			entry_stack[stack_size - 1] = entry;
+			index_stack[stack_size - 1] = 0;
+
+			sys_console_log(" [D]");
+		} else {
+			sys_console_log(" [F]");
+		}
+
+		sys_console_log("\n");
+	}
+#endif
 };
 
 static ferr_t vfs_ramdisk_open(void* context, vfsman_mount_t* mount, const char* path, size_t path_length, vfsman_descriptor_flags_t flags, vfsman_descriptor_t** out_descriptor) {

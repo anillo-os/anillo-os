@@ -20,6 +20,7 @@
 #include <stdarg.h>
 #include <libsimple/libsimple.h>
 #include <gen/libsyscall/syscall-wrappers.h>
+#include <libsys/general.h>
 
 // this will NOT retry if only part of the buffer was written
 static ferr_t sys_format_write_wrapper(sys_format_write_f write, void* context, const void* buffer, size_t buffer_length, size_t* out_written_count) {
@@ -647,10 +648,20 @@ out:
 	return status;
 };
 
+sys_format_out_console_hook_f __sys_format_out_console_hook = NULL;
+
 SYS_FORMAT_VARIANT_WRAPPER(console, {}, {}, int ignored) {
 	SYS_FORMAT_WRITE_HEADER(console);
 
-	ferr_t status = libsyscall_wrapper_log(buffer, buffer_length);
+#if BUILDING_DYMPLE
+	ferr_t status = ferr_ok;
+	LIBSYS_WUR_IGNORE(sys_kernel_log_n(buffer, buffer_length));
+#else
+	ferr_t status = ferr_temporary_outage;
+	if (__sys_format_out_console_hook) {
+		status = __sys_format_out_console_hook(buffer, buffer_length);
+	}
+#endif
 
 	if (status == ferr_ok) {
 		*out_written_count += buffer_length;

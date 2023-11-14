@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2022 Anillo OS Developers
+ * Copyright (C) 2023 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,29 +16,15 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <libsys/general.private.h>
-#include <libsys/processes.private.h>
-#include <libsys/sysman.private.h>
-#include <libsys/format.private.h>
+#include <con.server.h>
 
-ferr_t sys_init_support(void) {
+ferr_t conman_log_string_impl(void* _context, sys_data_t* contents, int32_t* out_status) {
 	ferr_t status = ferr_ok;
 
-	status = sys_proc_init();
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	status = sys_sysman_init();
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	status = sys_support_format_init();
-	if (status != ferr_ok) {
-		goto out;
-	}
+	// for now
+	status = sys_kernel_log_n(sys_data_contents(contents), sys_data_length(contents));
 
 out:
-	return status;
+	*out_status = status;
+	return ferr_ok;
 };

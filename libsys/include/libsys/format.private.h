@@ -31,6 +31,10 @@ SYS_FORMAT_VARIANTS(console, 3, 4, 5, int ignored);
  */
 typedef ferr_t (*sys_format_write_f)(void* context, const void* buffer, size_t buffer_length, size_t* out_written_count);
 
+LIBSYS_TYPED_FUNC(ferr_t, sys_format_out_console_hook, const void* buffer, size_t buffer_length);
+
+extern sys_format_out_console_hook_f __sys_format_out_console_hook;
+
 LIBSYS_WUR ferr_t __sys_format_out(void* context, sys_format_write_f write, size_t* out_written_count, const char* format, size_t format_length, va_list args);
 
 #define SYS_FORMAT_VARIANT_WRAPPER(_name, _context_decl, _context_init, ...) \
@@ -66,5 +70,7 @@ LIBSYS_WUR ferr_t __sys_format_out(void* context, sys_format_write_f write, size
 	sys_format_out_ ## _name ## _context_t* context = xcontext;
 
 #define SYS_FORMAT_CONTEXT_INIT(...) { __VA_ARGS__ }
+
+ferr_t sys_support_format_init(void);
 
 #endif // _LIBSYS_FORMAT_PRIVATE_H_

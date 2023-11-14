@@ -21,6 +21,7 @@
 #include <libsys/format.private.h>
 #include <libsys/abort.h>
 #include <gen/libsyscall/syscall-wrappers.h>
+#include <libsys/general.h>
 
 ferr_t sys_console_init(void) {
 	return ferr_ok;
@@ -46,7 +47,14 @@ ferr_t sys_console_log_nc(const char* string, size_t string_length, size_t* out_
 	size_t written_count = 0;
 
 	while (written_count < string_length) {
-		status = libsyscall_wrapper_log(&string[written_count], string_length - written_count);
+#if BUILDING_DYMPLE
+		status = sys_kernel_log_n(&string[written_count], string_length - written_count);
+#else
+		status = ferr_temporary_outage;
+		if (__sys_format_out_console_hook) {
+			status = __sys_format_out_console_hook(&string[written_count], string_length - written_count);
+		}
+#endif
 		written_count += string_length - written_count;
 
 		if (status == ferr_temporary_outage) {

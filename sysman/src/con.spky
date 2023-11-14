@@ -1,0 +1,7 @@
+@interface = conman
+@server = "org.anillo.conman"
+@realm = global
+
+interface conman {
+	function log_string(contents: in data, status: out i32)
+}
