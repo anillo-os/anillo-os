@@ -724,10 +724,7 @@ ferr_t sys_proc_init_context_detach_object(uint64_t object_index, sys_object_t**
 
 	sys_mutex_lock(&proc_init_message_mutex);
 
-	status = sys_channel_message_attachment_type(proc_init_message, object_index);
-	if (status != ferr_ok) {
-		goto out;
-	}
+	type = sys_channel_message_attachment_type(proc_init_message, object_index);
 
 	switch (type) {
 		case sys_channel_message_attachment_type_channel:

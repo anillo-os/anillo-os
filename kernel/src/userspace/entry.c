@@ -66,7 +66,7 @@ static void ferro_userspace_handoff_thread(void* data) {
 	attachment.header.next_offset = 0;
 	attachment.header.type = fchannel_message_attachment_type_mapping;
 
-	if (ferro_fb_handoff(&attachment.mapping)) {
+	if (ferro_fb_handoff(&attachment.mapping) == ferr_ok) {
 		outgoing_message.attachments = &attachment.header;
 		outgoing_message.attachments_length = sizeof(attachment);
 	}

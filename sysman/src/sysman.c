@@ -456,8 +456,8 @@ static void start_process(const char* filename, sys_object_t** attached_objects,
 static void start_managers(void* context) {
 	sys_channel_t* handoff_channel_ptr = (void*)&handoff_channel;
 	start_process("/sys/displayman/displayman", &handoff_channel_ptr, 1);
-	start_process("/sys/netman/netman", NULL, 0);
-	start_process("/sys/usbman/usbman", NULL, 0);
+	//start_process("/sys/netman/netman", NULL, 0);
+	//start_process("/sys/usbman/usbman", NULL, 0);
 };
 
 void start(void) asm("start");

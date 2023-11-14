@@ -60,12 +60,28 @@ void main(void) {
 
 	simple_memcpy(&fb_info, sys_channel_message_data(incoming_message), sizeof(fb_info));
 
+	sys_console_log_f(
+		"fb info:\n"
+		"width=%lu; height=%lu;\n"
+		"scan_line_size=%lu; pixel_bits=%lu\n"
+		"red_mask=%u; green_mask=%u;\n"
+		"blue_mask=%u; other_mask=%u;\n"
+		"total_byte_size=%lu; bytes_per_pixel=%u\n",
+		fb_info.width, fb_info.height,
+		fb_info.scan_line_size, fb_info.pixel_bits,
+		fb_info.red_mask, fb_info.green_mask,
+		fb_info.blue_mask, fb_info.other_mask,
+		fb_info.total_byte_size, fb_info.bytes_per_pixel
+	);
+
 	if (sys_channel_message_detach_shared_memory(incoming_message, 0, &fb_memory) == ferr_ok) {
 		fb_page_count = sys_page_round_up_count(fb_info.total_byte_size);
 		sys_abort_status_log(sys_shared_memory_map(fb_memory, fb_page_count, 0, &fb_info.base));
 
 		// clear the screen
 		simple_memset(fb_info.base, 0, fb_info.total_byte_size);
+	} else {
+		sys_console_log_f("Didn't get a framebuffer\n");
 	}
 
 	eve_loop_run(eve_loop_get_main());
