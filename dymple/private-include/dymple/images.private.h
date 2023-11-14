@@ -39,6 +39,7 @@ DYMPLE_STRUCT(dymple_section) {
 	void* address;
 	size_t size;
 	size_t file_offset;
+	size_t memory_offset;
 };
 
 DYMPLE_STRUCT(dymple_segment) {

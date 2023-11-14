@@ -326,9 +326,9 @@ ferr_t dymple_resolve_export(dymple_image_t* image, const char* name, size_t nam
 	for (size_t i = 0; i < image->section_count; ++i) {
 		const dymple_section_t* section = &image->sections[i];
 
-		if (section->file_offset <= value && section->file_offset + section->size > value) {
+		if (section->memory_offset <= value && section->memory_offset + section->size > value) {
 			// this is the section that contains the symbol
-			address = (void*)((uintptr_t)section->address + (value - section->file_offset));
+			address = (void*)((uintptr_t)section->address + (value - section->memory_offset));
 			break;
 		}
 	}

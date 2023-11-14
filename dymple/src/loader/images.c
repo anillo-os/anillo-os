@@ -328,6 +328,7 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 				simple_memcpy(image->sections[section_index].section_name, section_64->section_name, simple_min(sizeof(image->sections[section_index].section_name), sizeof(section_64->section_name)));
 				simple_memcpy(image->sections[section_index].segment_name, section_64->segment_name, simple_min(sizeof(image->sections[section_index].segment_name), sizeof(section_64->segment_name)));
 				image->sections[section_index].file_offset = section_64->file_offset;
+				image->sections[section_index].memory_offset = section_64->memory_address;
 
 				++section_index;
 			}
