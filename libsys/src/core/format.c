@@ -136,19 +136,21 @@ LIBSYS_STRUCT(sys_format_write_context) {
 	void* context;
 	sys_format_write_f write;
 	size_t written_count;
+	size_t buffer_length;
+	char buffer[128];
 };
 
 #define TEMPORARY_OUTAGE_RETRY_COUNT 5
 
 // this will try to write the entire buffer and keep retrying on failures until a certain limit (TEMPORARY_OUTAGE_RETRY_COUNT) is reached,
 // in which case it will then report a temporary outage
-LIBSYS_WUR static ferr_t write_buffer(sys_format_write_context_t* context, const char* buffer, size_t buffer_length) {
+LIBSYS_WUR static ferr_t flush_buffer(sys_format_write_context_t* context) {
 	ferr_t status = ferr_ok;
 	uint8_t retry_count = 0;
 	size_t written_count = 0;
 
-	while (written_count < buffer_length) {
-		status = sys_format_write_wrapper(context->write, context->context, &buffer[written_count], buffer_length - written_count, &written_count);
+	while (written_count < context->buffer_length) {
+		status = sys_format_write_wrapper(context->write, context->context, &context->buffer[written_count], context->buffer_length - written_count, &written_count);
 
 		if (status == ferr_temporary_outage) {
 			if (retry_count >= TEMPORARY_OUTAGE_RETRY_COUNT) {
@@ -161,8 +163,37 @@ LIBSYS_WUR static ferr_t write_buffer(sys_format_write_context_t* context, const
 		}
 	}
 
+	context->buffer_length = 0;
+
 out:
 	context->written_count += written_count;
+	return status;
+};
+
+LIBSYS_WUR static ferr_t write_buffer(sys_format_write_context_t* context, const char* buffer, size_t buffer_length) {
+	ferr_t status = ferr_ok;
+
+	while (buffer_length > 0) {
+		size_t writable = sizeof(context->buffer) - context->buffer_length;
+
+		if (writable > buffer_length) {
+			writable = buffer_length;
+		}
+
+		simple_memcpy(&context->buffer[context->buffer_length], buffer, writable);
+		context->buffer_length += writable;
+		buffer_length -= writable;
+		buffer += writable;
+
+		if (context->buffer_length == sizeof(context->buffer)) {
+			status = flush_buffer(context);
+			if (status != ferr_ok) {
+				goto out;
+			}
+		}
+	}
+
+out:
 	return status;
 };
 
@@ -364,6 +395,7 @@ ferr_t __sys_format_out(void* context, sys_format_write_f write, size_t* out_wri
 		.context = context,
 		.write = write,
 		.written_count = 0,
+		.buffer_length = 0,
 	};
 
 	if (!format) {
@@ -642,6 +674,9 @@ ferr_t __sys_format_out(void* context, sys_format_write_f write, size_t* out_wri
 	}
 
 out:
+	if (status == ferr_ok) {
+		status = flush_buffer(&write_context);
+	}
 	if (out_written_count) {
 		*out_written_count = write_context.written_count;
 	}
