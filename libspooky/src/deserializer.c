@@ -318,9 +318,13 @@ ferr_t spooky_deserializer_decode_data_object(spooky_deserializer_t* deserialize
 
 	simple_memcpy(&index, deserializer->data + offset, sizeof(index));
 
-	status = sys_channel_message_detach_data(deserializer->message, index, out_data);
-	if (status != ferr_ok) {
-		goto out;
+	if (index != sys_channel_message_attachment_index_invalid) {
+		status = sys_channel_message_detach_data(deserializer->message, index, out_data);
+		if (status != ferr_ok) {
+			goto out;
+		}
+	} else if (out_data) {
+		*out_data = NULL;
 	}
 
 	if (out_offset) {
@@ -345,9 +349,13 @@ ferr_t spooky_deserializer_decode_channel(spooky_deserializer_t* deserializer, s
 
 	simple_memcpy(&index, deserializer->data + offset, sizeof(index));
 
-	status = sys_channel_message_detach_channel(deserializer->message, index, out_channel);
-	if (status != ferr_ok) {
-		goto out;
+	if (index != sys_channel_message_attachment_index_invalid) {
+		status = sys_channel_message_detach_channel(deserializer->message, index, out_channel);
+		if (status != ferr_ok) {
+			goto out;
+		}
+	} else if (out_channel) {
+		*out_channel = NULL;
 	}
 
 	if (out_offset) {
