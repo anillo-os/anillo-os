@@ -27,6 +27,7 @@ LIBEVE_DECLARATIONS_BEGIN;
 void eve_mutex_lock(sys_mutex_t* mutex);
 void eve_semaphore_down(sys_semaphore_t* semaphore);
 void eve_event_wait(sys_event_t* event);
+void eve_once(sys_once_t* token, sys_once_f initializer, void* context, sys_once_flags_t flags);
 
 LIBEVE_DECLARATIONS_END;
 

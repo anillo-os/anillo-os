@@ -82,35 +82,6 @@ FERRO_STRUCT(fchannel_private) {
 	};
 };
 
-FERRO_STRUCT(fchannel_server_private) {
-	fchannel_server_t base;
-
-	frefcount_t refcount;
-
-	/**
-	 * Protects #flags and #pending_clients.
-	 */
-	flock_mutex_t mutex;
-
-	/**
-	 * See ::fchannel_conversation_private#flags; same deal here, except with fchannel_server_flag_closed instead.
-	 */
-	fchannel_server_flags_t flags;
-
-	simple_ring_t pending_clients;
-	flock_semaphore_t pending_client_insertion_semaphore;
-	flock_semaphore_t pending_client_removal_semaphore;
-};
-
-FERRO_STRUCT(fchannel_realm) {
-	fchannel_realm_t* parent;
-
-	frefcount_t refcount;
-
-	simple_ghmap_t servers;
-	flock_mutex_t servers_mutex;
-};
-
 FERRO_ALWAYS_INLINE
 fchannel_private_t* fchannel_get_0(fchannel_private_t* private_channel) {
 	if (private_channel->is_channel_0) {

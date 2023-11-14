@@ -43,7 +43,6 @@ FERRO_STRUCT(fsyscall_monitor_item_channel_common_info) {
 	union {
 		fsyscall_monitor_item_t* item;
 		fsyscall_monitor_item_channel_t* channel_item;
-		fsyscall_monitor_item_server_channel_t* server_channel_item;
 	};
 	fsyscall_monitor_t* monitor;
 	bool edge_triggered;
@@ -298,72 +297,6 @@ static void fsyscall_monitor_item_channel_close(void* context) {
 	fsyscall_monitor_item_channel_common_end(&info, triggered);
 };
 
-static void fsyscall_monitor_item_server_channel_client_arrival(void* context) {
-	fsyscall_monitor_item_channel_common_info_t info;
-	bool triggered = false;
-	bool prev_client_arrival;
-
-	if (!fsyscall_monitor_item_channel_common_start(context, &info)) {
-		return;
-	}
-
-	prev_client_arrival = info.server_channel_item->client_arrival_high;
-
-	info.server_channel_item->client_arrival_high = true;
-
-	triggered |= fsyscall_monitor_item_channel_process_trigger(&info, fsyscall_monitor_event_server_channel_client_arrived, prev_client_arrival, info.server_channel_item->client_arrival_high);
-
-	flock_mutex_lock(&info.monitor->mutex);
-	if (info.channel_item->base.flags & fsyscall_monitor_item_flag_enabled) {
-		fwaitq_wait(&info.server_channel_item->server_channel->client_arrival_waitq, &info.server_channel_item->client_arrival_waiter);
-	}
-	flock_mutex_unlock(&info.monitor->mutex);
-
-	fsyscall_monitor_item_channel_common_end(&info, triggered);
-};
-
-static void fsyscall_monitor_item_server_channel_queue_empty(void* context) {
-	fsyscall_monitor_item_channel_common_info_t info;
-	bool triggered = false;
-	bool prev_client_arrival;
-
-	if (!fsyscall_monitor_item_channel_common_start(context, &info)) {
-		return;
-	}
-
-	prev_client_arrival = info.server_channel_item->client_arrival_high;
-
-	info.server_channel_item->client_arrival_high = false;
-
-	triggered |= fsyscall_monitor_item_channel_process_trigger(&info, fsyscall_monitor_event_server_channel_client_arrived, prev_client_arrival, info.server_channel_item->client_arrival_high);
-
-	flock_mutex_lock(&info.monitor->mutex);
-	if (info.channel_item->base.flags & fsyscall_monitor_item_flag_enabled) {
-		fwaitq_wait(&info.server_channel_item->server_channel->queue_empty_waitq, &info.server_channel_item->queue_empty_waiter);
-	}
-	flock_mutex_unlock(&info.monitor->mutex);
-
-	fsyscall_monitor_item_channel_common_end(&info, triggered);
-};
-
-static void fsyscall_monitor_item_server_channel_close(void* context) {
-	fsyscall_monitor_item_channel_common_info_t info;
-	bool triggered = false;
-	bool prev_close;
-
-	if (!fsyscall_monitor_item_channel_common_start(context, &info)) {
-		return;
-	}
-
-	prev_close = info.server_channel_item->close_high;
-
-	info.server_channel_item->close_high = true;
-
-	// TODO: actually use this information and delete monitor items if the "keep alive" flag is unset
-
-	fsyscall_monitor_item_channel_common_end(&info, triggered);
-};
-
 static void fsyscall_monitor_item_futex_wakeup(void* context) {
 	fsyscall_monitor_item_futex_t* futex_item = context;
 	fsyscall_monitor_t* monitor;
@@ -449,15 +382,6 @@ static ferr_t fsyscall_monitor_item_disable(fsyscall_monitor_item_t* item) {
 			fwaitq_unwait(&channel->close_waitq, &channel_item->close_waiter);
 		} break;
 
-		case fsyscall_monitor_item_type_server_channel: {
-			fsyscall_monitor_item_server_channel_t* server_channel_item = (void*)item;
-			fchannel_server_t* server_channel = server_channel_item->server_channel;
-
-			fwaitq_unwait(&server_channel->client_arrival_waitq, &server_channel_item->client_arrival_waiter);
-			fwaitq_unwait(&server_channel->queue_empty_waitq, &server_channel_item->queue_empty_waiter);
-			fwaitq_unwait(&server_channel->close_waitq, &server_channel_item->close_waiter);
-		} break;
-
 		case fsyscall_monitor_item_type_futex: {
 			fsyscall_monitor_item_futex_t* futex_item = (void*)item;
 
@@ -505,18 +429,6 @@ static ferr_t fsyscall_monitor_item_enable(fsyscall_monitor_item_t* item) {
 			fwaitq_wait(&peer->queue_removal_waitq, &channel_item->peer_queue_removal_waiter);
 			fwaitq_wait(&peer->queue_full_waitq, &channel_item->peer_queue_full_waiter);
 			fwaitq_wait(&channel_item->channel->close_waitq, &channel_item->close_waiter);
-		} break;
-
-		case fsyscall_monitor_item_type_server_channel: {
-			fsyscall_monitor_item_server_channel_t* server_channel_item = (void*)item;
-
-			fwaitq_waiter_init(&server_channel_item->client_arrival_waiter, fsyscall_monitor_item_server_channel_client_arrival, server_channel_item);
-			fwaitq_waiter_init(&server_channel_item->queue_empty_waiter, fsyscall_monitor_item_server_channel_queue_empty, server_channel_item);
-			fwaitq_waiter_init(&server_channel_item->close_waiter, fsyscall_monitor_item_server_channel_close, server_channel_item);
-
-			fwaitq_wait(&server_channel_item->server_channel->client_arrival_waitq, &server_channel_item->client_arrival_waiter);
-			fwaitq_wait(&server_channel_item->server_channel->queue_empty_waitq, &server_channel_item->queue_empty_waiter);
-			fwaitq_wait(&server_channel_item->server_channel->close_waitq, &server_channel_item->close_waiter);
 		} break;
 
 		case fsyscall_monitor_item_type_futex: {
@@ -572,10 +484,6 @@ static ferr_t fsyscall_monitor_item_create(const fsyscall_monitor_item_header_t*
 		case fsyscall_monitor_item_type_channel:
 			size = sizeof(fsyscall_monitor_item_channel_t);
 			expected_desc_class = &fsyscall_channel_descriptor_class;
-			break;
-		case fsyscall_monitor_item_type_server_channel:
-			size = sizeof(fsyscall_monitor_item_server_channel_t);
-			expected_desc_class = &fsyscall_channel_server_context_descriptor_class;
 			break;
 
 		case fsyscall_monitor_item_type_futex: {
@@ -656,11 +564,6 @@ static ferr_t fsyscall_monitor_item_create(const fsyscall_monitor_item_header_t*
 			channel_item->channel = descriptor;
 		} break;
 
-		case fsyscall_monitor_item_type_server_channel: {
-			fsyscall_monitor_item_server_channel_t* server_channel_item = (void*)item;
-			server_channel_item->server_channel = ((fchannel_server_context_t*)descriptor)->server;
-		} break;
-
 		case fsyscall_monitor_item_type_futex: {
 			fsyscall_monitor_item_futex_t* futex_item = (void*)item;
 			futex_item->futex = futex;
@@ -713,7 +616,7 @@ static void fsyscall_monitor_item_delete(fsyscall_monitor_item_t* item) {
 	}
 
 	switch (item->header.type) {
-		// schedule the releases for the channel and server channel items
+		// schedule releases for channel items
 		// rather than doing them here now because they could be the last
 		// references to the item in question, in which case, they would be
 		// destroyed. destroying them requires taking their internal locks
@@ -726,13 +629,6 @@ static void fsyscall_monitor_item_delete(fsyscall_monitor_item_t* item) {
 			fchannel_t* channel = channel_item->channel;
 			channel_item->channel = NULL;
 			FERRO_WUR_IGNORE(fwork_schedule_new((void*)fchannel_release, channel, 0, NULL));
-		} break;
-
-		case fsyscall_monitor_item_type_server_channel: {
-			fsyscall_monitor_item_server_channel_t* server_channel_item = (void*)item;
-			fchannel_server_t* server_channel = server_channel_item->server_channel;
-			server_channel_item->server_channel = NULL;
-			FERRO_WUR_IGNORE(fwork_schedule_new((void*)fchannel_server_release, server_channel, 0, NULL));
 		} break;
 
 		case fsyscall_monitor_item_type_futex: {
@@ -988,7 +884,6 @@ ferr_t fsyscall_handler_monitor_update(uint64_t monitor_handle, fsyscall_monitor
 
 		switch (update_item.header.type) {
 			case fsyscall_monitor_item_type_channel:
-			case fsyscall_monitor_item_type_server_channel:
 				break;
 
 			case fsyscall_monitor_item_type_futex:

@@ -39,6 +39,7 @@
 #include <libsys/pages.h>
 #include <libsys/paths.h>
 #include <libsys/processes.h>
+#include <libsys/sysman.h>
 #include <libsys/threads.h>
 #include <libsys/timeout.h>
 #include <libsys/tls.h>

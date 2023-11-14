@@ -20,6 +20,7 @@
 #include <libeve/item.private.h>
 #include <libeve/locks.h>
 #include <libsys/locks.private.h>
+#include <libsys/once.private.h>
 #include <gen/libsyscall/syscall-wrappers.h>
 
 // TODO:
@@ -845,6 +846,85 @@ void eve_event_wait(sys_event_t* event) {
 		}
 		old_state = __atomic_load_n(&event->internal, __ATOMIC_ACQUIRE);
 	}
+};
+
+void eve_once(sys_once_t* token, sys_once_f initializer, void* once_context, sys_once_flags_t flags) {
+	eve_loop_object_t* loop = (void*)eve_loop_get_current();
+	eve_loop_work_item_t* current = NULL;
+	eve_futex_suspension_context_t context;
+
+	LIBEVE_WUR_IGNORE(sys_tls_get(work_tls_key, (uintptr_t*)&current));
+
+	if (!current) {
+		return sys_once(token, initializer, once_context, flags);
+	}
+
+	uint64_t old_state = sys_once_state_init;
+
+	if (flags & sys_once_flag_sigsafe) {
+		sys_thread_block_signals(sys_thread_current());
+	}
+
+	if (__atomic_compare_exchange_n(token, &old_state, sys_once_state_perform_no_wait, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
+		// we saw "init" and changed it to "perform_no_wait";
+		// we're now the ones that need to call the initializer
+
+		initializer(once_context);
+
+		// now that we're done, we need to check whether anyone was waiting and, if so, wake them up
+		old_state = __atomic_exchange_n(token, sys_once_state_done, __ATOMIC_RELEASE);
+
+		if (flags & sys_once_flag_sigsafe) {
+			sys_thread_unblock_signals(sys_thread_current());
+		}
+
+		if (old_state == sys_once_state_perform_wait) {
+			// wake up everyone who was waiting for us to finish
+			libsyscall_wrapper_futex_wake(token, 0, UINT64_MAX, 0);
+		}
+
+		// we're done now
+		return;
+	}
+
+	if (flags & sys_once_flag_sigsafe) {
+		sys_thread_unblock_signals(sys_thread_current());
+	}
+
+	// otherwise, we did not see "init", so let's figure out what to do
+
+	// once we see "done", we know we're done and can return
+	while (old_state != sys_once_state_done) {
+		if (old_state == sys_once_state_perform_no_wait) {
+			// we're the first waiter; let's update the state to let the performer know
+			if (!__atomic_compare_exchange_n(token, &old_state, sys_once_state_perform_wait, false, __ATOMIC_ACQUIRE, __ATOMIC_ACQUIRE)) {
+				// if we failed to exchange it, the performer might've already finished;
+				// let's loop back around and check
+				continue;
+			}
+
+			// if we successfully updated the state to "perform_wait", let's continue on and wait
+		}
+
+		// `old_state` should only be "perform_wait" here
+
+		// let's wait
+		if (sys_monitor_oneshot_futex(loop->monitor, token, 0, sys_once_state_perform_wait, &context) == ferr_ok) {
+			if (eve_loop_suspend_current((void*)loop, (void*)sys_event_notify, &context.suspension_event, &context.work_id) != ferr_ok) {
+				// DEBUG
+				sys_console_log_f("*** ONCE: FAILED TO SUSPEND WORK ITEM ***\n");
+			}
+		} else {
+			// DEBUG
+			sys_console_log_f("*** ONCE: FAILED TO SETUP ONESHOT FUTEX ***\n");
+		}
+
+		// we've been woken up, but it might be a spurious wakeup;
+		// let's loop back around and check to make sure we're actually done
+		old_state = __atomic_load_n(token, __ATOMIC_ACQUIRE);
+	}
+
+	// if we got here, we saw "done" and we can now return
 };
 
 ferr_t eve_loop_schedule(eve_loop_t* obj, eve_loop_work_f work, void* context, uint64_t timeout, sys_timeout_type_t timeout_type, eve_loop_work_id_t* out_id) {

@@ -26,11 +26,12 @@ LIBEVE_DECLARATIONS_BEGIN;
 
 LIBEVE_STRUCT(eve_server_channel_object) {
 	sys_object_t object;
-	sys_server_channel_t* sys_server_channel;
+	sys_channel_t* sysman_server_channel;
 	sys_monitor_item_t* monitor_item;
 	void* context;
 	eve_item_destructor_f destructor;
 	eve_server_channel_handler_f handler;
+	eve_server_channel_close_handler_f close_handler;
 };
 
 LIBEVE_DECLARATIONS_END;

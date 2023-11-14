@@ -31,10 +31,10 @@
 
 #include <libsimple/libsimple.h>
 
-#define PCIMAN_SERVER_NAME "org.anillo.pciman"
-
 #define MAX_DEVICES_PER_BUS 32
 #define MAX_FUNCTIONS_PER_DEVICE 8
+
+fchannel_t* fpci_pciman_client_channel = NULL;
 
 static flock_spin_intsafe_t fpci_tree_lock = FLOCK_SPIN_INTSAFE_INIT;
 static simple_ghmap_t fpci_buses;
@@ -394,7 +394,7 @@ ferr_t fpci_function_scan(fpci_function_info_t* function) {
 			bar->physical_base = physical_base;
 			bar->size = size;
 
-			fconsole_logf("PCI: %02x:%02x.%x: found memory BAR%u (real index = %u) at %p (%llu bytes)\n", function->device->bus->location, function->device->location, function->location, valid_bar_index, bar_index, (void*)physical_base, size);
+			fconsole_logf("PCI: %02x:%02x.%x: found memory BAR%u (real index = %u) at %p (" FERRO_SIZE_FORMAT " bytes)\n", function->device->bus->location, function->device->location, function->location, valid_bar_index, bar_index, (void*)physical_base, size);
 
 			if (is_64_bit) {
 				// we used another BAR, so skip it
@@ -553,7 +553,7 @@ static bool fpci_debug_bus_iterator(void* context, simple_ghmap_t* hashmap, simp
 };
 
 #if 0
-	#define pciman_debug_f(msg, ...) fconsole_logf(msg "\n", ## __VA_ARGS__)
+	#define pciman_debug_f(msg, ...) fconsole_logf("pciman: " msg "\n", ## __VA_ARGS__)
 #else
 	#define pciman_debug_f(...)
 #endif
@@ -581,7 +581,7 @@ FERRO_STRUCT(pciman_client_context) {
 FERRO_STRUCT(pciman_wait_context) {
 	flock_semaphore_t sema;
 	fwaitq_waiter_t client_arrival_waiter;
-	fchannel_server_t* server;
+	fchannel_t* server;
 	flock_mutex_t clients_mutex;
 	pciman_client_context_t* clients;
 };
@@ -589,7 +589,7 @@ FERRO_STRUCT(pciman_wait_context) {
 static void pciman_client_arrival(void* data) {
 	pciman_wait_context_t* wait_context = data;
 	flock_semaphore_up(&wait_context->sema);
-	fwaitq_wait(&wait_context->server->client_arrival_waitq, &wait_context->client_arrival_waiter);
+	fwaitq_wait(&wait_context->server->message_arrival_waitq, &wait_context->client_arrival_waiter);
 };
 
 static void pciman_client_death(void* data) {
@@ -751,7 +751,7 @@ FERRO_PACKED_STRUCT(pciman_config_space_write_request) {
 };
 
 static void pciman_thread_entry(void* data) {
-	fchannel_server_t* server = NULL;
+	fchannel_t* server = NULL;
 	pciman_wait_context_t wait_context;
 
 	flock_semaphore_init(&wait_context.sema, 0);
@@ -759,12 +759,10 @@ static void pciman_thread_entry(void* data) {
 	flock_mutex_init(&wait_context.clients_mutex);
 	wait_context.clients = NULL;
 
-	fpanic_status(fchannel_server_new(&server));
+	fpanic_status(fchannel_new_pair(&server, &fpci_pciman_client_channel));
 
 	wait_context.server = server;
-	fwaitq_wait(&server->client_arrival_waitq, &wait_context.client_arrival_waiter);
-
-	fpanic_status(fchannel_realm_publish(fchannel_realm_global(), PCIMAN_SERVER_NAME, sizeof(PCIMAN_SERVER_NAME) - 1, server));
+	fwaitq_wait(&server->message_arrival_waitq, &wait_context.client_arrival_waiter);
 
 	while (true) {
 		// wait for new events
@@ -773,20 +771,42 @@ static void pciman_thread_entry(void* data) {
 		flock_mutex_lock(&wait_context.clients_mutex);
 
 		while (true) {
+			fchannel_message_t message;
 			fchannel_t* client = NULL;
 			pciman_client_context_t* client_context = NULL;
-			ferr_t status = fchannel_server_accept(server, fserver_channel_accept_flag_no_wait, &client);
+			ferr_t status = fchannel_receive(server, fchannel_receive_flag_no_wait, &message);
+			fchannel_message_attachment_channel_t* channel_attachment = NULL;
 
 			if (status != ferr_ok) {
+				pciman_debug_f("spurious wakeup");
 				break;
 			}
 
-			// TODO: check if the client has permission to access the PCI system
+			if (message.attachments_length < sizeof(fchannel_message_attachment_channel_t)) {
+				pciman_debug_f("bad message: attachments too short (%lu)", message.attachments_length);
+				fchannel_message_destroy(&message);
+				continue;
+			}
+
+			channel_attachment = (void*)message.attachments;
+			if (channel_attachment->header.type != fchannel_message_attachment_type_channel) {
+				pciman_debug_f("bad message: attachment not a channel (%d)", channel_attachment->header.type);
+				fchannel_message_destroy(&message);
+				continue;
+			}
+
+			// detach the client channel from the message and destroy the message
+			client = channel_attachment->channel;
+			channel_attachment->channel = NULL;
+			fchannel_message_destroy(&message);
 
 			if (fmempool_allocate(sizeof(*client_context), NULL, (void*)&client_context) != ferr_ok) {
+				pciman_debug_f("failed to allocate client context");
 				FERRO_WUR_IGNORE(fchannel_close(client));
 				fchannel_release(client);
 			}
+
+			pciman_debug_f("new client");
 
 			client_context->prev = &wait_context.clients;
 			client_context->next = *client_context->prev;

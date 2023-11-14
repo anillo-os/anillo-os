@@ -28,11 +28,13 @@ LIBEVE_DECLARATIONS_BEGIN;
 
 LIBEVE_ITEM_CLASS(server_channel);
 
-typedef void (*eve_server_channel_handler_f)(void* context, eve_server_channel_t* server_channel, sys_channel_t* channel);
+LIBEVE_TYPED_FUNC(void, eve_server_channel_handler, void* context, eve_server_channel_t* server_channel, sys_channel_t* channel);
+LIBEVE_TYPED_FUNC(void, eve_server_channel_close_handler, void* context, eve_server_channel_t* server_channel);
 
-LIBEVE_WUR ferr_t eve_server_channel_create(sys_server_channel_t* sys_server_channel, void* context, eve_server_channel_t** out_server_channel);
+LIBEVE_WUR ferr_t eve_server_channel_create(sys_channel_t* sysman_server_channel, void* context, eve_server_channel_t** out_server_channel);
 void eve_server_channel_set_handler(eve_server_channel_t* server_channel, eve_server_channel_handler_f handler);
-LIBEVE_WUR ferr_t eve_server_channel_target(eve_server_channel_t* server_channel, bool retain, sys_server_channel_t** out_sys_server_channel);
+void eve_server_channel_set_peer_close_handler(eve_server_channel_t* server_channel, eve_server_channel_close_handler_f handler);
+LIBEVE_WUR ferr_t eve_server_channel_target(eve_server_channel_t* server_channel, bool retain, sys_channel_t** out_sysman_server_channel);
 
 LIBEVE_DECLARATIONS_END;
 

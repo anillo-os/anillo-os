@@ -98,7 +98,7 @@ ferr_t sys_monitor_item_create(sys_object_t* object, sys_monitor_item_flags_t fl
 	sys_monitor_item_object_t* item = NULL;
 	const sys_object_class_t* obj_class = sys_object_class(object);
 
-	if (obj_class != sys_object_class_channel() && obj_class != sys_object_class_server_channel() && obj_class != sys_object_class_counter()) {
+	if (obj_class != sys_object_class_channel() && obj_class != sys_object_class_counter()) {
 		status = ferr_invalid_argument;
 		goto out;
 	}
@@ -603,8 +603,6 @@ uint64_t sys_monitor_item_descriptor_id(sys_monitor_item_object_t* item) {
 
 	if (obj_class == sys_object_class_channel()) {
 		return ((sys_channel_object_t*)item->target)->channel_did;
-	} else if (obj_class == sys_object_class_server_channel()) {
-		return ((sys_server_channel_object_t*)item->target)->server_did;
 	} else if (obj_class == sys_object_class_counter()) {
 		return (uintptr_t)&((sys_counter_object_t*)item->target)->value;
 	} else {
@@ -618,8 +616,6 @@ libsyscall_monitor_item_type_t sys_monitor_item_type(sys_monitor_item_object_t* 
 
 	if (obj_class == sys_object_class_channel()) {
 		return libsyscall_monitor_item_type_channel;
-	} else if (obj_class == sys_object_class_server_channel()) {
-		return libsyscall_monitor_item_type_server_channel;
 	} else if (obj_class == sys_object_class_counter()) {
 		return libsyscall_monitor_item_type_futex;
 	} else {

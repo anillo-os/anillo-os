@@ -77,7 +77,6 @@ SPOOKY_TYPE_DEF(double, f64);
 
 SPOOKY_TYPE_DEF(sys_channel_t*, channel);
 SPOOKY_TYPE_DEF(sys_data_t*, data);
-SPOOKY_TYPE_DEF(sys_server_channel_t*, server_channel);
 
 ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type, bool for_storage) {
 	if (type == spooky_type_data()) {
@@ -113,14 +112,6 @@ ferr_t spooky_retain_object_with_type(const void* object, spooky_type_t* type, b
 		if (channel) {
 			return sys_retain(channel);
 		}
-	} else if (type == spooky_type_server_channel() && !for_storage) {
-		// channels are not retained for storage, only for passing back out (e.g. in invocation argument getters)
-
-		sys_server_channel_t* server_channel = *(sys_server_channel_t* const*)object;
-
-		if (server_channel) {
-			return sys_retain(server_channel);
-		}
 	}
 
 	return ferr_ok;
@@ -150,12 +141,6 @@ void spooky_release_object_with_type(const void* object, spooky_type_t* type, bo
 
 		if (channel) {
 			sys_release(channel);
-		}
-	} else if (type == spooky_type_server_channel() && !for_storage) {
-		sys_server_channel_t* server_channel = *(sys_server_channel_t* const*)object;
-
-		if (server_channel) {
-			sys_release(server_channel);
 		}
 	}
 };

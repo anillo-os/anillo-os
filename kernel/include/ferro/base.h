@@ -68,7 +68,7 @@
 
 #define FERRO_UNION(name) \
 	typedef union name name ## _t; \
-	struct name
+	union name
 
 #define FERRO_UNION_FWD(name) \
 	typedef union name name ## _t;
@@ -143,6 +143,12 @@ FERRO_ALWAYS_INLINE void fassert_helper(int result, const char* expr) {
 #define FERRO_NO_UBSAN __attribute__((no_sanitize("undefined")))
 
 #define FERRO_NO_SAN __attribute__((no_sanitize("undefined", "kernel-address")))
+
+#if FERRO_ELF
+	#define FERRO_SIZE_FORMAT "%lu"
+#elif FERRO_MACHO
+	#define FERRO_SIZE_FORMAT "%llu"
+#endif
 
 /**
  * @}

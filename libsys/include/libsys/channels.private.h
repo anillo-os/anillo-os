@@ -32,19 +32,9 @@ LIBSYS_STRUCT(sys_channel_object) {
 	uint64_t channel_did;
 };
 
-LIBSYS_STRUCT(sys_server_channel_object) {
-	sys_object_t object;
-	uint64_t server_did;
-};
-
 LIBSYS_STRUCT(sys_channel_message_attachment_channel_object) {
 	sys_object_t object;
 	uint64_t channel_did;
-};
-
-LIBSYS_STRUCT(sys_channel_message_attachment_server_channel_object) {
-	sys_object_t object;
-	uint64_t server_did;
 };
 
 LIBSYS_STRUCT(sys_channel_message_object) {

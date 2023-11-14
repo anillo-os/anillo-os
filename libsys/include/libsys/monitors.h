@@ -50,8 +50,6 @@ LIBSYS_ENUM(uint64_t, sys_monitor_events) {
 	sys_monitor_event_channel_peer_closed                   = 1 << 4,
 	sys_monitor_event_channel_peer_queue_space_available    = 1 << 5,
 
-	sys_monitor_event_server_channel_client_arrived = 1 << 1,
-
 	sys_monitor_event_counter_updated = 1 << 1,
 };
 

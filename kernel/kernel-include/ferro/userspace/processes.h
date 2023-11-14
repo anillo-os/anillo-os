@@ -158,12 +158,6 @@ FERRO_STRUCT(fproc) {
 	flock_mutex_t parent_process_mutex;
 
 	fwaitq_waiter_t parent_process_death_waiter;
-
-	fchannel_realm_t* parent_realm;
-	fchannel_realm_t* child_realm;
-	fchannel_realm_t* local_realm;
-
-	flock_rw_t realms_rw;
 };
 
 typedef ferr_t (*fproc_descriptor_retain_f)(void* descriptor);
@@ -406,8 +400,6 @@ ferr_t fproc_attach_thread(fproc_t* process, fthread_t* uthread);
  *          or `NULL` if the process did not have a parent process or it could not be retained.
  */
 fproc_t* fproc_get_parent_process(fproc_t* process);
-
-ferr_t fproc_get_channel_realm(fproc_t* process, fproc_channel_realm_id_t realm_id, fchannel_realm_t** out_realm);
 
 FERRO_DECLARATIONS_END;
 

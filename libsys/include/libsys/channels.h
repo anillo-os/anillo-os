@@ -29,23 +29,9 @@
 LIBSYS_DECLARATIONS_BEGIN;
 
 LIBSYS_OBJECT_CLASS(channel);
-LIBSYS_OBJECT_CLASS(server_channel);
 LIBSYS_OBJECT_CLASS(channel_message);
 LIBSYS_OBJECT_CLASS(shared_memory);
 LIBSYS_OBJECT_CLASS(data);
-
-LIBSYS_ENUM(uint64_t, sys_channel_realm) {
-	sys_channel_realm_invalid = 0,
-	sys_channel_realm_children,
-	sys_channel_realm_parent,
-	sys_channel_realm_local,
-	sys_channel_realm_global,
-};
-
-LIBSYS_ENUM(uint64_t, sys_channel_connect_flags) {
-	sys_channel_connect_flag_recursive_realm = 1 << 0,
-	sys_channel_connect_flag_no_wait         = 1 << 1,
-};
 
 LIBSYS_ENUM(uint64_t, sys_channel_conversation_id) {
 	sys_channel_conversation_id_none = 0,
@@ -60,26 +46,26 @@ LIBSYS_ENUM(uint64_t, sys_channel_receive_flags) {
 	sys_channel_receive_flag_no_wait = 1 << 0,
 };
 
-LIBSYS_ENUM(uint64_t, sys_server_channel_accept_flags) {
-	sys_server_channel_accept_flag_no_wait = 1 << 0,
-};
-
 LIBSYS_ENUM(uint64_t, sys_channel_message_attachment_type) {
 	sys_channel_message_attachment_type_invalid = 0,
 	sys_channel_message_attachment_type_channel,
 	sys_channel_message_attachment_type_shared_memory,
 	sys_channel_message_attachment_type_data,
-	sys_channel_message_attachment_type_server_channel,
 };
 
 LIBSYS_ENUM(uint64_t, sys_channel_message_attachment_index) {
 	sys_channel_message_attachment_index_invalid = UINT64_MAX,
 };
 
+LIBSYS_TYPED_FUNC(void, sys_channel_connect_async_callback, void* context, sys_channel_t* channel);
+
 LIBSYS_WUR ferr_t sys_channel_create_pair(sys_channel_t** out_first, sys_channel_t** out_second);
 
-LIBSYS_WUR ferr_t sys_channel_connect(const char* server_name, sys_channel_realm_t realm, sys_channel_connect_flags_t flags, sys_channel_t** out_channel);
-LIBSYS_WUR ferr_t sys_channel_connect_n(const char* server_name, size_t server_name_length, sys_channel_realm_t realm, sys_channel_connect_flags_t flags, sys_channel_t** out_channel);
+LIBSYS_WUR ferr_t sys_channel_connect_sync(const char* server_name, sys_channel_t** out_channel);
+LIBSYS_WUR ferr_t sys_channel_connect_sync_n(const char* server_name, size_t server_name_length, sys_channel_t** out_channel);
+
+LIBSYS_WUR ferr_t sys_channel_connect_async(const char* server_name, sys_channel_connect_async_callback_f callback, void* context);
+LIBSYS_WUR ferr_t sys_channel_connect_async_n(const char* server_name, size_t server_name_length, sys_channel_connect_async_callback_f callback, void* context);
 
 LIBSYS_WUR ferr_t sys_channel_conversation_create(sys_channel_t* channel, sys_channel_conversation_id_t* out_conversation_id);
 
@@ -118,25 +104,6 @@ LIBSYS_WUR ferr_t sys_channel_receive(sys_channel_t* channel, sys_channel_receiv
  */
 void sys_channel_close(sys_channel_t* channel);
 
-LIBSYS_WUR ferr_t sys_server_channel_create(const char* name, sys_channel_realm_t realm, sys_server_channel_t** out_server_channel);
-LIBSYS_WUR ferr_t sys_server_channel_create_n(const char* name, size_t name_length, sys_channel_realm_t realm, sys_server_channel_t** out_server_channel);
-
-LIBSYS_WUR ferr_t sys_server_channel_accept(sys_server_channel_t* server_channel, sys_server_channel_accept_flags_t flags, sys_channel_t** out_channel);
-
-/**
- * Closes the server channel immediately.
- *
- * Closing a server channel unpublishes it from its realm and prevents any more clients from connecting to it.
- * It does NOT invalidate/close existing client channels.
- *
- * Any clients waiting to be accepted in the server queue will be declined.
- *
- * Any pending accepts will be aborted with ferr_permanent_outage.
- *
- * Like sys_channel_close(), this operation does NOT invalidate any references to the server channel nor does it prevent it from being retained or released.
- */
-void sys_server_channel_close(sys_server_channel_t* server_channel);
-
 LIBSYS_WUR ferr_t sys_channel_message_create(size_t initial_length, sys_channel_message_t** out_message);
 LIBSYS_WUR ferr_t sys_channel_message_create_copy(const void* data, size_t length, sys_channel_message_t** out_message);
 LIBSYS_WUR ferr_t sys_channel_message_create_nocopy(void* data, size_t length, sys_channel_message_t** out_message);
@@ -165,8 +132,6 @@ LIBSYS_WUR ferr_t sys_channel_message_attach_shared_memory(sys_channel_message_t
 
 LIBSYS_WUR ferr_t sys_channel_message_attach_data(sys_channel_message_t* message, sys_data_t* data, bool copy, sys_channel_message_attachment_index_t* out_attachment_index);
 
-LIBSYS_WUR ferr_t sys_channel_message_attach_server_channel(sys_channel_message_t* message, sys_server_channel_t* server_channel, sys_channel_message_attachment_index_t* out_attachment_index);
-
 size_t sys_channel_message_attachment_count(sys_channel_message_t* message);
 
 sys_channel_message_attachment_type_t sys_channel_message_attachment_type(sys_channel_message_t* message, sys_channel_message_attachment_index_t attachment_index);
@@ -181,8 +146,6 @@ LIBSYS_WUR ferr_t sys_channel_message_detach_channel(sys_channel_message_t* mess
 LIBSYS_WUR ferr_t sys_channel_message_detach_shared_memory(sys_channel_message_t* message, sys_channel_message_attachment_index_t attachment_index, sys_shared_memory_t** out_shared_memory);
 
 LIBSYS_WUR ferr_t sys_channel_message_detach_data(sys_channel_message_t* message, sys_channel_message_attachment_index_t attachment_index, sys_data_t** out_data);
-
-LIBSYS_WUR ferr_t sys_channel_message_detach_server_channel(sys_channel_message_t* message, sys_channel_message_attachment_index_t attachment_index, sys_server_channel_t** out_server_channel);
 
 sys_channel_conversation_id_t sys_channel_message_get_conversation_id(sys_channel_message_t* message);
 void sys_channel_message_set_conversation_id(sys_channel_message_t* message, sys_channel_conversation_id_t conversation_id);

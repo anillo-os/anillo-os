@@ -26,7 +26,7 @@
 #include <libvfs/libvfs.private.h>
 #include <libsys/channels.private.h>
 
-#ifdef BUILDING_DYMPLE
+#if BUILDING_DYMPLE
 static sys_channel_object_t proc_binary_channel = {
 	.object = {
 		.flags = 0,
@@ -39,7 +39,7 @@ static sys_channel_object_t proc_binary_channel = {
 };
 
 static uint8_t proc_binary_channel_used = 0;
-#elif !defined(BUILDING_STATIC)
+#elif !BUILDING_STATIC
 #include <dymple/dymple.h>
 #endif
 
@@ -77,7 +77,7 @@ ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file) {
 
 	switch (id) {
 		case sys_file_special_id_process_binary: {
-#ifdef BUILDING_DYMPLE
+#if BUILDING_DYMPLE
 			if (__atomic_test_and_set(&proc_binary_channel_used, __ATOMIC_RELAXED)) {
 				status = ferr_permanent_outage;
 				goto out;
@@ -87,7 +87,7 @@ ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file) {
 			if (status != ferr_ok) {
 				goto out;
 			}
-#elif !defined(BUILDING_STATIC)
+#elif !BUILDING_STATIC
 			sys_channel_t* channel = NULL;
 
 			status = dymple_open_process_binary_raw(&channel);

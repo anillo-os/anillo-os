@@ -1,7 +1,9 @@
 _sys_file_*
 _sys_proc_*
+_sys_sysman_*
 
 _sys_format_out_file_*
+_sys_channel_connect_*
 
 _sys_init_support
 

@@ -16,19 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <libsys/once.h>
+#include <libsys/once.private.h>
 #include <stdbool.h>
 #include <gen/libsyscall/syscall-wrappers.h>
 #include <libsys/threads.h>
 
 // based on https://github.com/bugaevc/lets-write-sync-primitives
-
-LIBSYS_ENUM(uint64_t, sys_once_state) {
-	sys_once_state_init = 0,
-	sys_once_state_done = 1,
-	sys_once_state_perform_no_wait = 2,
-	sys_once_state_perform_wait = 3,
-};
 
 void sys_once(sys_once_t* token, sys_once_f initializer, void* context, sys_once_flags_t flags) {
 	uint64_t old_state = sys_once_state_init;

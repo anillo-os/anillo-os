@@ -9,7 +9,7 @@ directive: interface_directive
 interface_directive: "@interface" "=" NAME
 server_name_directive: "@server" "=" ESCAPED_STRING
 server_realm_directive: "@realm" "=" REALM
-REALM: "children" | "parent" | "local" | "global"
+REALM: "children" | "local" | "global"
 
 interface: "interface" NAME "{" function* "}"
 

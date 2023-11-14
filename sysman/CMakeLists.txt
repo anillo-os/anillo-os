@@ -15,12 +15,18 @@ target_include_directories(sysman PRIVATE
 	"${CMAKE_CURRENT_BINARY_DIR}"
 )
 
-target_link_libraries(sysman PUBLIC
-	libc
-	libsys
-	libsimple
-	libeve
-	libspooky
+target_link_libraries(sysman PRIVATE
+	libsys_core_static
+	libsys_support_static
+	libsimple_static
+	libeve_static
+	libspooky_static
+	libstackchk_stub_static
+	libvfsman_static
+)
+
+target_link_options(sysman PRIVATE
+	-Wl,-static
 )
 
 add_anillo_executable(tinysh

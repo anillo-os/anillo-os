@@ -99,15 +99,6 @@ LIBSPOOKY_WUR ferr_t spooky_invocation_set_structure(spooky_invocation_t* invoca
 LIBSPOOKY_WUR ferr_t spooky_invocation_get_function(spooky_invocation_t* invocation, size_t index, spooky_function_implementation_f* out_function, void** out_context);
 LIBSPOOKY_WUR ferr_t spooky_invocation_set_function(spooky_invocation_t* invocation, size_t index, spooky_function_implementation_f function, void* context);
 
-LIBSPOOKY_WUR ferr_t spooky_invocation_get_server_channel(spooky_invocation_t* invocation, size_t index, bool retain, sys_server_channel_t** out_server_channel);
-
-/**
- * Sets the given server channel as the argument at the given index.
- *
- * @note Unlike most other invocation argument setters, this function consumes the caller's reference on the server channel.
- */
-LIBSPOOKY_WUR ferr_t spooky_invocation_set_server_channel(spooky_invocation_t* invocation, size_t index, sys_server_channel_t* server_channel);
-
 /**
  * Only valid for `in` parameters on incoming invocations or `out` parameters on outgoing invocations.
  * For `out` parameters on outgoing invocations: only valid after the invocation has completed.

@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2022 Anillo OS Developers
+ * Copyright (C) 2023 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,23 +16,20 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBEVE_BASE_H_
-#define _LIBEVE_BASE_H_
+#ifndef _LIBSYS_ONCE_PRIVATE_H_
+#define _LIBSYS_ONCE_PRIVATE_H_
 
-#include <libsys/libsys.h>
+#include <libsys/once.h>
 
-#define LIBEVE_NO_RETURN LIBSYS_NO_RETURN
-#define LIBEVE_DECLARATIONS_BEGIN LIBSYS_DECLARATIONS_BEGIN
-#define LIBEVE_DECLARATIONS_END LIBSYS_DECLARATIONS_END
-#define LIBEVE_STRUCT LIBSYS_STRUCT
-#define LIBEVE_PACKED_STRUCT LIBSYS_PACKED_STRUCT
-#define LIBEVE_ALWAYS_INLINE LIBSYS_ALWAYS_INLINE
-#define LIBEVE_ENUM LIBSYS_ENUM
-#define LIBEVE_STRUCT_FWD LIBSYS_STRUCT_FWD
-#define LIBEVE_WUR LIBSYS_WUR
-#define LIBEVE_PRINTF LIBSYS_PRINTF
-#define LIBEVE_OPTIONS LIBSYS_OPTIONS
-#define LIBEVE_WUR_IGNORE LIBSYS_WUR_IGNORE
-#define LIBEVE_TYPED_FUNC LIBSYS_TYPED_FUNC
+LIBSYS_DECLARATIONS_BEGIN;
 
-#endif // _LIBEVE_BASE_H_
+LIBSYS_ENUM(uint64_t, sys_once_state) {
+	sys_once_state_init = 0,
+	sys_once_state_done = 1,
+	sys_once_state_perform_no_wait = 2,
+	sys_once_state_perform_wait = 3,
+};
+
+LIBSYS_DECLARATIONS_END;
+
+#endif // _LIBSYS_ONCE_PRIVATE_H_

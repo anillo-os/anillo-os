@@ -132,20 +132,6 @@ static void fproc_all_uthreads_died(fproc_t* proc) {
 	}
 	flock_mutex_unlock(&proc->parent_process_mutex);
 
-	// release our references on our realms
-	flock_rw_lock_write(&proc->realms_rw);
-	if (proc->parent_realm) {
-		fchannel_realm_release(proc->parent_realm);
-		proc->parent_realm = NULL;
-	}
-	if (proc->local_realm) {
-		fchannel_realm_release(proc->local_realm);
-		proc->local_realm = NULL;
-	}
-	fchannel_realm_release(proc->child_realm);
-	proc->child_realm = NULL;
-	flock_rw_unlock(&proc->realms_rw);
-
 	// clean up the mappings linked list
 	// (the memory pointed to by the mappings is automatically cleaned up by fpage_space_destroy())
 	flock_mutex_lock(&proc->mappings_mutex);
@@ -245,9 +231,6 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t* parent_process, fp
 	bool destroy_futex_table_on_fail = false;
 	fthread_t* first_thread = NULL;
 	bool release_parent_on_fail = false;
-	bool release_parent_realm_on_fail = false;
-	bool release_local_realm_on_fail = false;
-	bool release_child_realm_on_fail = false;
 
 	if (!out_proc) {
 		status = ferr_invalid_argument;
@@ -336,37 +319,6 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t* parent_process, fp
 
 	proc->parent_process = parent_process;
 
-	if (proc->parent_process) {
-		proc->parent_realm = proc->parent_process->child_realm;
-
-		status = fchannel_realm_retain(proc->parent_realm);
-		if (status != ferr_ok) {
-			goto out;
-		}
-
-		release_parent_realm_on_fail = true;
-
-		proc->local_realm = proc->parent_process->local_realm;
-		if (proc->local_realm) {
-			status = fchannel_realm_retain(proc->local_realm);
-			if (status != ferr_ok) {
-				goto out;
-			}
-
-			release_local_realm_on_fail = true;
-		}
-	} else {
-		proc->parent_realm = NULL;
-		proc->local_realm = NULL;
-	}
-
-	status = fchannel_realm_new(proc->parent_realm, &proc->child_realm);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	release_child_realm_on_fail = true;
-
 	// if we got here, this process is definitely okay.
 	// just a few more non-erroring-throwing tasks to do and then we're done.
 
@@ -408,24 +360,10 @@ ferr_t fproc_new(fvfs_descriptor_t* file_descriptor, fproc_t* parent_process, fp
 		fwaitq_wait(&parent_process->death_wait, &proc->parent_process_death_waiter);
 	}
 
-	flock_rw_init(&proc->realms_rw);
-
 out:
 	if (status == ferr_ok) {
 		*out_proc = proc;
 	} else {
-		if (release_child_realm_on_fail) {
-			fchannel_realm_release(proc->child_realm);
-		}
-
-		if (release_local_realm_on_fail) {
-			fchannel_realm_release(proc->local_realm);
-		}
-
-		if (release_parent_realm_on_fail) {
-			fchannel_realm_release(proc->parent_realm);
-		}
-
 		if (release_parent_on_fail) {
 			fproc_release(parent_process);
 		}
@@ -1013,48 +951,4 @@ fproc_t* fproc_get_parent_process(fproc_t* process) {
 out:
 	flock_mutex_unlock(&process->parent_process_mutex);
 	return parent;
-};
-
-ferr_t fproc_get_channel_realm(fproc_t* process, fproc_channel_realm_id_t realm_id, fchannel_realm_t** out_realm) {
-	ferr_t status = ferr_ok;
-	fchannel_realm_t* realm = NULL;
-
-	if (!out_realm || realm_id == fproc_channel_realm_id_invalid || realm_id > fproc_channel_realm_id_xxx_max) {
-		status = ferr_invalid_argument;
-		goto out_unlocked;
-	}
-
-	flock_rw_lock_read(&process->realms_rw);
-
-	switch (realm_id) {
-		case fproc_channel_realm_id_parent:
-			realm = process->parent_realm;
-			break;
-		case fproc_channel_realm_id_child:
-			realm = process->child_realm;
-			break;
-		case fproc_channel_realm_id_local:
-			realm = process->local_realm;
-			break;
-	}
-
-	if (!realm) {
-		status = ferr_no_such_resource;
-		goto out;
-	}
-
-	if (fchannel_realm_retain(realm) != ferr_ok) {
-		status = ferr_no_such_resource;
-		goto out;
-	}
-
-out:
-	flock_rw_unlock(&process->realms_rw);
-
-out_unlocked:
-	if (status == ferr_ok) {
-		*out_realm = realm;
-	}
-
-	return status;
 };

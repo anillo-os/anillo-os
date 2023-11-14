@@ -32,8 +32,10 @@
 #include <libsys/mempool.private.h>
 #include <libsys/monitors.private.h>
 #include <libsys/objects.private.h>
+#include <libsys/once.private.h>
 #include <libsys/pages.private.h>
 #include <libsys/processes.private.h>
+#include <libsys/sysman.private.h>
 #include <libsys/threads.private.h>
 #include <libsys/timeout.private.h>
 

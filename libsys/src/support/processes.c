@@ -28,6 +28,7 @@
 #include <libspooky/proxy.private.h>
 #include <libsys/channels.private.h>
 #include <libsys/pages.private.h>
+#include <libsys/sysman.private.h>
 
 static sys_proc_object_t* this_process = NULL;
 
@@ -92,7 +93,7 @@ ferr_t sys_proc_init(void) {
 		goto out;
 	}
 
-#if !defined(BUILDING_DYMPLE) && !defined(BUILDING_STATIC)
+#if !BUILDING_DYMPLE && !BUILDING_STATIC
 	sys_once(&proc_init_channel_once, sys_proc_init_receive_message, NULL, 0);
 #endif
 
@@ -434,13 +435,17 @@ ferr_t sys_proc_create(sys_file_t* file, sys_object_t** attached_objects, size_t
 	libsyscall_process_memory_region_t* regions = NULL;
 	size_t region_count = 0;
 	sys_uloader_info_t* loader_info = NULL;
-	uint64_t descriptors[2] = {UINT64_MAX, UINT64_MAX};
+	uint64_t descriptors[3];
 	sys_channel_t* binary_desc = NULL;
 	sys_channel_t* our_channel = NULL;
 	sys_channel_t* their_channel = NULL;
 	sys_channel_message_t* init_message = NULL;
 	size_t successfully_attached_object_count = 0;
 	bool receive_message_on_fail = false;
+	sys_channel_t* subchannel = NULL;
+
+	// equivalent to setting each element to UINT64_MAX
+	simple_memset(descriptors, 0xff, sizeof(descriptors));
 
 	if (
 		(!out_proc && ((flags & sys_proc_flag_resume) == 0 || (flags & sys_proc_flag_detach) == 0))
@@ -518,6 +523,13 @@ ferr_t sys_proc_create(sys_file_t* file, sys_object_t** attached_objects, size_t
 
 	descriptors[1] = ((sys_channel_object_t*)their_channel)->channel_did;
 
+	status = sys_sysman_create_subchannel(&subchannel);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	descriptors[2] = ((sys_channel_object_t*)subchannel)->channel_did;
+
 	status = sys_channel_message_create(0, &init_message);
 	if (status != ferr_ok) {
 		goto out;
@@ -531,11 +543,6 @@ ferr_t sys_proc_create(sys_file_t* file, sys_object_t** attached_objects, size_t
 
 		if (obj_class == sys_object_class_channel()) {
 			status = sys_channel_message_attach_channel(init_message, object, &attachment_index);
-			if (status == ferr_ok) {
-				*object_ptr = NULL;
-			}
-		} else if (obj_class == sys_object_class_server_channel()) {
-			status = sys_channel_message_attach_server_channel(init_message, object, &attachment_index);
 			if (status == ferr_ok) {
 				*object_ptr = NULL;
 			}
@@ -580,6 +587,7 @@ ferr_t sys_proc_create(sys_file_t* file, sys_object_t** attached_objects, size_t
 	// assigning the descriptor to the new process consumes it
 	((sys_channel_object_t*)binary_desc)->channel_did = SYS_CHANNEL_DID_INVALID;
 	((sys_channel_object_t*)their_channel)->channel_did = SYS_CHANNEL_DID_INVALID;
+	((sys_channel_object_t*)subchannel)->channel_did = SYS_CHANNEL_DID_INVALID;
 
 	// this should never fail
 	sys_abort_status(libsyscall_wrapper_process_id(proc_handle, &proc_id));
@@ -595,6 +603,9 @@ ferr_t sys_proc_create(sys_file_t* file, sys_object_t** attached_objects, size_t
 	}
 
 out:
+	if (subchannel) {
+		sys_release(subchannel);
+	}
 	if (regions) {
 		LIBSYS_WUR_IGNORE(sys_mempool_free(regions));
 	}
@@ -624,9 +635,6 @@ out:
 			switch (sys_channel_message_attachment_type(init_message, i)) {
 				case sys_channel_message_attachment_type_channel:
 					sys_abort_status(sys_channel_message_detach_channel(init_message, i, &attached_objects[i]));
-					break;
-				case sys_channel_message_attachment_type_server_channel:
-					sys_abort_status(sys_channel_message_detach_server_channel(init_message, i, &attached_objects[i]));
 					break;
 				default:
 					break;
@@ -696,9 +704,6 @@ ferr_t sys_proc_init_context_object_class(uint64_t object_index, const sys_objec
 		case sys_channel_message_attachment_type_data:
 			object_class = sys_object_class_data();
 			break;
-		case sys_channel_message_attachment_type_server_channel:
-			object_class = sys_object_class_server_channel();
-			break;
 		default:
 			status = ferr_invalid_argument;
 			goto out;
@@ -733,9 +738,6 @@ ferr_t sys_proc_init_context_detach_object(uint64_t object_index, sys_object_t**
 			break;
 		case sys_channel_message_attachment_type_data:
 			status = sys_channel_message_detach_channel(proc_init_message, object_index, out_object);
-			break;
-		case sys_channel_message_attachment_type_server_channel:
-			status = sys_channel_message_detach_server_channel(proc_init_message, object_index, out_object);
 			break;
 		default:
 			status = ferr_invalid_argument;

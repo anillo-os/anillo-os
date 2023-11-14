@@ -85,6 +85,10 @@ void eve_event_wait(sys_event_t* event) {
 	sys_event_wait(event);
 };
 
+void eve_once(sys_once_t* token, sys_once_f initializer, void* context, sys_once_flags_t flags) {
+	return sys_once(token, initializer, context, flags);
+};
+
 //
 // unsupported APIs
 //

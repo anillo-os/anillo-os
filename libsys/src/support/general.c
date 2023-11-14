@@ -18,11 +18,17 @@
 
 #include <libsys/general.private.h>
 #include <libsys/processes.private.h>
+#include <libsys/sysman.private.h>
 
 ferr_t sys_init_support(void) {
 	ferr_t status = ferr_ok;
 
 	status = sys_proc_init();
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = sys_sysman_init();
 	if (status != ferr_ok) {
 		goto out;
 	}

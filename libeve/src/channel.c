@@ -349,11 +349,11 @@ static void eve_channel_handle_events(eve_item_t* self, sys_monitor_events_t eve
 	ferr_t status = ferr_ok;
 
 	if (events & sys_monitor_event_channel_peer_closed) {
-		// this should never fail
-		sys_abort_status(eve_retain((void*)channel));
-
 		// can't really do anything about failing here, so just ignore it
 		if (channel->peer_close_handler) {
+			// this should never fail
+			sys_abort_status(eve_retain((void*)channel));
+
 			LIBEVE_WUR_IGNORE(eve_loop_enqueue(eve_loop_get_current(), eve_channel_peer_close_handler, channel));
 		}
 

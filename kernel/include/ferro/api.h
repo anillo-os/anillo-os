@@ -45,7 +45,6 @@ FERRO_ENUM(uint8_t, fchannel_message_attachment_type) {
 	fchannel_message_attachment_type_channel        = 2,
 	fchannel_message_attachment_type_mapping        = 3,
 	fchannel_message_attachment_type_data           = 4,
-	fchannel_message_attachment_type_server_context = 5,
 };
 
 FERRO_ENUM(uint64_t, fchannel_message_id) {

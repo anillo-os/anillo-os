@@ -22,7 +22,7 @@
 // unsupported APIs
 //
 
-ferr_t eve_server_channel_create(sys_server_channel_t* sys_server_channel, void* context, eve_server_channel_t** out_server_channel) {
+ferr_t eve_server_channel_create(sys_channel_t* sys_server_channel, void* context, eve_server_channel_t** out_server_channel) {
 	return ferr_unsupported;
 };
 
@@ -30,6 +30,10 @@ void eve_server_channel_set_handler(eve_server_channel_t* server_channel, eve_se
 	// no-op
 };
 
-ferr_t eve_server_channel_target(eve_server_channel_t* server_channel, bool retain, sys_server_channel_t** out_sys_server_channel) {
+void eve_server_channel_set_peer_close_handler(eve_server_channel_t* server_channel, eve_server_channel_close_handler_f handler) {
+	// no-op
+};
+
+ferr_t eve_server_channel_target(eve_server_channel_t* server_channel, bool retain, sys_channel_t** out_sys_server_channel) {
 	return ferr_unsupported;
 };

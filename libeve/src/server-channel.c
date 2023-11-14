@@ -26,8 +26,8 @@ static void eve_server_channel_destroy(eve_object_t* obj) {
 		server_channel->destructor(server_channel->context);
 	}
 
-	if (server_channel->sys_server_channel) {
-		sys_release(server_channel->sys_server_channel);
+	if (server_channel->sysman_server_channel) {
+		sys_release(server_channel->sysman_server_channel);
 	}
 
 	if (server_channel->monitor_item) {
@@ -55,6 +55,7 @@ static void eve_server_channel_try_accept(eve_server_channel_object_t* server_ch
 	ferr_t status = ferr_ok;
 
 	while (true) {
+		sys_channel_message_t* message = NULL;
 		sys_channel_t* channel = NULL;
 		eve_server_channel_handler_context_t* handler_context = NULL;
 
@@ -66,12 +67,24 @@ static void eve_server_channel_try_accept(eve_server_channel_object_t* server_ch
 		// this should never fail
 		sys_abort_status(eve_retain((void*)server_channel));
 
-		status = sys_server_channel_accept(server_channel->sys_server_channel, sys_server_channel_accept_flag_no_wait, &channel);
+		status = sys_channel_receive(server_channel->sysman_server_channel, sys_channel_receive_flag_no_wait, &message);
 		if (status != ferr_ok) {
 			eve_release((void*)server_channel);
 			LIBEVE_WUR_IGNORE(sys_mempool_free(handler_context));
 			break;
 		}
+
+		status = sys_channel_message_detach_channel(message, 0, &channel);
+		if (status != ferr_ok) {
+			// weird. just drop the message for now.
+			sys_release(message);
+			eve_release((void*)server_channel);
+			LIBEVE_WUR_IGNORE(sys_mempool_free(handler_context));
+			continue;
+		}
+
+		sys_release(message);
+		message = NULL;
 
 		handler_context->server_channel = server_channel;
 		handler_context->channel = channel;
@@ -88,10 +101,25 @@ static void eve_server_channel_try_accept(eve_server_channel_object_t* server_ch
 	}
 };
 
+static void eve_server_channel_peer_close_handler(void* context) {
+	eve_server_channel_object_t* channel = context;
+
+	channel->close_handler(channel->context, (void*)channel);
+
+	eve_release((void*)channel);
+};
+
 static void eve_server_channel_handle_events(eve_item_t* self, sys_monitor_events_t events) {
 	eve_server_channel_object_t* server_channel = (void*)self;
 
-	if (events & sys_monitor_event_server_channel_client_arrived) {
+	if (events & sys_monitor_event_channel_peer_closed) {
+		// this should never fail
+		sys_abort_status(eve_retain((void*)server_channel));
+
+		LIBEVE_WUR_IGNORE(eve_loop_enqueue(eve_loop_get_current(), eve_server_channel_peer_close_handler, server_channel));
+	}
+
+	if (events & sys_monitor_event_channel_message_arrived) {
 		eve_server_channel_try_accept(server_channel);
 	}
 };
@@ -130,12 +158,12 @@ static const eve_object_class_t eve_server_channel_class = {
 	.destroy = eve_server_channel_destroy,
 };
 
-ferr_t eve_server_channel_create(sys_server_channel_t* sys_server_channel, void* context, eve_server_channel_t** out_server_channel) {
+ferr_t eve_server_channel_create(sys_channel_t* sysman_server_channel, void* context, eve_server_channel_t** out_server_channel) {
 	ferr_t status = ferr_ok;
 	eve_server_channel_object_t* server_channel = NULL;
 
-	if (sys_retain(sys_server_channel) != ferr_ok) {
-		sys_server_channel = NULL;
+	if (sys_retain(sysman_server_channel) != ferr_ok) {
+		sysman_server_channel = NULL;
 		status = ferr_permanent_outage;
 		goto out;
 	}
@@ -147,12 +175,12 @@ ferr_t eve_server_channel_create(sys_server_channel_t* sys_server_channel, void*
 
 	simple_memset((char*)server_channel + sizeof(server_channel->object), 0, sizeof(*server_channel) - sizeof(server_channel->object));
 
-	status = sys_monitor_item_create(sys_server_channel, sys_monitor_item_flag_enabled | sys_monitor_item_flag_active_high | sys_monitor_item_flag_edge_triggered, sys_monitor_event_item_deleted | sys_monitor_event_server_channel_client_arrived, server_channel, &server_channel->monitor_item);
+	status = sys_monitor_item_create(sysman_server_channel, sys_monitor_item_flag_enabled | sys_monitor_item_flag_active_high | sys_monitor_item_flag_edge_triggered, sys_monitor_event_item_deleted | sys_monitor_event_channel_message_arrived | sys_monitor_event_channel_peer_closed, server_channel, &server_channel->monitor_item);
 	if (status != ferr_ok) {
 		goto out;
 	}
 
-	server_channel->sys_server_channel = sys_server_channel;
+	server_channel->sysman_server_channel = sysman_server_channel;
 	server_channel->context = context;
 
 out:
@@ -161,8 +189,8 @@ out:
 	} else if (server_channel) {
 		eve_release((void*)server_channel);
 	} else {
-		if (sys_server_channel) {
-			sys_release(sys_server_channel);
+		if (sysman_server_channel) {
+			sys_release(sysman_server_channel);
 		}
 	}
 	return status;
@@ -173,13 +201,18 @@ void eve_server_channel_set_handler(eve_server_channel_t* obj, eve_server_channe
 	server_channel->handler = handler;
 };
 
-ferr_t eve_server_channel_target(eve_server_channel_t* obj, bool retain, sys_server_channel_t** out_sys_server_channel) {
+void eve_server_channel_set_peer_close_handler(eve_server_channel_t* obj, eve_server_channel_close_handler_f handler) {
+	eve_server_channel_object_t* server_channel = (void*)obj;
+	server_channel->close_handler = handler;
+};
+
+ferr_t eve_server_channel_target(eve_server_channel_t* obj, bool retain, sys_channel_t** out_sysman_server_channel) {
 	eve_server_channel_object_t* server_channel = (void*)obj;
 
-	if (retain && sys_retain(server_channel->sys_server_channel) != ferr_ok) {
+	if (retain && sys_retain(server_channel->sysman_server_channel) != ferr_ok) {
 		return ferr_permanent_outage;
 	}
 
-	*out_sys_server_channel = server_channel->sys_server_channel;
+	*out_sysman_server_channel = server_channel->sysman_server_channel;
 	return ferr_ok;
 };

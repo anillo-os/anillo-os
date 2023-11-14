@@ -21,10 +21,9 @@ class Type:
 
 class Realm(IntEnum):
 	INVALID  = 0
-	CHILDREN = 1
-	PARENT   = 2
-	LOCAL    = 3
-	GLOBAL   = 4
+	GLOBAL   = 1
+	LOCAL    = 2
+	CHILDREN = 3
 
 names: Set[str] = set()
 next_type_id: int = 0
@@ -37,7 +36,6 @@ max_type_params: int = 0
 root_interface_name: str | None = None
 default_server_name: str | None = None
 default_realm: Realm | None = None
-default_client_realm: Realm | None = None
 
 def name_to_type(name: str) -> Type:
 	type: Type | None = None
@@ -99,7 +97,6 @@ class BasicTypeTag(IntEnum):
 	data  = 11
 	proxy = 12,
 	channel = 13,
-	server_channel = 14,
 
 BASIC_TYPE_TAG_TO_NATIVE_TYPE = {
 	BasicTypeTag.u8    : 'uint8_t',
@@ -116,17 +113,16 @@ BASIC_TYPE_TAG_TO_NATIVE_TYPE = {
 	BasicTypeTag.data  : 'sys_data_t*',
 	BasicTypeTag.proxy : 'spooky_proxy_t*',
 	BasicTypeTag.channel : 'sys_channel_t*',
-	BasicTypeTag.server_channel : 'sys_server_channel_t*',
 }
 
 def type_is_refcounted(type: BasicTypeTag) -> bool:
-	return type == BasicTypeTag.data or type == BasicTypeTag.proxy or type == BasicTypeTag.channel or type == BasicTypeTag.server_channel
+	return type == BasicTypeTag.data or type == BasicTypeTag.proxy or type == BasicTypeTag.channel
 
 def type_is_consumed(type: BasicTypeTag) -> bool:
-	return type == BasicTypeTag.channel or type == BasicTypeTag.server_channel
+	return type == BasicTypeTag.channel
 
 def type_is_libsys(type: BasicTypeTag) -> bool:
-	return type == BasicTypeTag.channel or type == BasicTypeTag.server_channel
+	return type == BasicTypeTag.channel
 
 def type_to_native_for_source(type: Type) -> str:
 	if isinstance(type, BasicType):
@@ -370,12 +366,6 @@ ast: List[Interface | Structure] = lark_trans.transform(parse_tree)
 if default_realm == None:
 	default_realm = Realm.GLOBAL
 
-default_client_realm = default_realm
-if default_client_realm == Realm.CHILDREN:
-	default_client_realm = Realm.PARENT
-elif default_client_realm == Realm.PARENT:
-	default_client_realm = Realm.CHILDREN
-
 structures: List[Structure] = [x for x in ast if isinstance(x, Structure)]
 interfaces: List[Interface] = [x for x in ast if isinstance(x, Interface)]
 
@@ -449,7 +439,7 @@ else:
 		'static sys_mutex_t _spookygen_client_mutex = SYS_MUTEX_INIT;\n',
 		'static eve_channel_t* _spookygen_channel = NULL;\n',
 		'\n',
-		f'static ferr_t {root_interface_name}_init_explicit_locked(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop);\n',
+		f'static ferr_t {root_interface_name}_init_explicit_locked(const char* name, size_t name_length, eve_loop_t* loop);\n',
 		'\n',
 	])
 
@@ -857,7 +847,7 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 				source_file.write('\t\t\tsys_abort();\n')
 			else:
 				source_file.writelines([
-					f'\t\t\tstatus = {root_interface_name}_init_explicit_locked({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, eve_loop_get_main());\n',
+					f'\t\t\tstatus = {root_interface_name}_init_explicit_locked({json.dumps(default_server_name)}, {len(default_server_name)}, eve_loop_get_main());\n',
 					'\t\t\tif (status != ferr_ok) {\n',
 					'\t\t\t\tgoto out;\n',
 					'\t\t\t}\n',
@@ -1038,7 +1028,7 @@ if args.server:
 	header_file.write(f'spooky_interface_t* {root_interface_name}_interface(void);\n')
 	if default_server_name != None:
 		header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
-	header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_serve_explicit(eve_loop_t* loop, sys_server_channel_t* server_channel);\n')
+	header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_serve_explicit(eve_loop_t* loop, sys_channel_t* server_channel);\n')
 	header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_detach(eve_loop_t* loop, eve_server_channel_t** out_server_channel);\n')
 
 	source_file.writelines([
@@ -1049,11 +1039,11 @@ if args.server:
 
 	if default_server_name != None:
 		source_file.writelines([
-			f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_server_channel_t** out_server_channel) {{\n',
+			f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_serve(eve_loop_t* loop, eve_channel_t** out_server_channel) {{\n',
 			'\tferr_t status = ferr_ok;\n',
-			'\tsys_server_channel_t* sys_server_channel = NULL;\n',
+			'\tsys_channel_t* sys_server_channel = NULL;\n',
 			'\n',
-			f'\tstatus = sys_server_channel_create_n({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, &sys_server_channel);\n',
+			f'\tstatus = sys_sysman_register_sync_n({json.dumps(default_server_name)}, {len(default_server_name)}, sys_sysman_realm_{default_realm.name.lower()}, &sys_server_channel);\n',
 			'\tif (status != ferr_ok) {\n',
 			'\t\tgoto out;\n'
 			'\t}\n',
@@ -1111,7 +1101,7 @@ if args.server:
 	])
 
 	source_file.writelines([
-		f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_serve_explicit(eve_loop_t* loop, sys_server_channel_t* sys_server_channel) {{\n',
+		f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_serve_explicit(eve_loop_t* loop, sys_channel_t* sys_server_channel) {{\n',
 		'\tferr_t status = ferr_ok;\n',
 		f'\tspooky_interface_entry_t entries[{len(root_interface.functions)}];\n',
 		'\n',
@@ -1180,12 +1170,12 @@ if args.server:
 else:
 	if default_server_name != None:
 		header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_init(eve_loop_t* loop);\n')
-	header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_init_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop);\n')
+	header_file.write(f'SPOOKYGEN_{root_interface_name}_STORAGE LIBSPOOKY_WUR ferr_t {root_interface_name}_init_explicit(const char* name, size_t name_length, eve_loop_t* loop);\n')
 
 	if default_server_name != None:
 		source_file.writelines([
 			f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_init(eve_loop_t* loop) {{\n',
-			f'\treturn {root_interface_name}_init_explicit({json.dumps(default_server_name)}, {len(default_server_name)}, sys_channel_realm_{default_realm.name.lower()}, loop);\n',
+			f'\treturn {root_interface_name}_init_explicit({json.dumps(default_server_name)}, {len(default_server_name)}, loop);\n',
 			'};\n\n',
 		])
 
@@ -1212,7 +1202,7 @@ else:
 	])
 
 	source_file.writelines([
-		f'static ferr_t {root_interface_name}_init_explicit_locked(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop) {{\n',
+		f'static ferr_t {root_interface_name}_init_explicit_locked(const char* name, size_t name_length, eve_loop_t* loop) {{\n',
 		'\tferr_t status = ferr_ok;\n',
 		'\tsys_channel_t* sys_channel = NULL;\n',
 		'\n',
@@ -1223,7 +1213,7 @@ else:
 		'\t\tgoto out;\n'
 		'\t}\n',
 		'\n',
-		'\tstatus = sys_channel_connect_n(name, name_length, realm, /* TODO: make this optional */ sys_channel_connect_flag_recursive_realm, &sys_channel);',
+		'\tstatus = sys_channel_connect_sync_n(name, name_length, &sys_channel);',
 		'\tif (status != ferr_ok) {\n',
 		'\t\tgoto out;\n'
 		'\t}\n',
@@ -1259,9 +1249,9 @@ else:
 	])
 
 	source_file.writelines([
-		f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_init_explicit(const char* name, size_t name_length, sys_channel_realm_t realm, eve_loop_t* loop) {{\n',
+		f'SPOOKYGEN_{root_interface_name}_STORAGE ferr_t {root_interface_name}_init_explicit(const char* name, size_t name_length, eve_loop_t* loop) {{\n',
 		f'\tsys_mutex_lock(&_spookygen_client_mutex);\n',
-		f'\tferr_t status = {root_interface_name}_init_explicit_locked(name, name_length, realm, loop);\n',
+		f'\tferr_t status = {root_interface_name}_init_explicit_locked(name, name_length, loop);\n',
 		'\tsys_mutex_unlock(&_spookygen_client_mutex);\n',
 		'\treturn status;\n',
 		'};\n\n',

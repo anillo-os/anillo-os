@@ -34,16 +34,6 @@ static void channel_destroy(sys_object_t* object) {
 	sys_object_destroy(object);
 };
 
-static void server_channel_destroy(sys_object_t* object) {
-	sys_server_channel_object_t* server_channel = (void*)object;
-
-	if (server_channel->server_did != SYS_CHANNEL_DID_INVALID) {
-		libsyscall_wrapper_server_channel_close(server_channel->server_did, true);
-	}
-
-	sys_object_destroy(object);
-};
-
 static void channel_message_destroy(sys_object_t* object) {
 	sys_channel_message_object_t* message = (void*)object;
 
@@ -74,29 +64,12 @@ static void channel_message_attachment_channel_destroy(sys_object_t* object) {
 	sys_object_destroy(object);
 };
 
-static void channel_message_attachment_server_channel_destroy(sys_object_t* object) {
-	sys_channel_message_attachment_server_channel_object_t* attachment = (void*)object;
-
-	if (attachment->server_did != SYS_CHANNEL_DID_INVALID) {
-		libsyscall_wrapper_server_channel_close(attachment->server_did, true);
-	}
-
-	sys_object_destroy(object);
-};
-
 const sys_object_class_t __sys_object_class_channel = {
 	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
 	.destroy = channel_destroy,
 };
 
 LIBSYS_OBJECT_CLASS_GETTER(channel, __sys_object_class_channel);
-
-static const sys_object_class_t server_channel_object_class = {
-	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
-	.destroy = server_channel_destroy,
-};
-
-LIBSYS_OBJECT_CLASS_GETTER(server_channel, server_channel_object_class);
 
 static const sys_object_class_t channel_message_object_class = {
 	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
@@ -111,13 +84,6 @@ static const sys_object_class_t channel_message_attachment_channel_object_class 
 };
 
 LIBSYS_OBJECT_CLASS_GETTER(channel_message_attachment_channel, channel_message_attachment_channel_object_class);
-
-static const sys_object_class_t channel_message_attachment_server_channel_object_class = {
-	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
-	.destroy = channel_message_attachment_server_channel_destroy,
-};
-
-LIBSYS_OBJECT_CLASS_GETTER(server_channel_message_attachment_channel, channel_message_attachment_server_channel_object_class);
 
 ferr_t sys_channel_create_pair(sys_channel_t** out_first, sys_channel_t** out_second) {
 	ferr_t status = ferr_ok;
@@ -163,77 +129,6 @@ out:
 		}
 	}
 
-	return status;
-};
-
-ferr_t sys_channel_connect(const char* server_name, sys_channel_realm_t realm, sys_channel_connect_flags_t flags, sys_channel_t** out_channel) {
-	return sys_channel_connect_n(server_name, simple_strlen(server_name), realm, flags, out_channel);
-};
-
-static ferr_t sys_channel_realm_to_libsyscall_realm(sys_channel_realm_t realm, libsyscall_channel_realm_t* out_libsyscall_realm) {
-	switch (realm) {
-		case sys_channel_realm_local:
-			*out_libsyscall_realm = libsyscall_channel_realm_local;
-			break;
-		case sys_channel_realm_global:
-			*out_libsyscall_realm = libsyscall_channel_realm_global;
-			break;
-		case sys_channel_realm_parent:
-			*out_libsyscall_realm = libsyscall_channel_realm_parent;
-			break;
-		case sys_channel_realm_children:
-			*out_libsyscall_realm = libsyscall_channel_realm_children;
-			break;
-		default:
-			return ferr_invalid_argument;
-	}
-
-	return ferr_ok;
-};
-
-ferr_t sys_channel_connect_n(const char* server_name, size_t server_name_length, sys_channel_realm_t realm, sys_channel_connect_flags_t flags, sys_channel_t** out_channel) {
-	ferr_t status = ferr_ok;
-	sys_channel_object_t* channel = NULL;
-	libsyscall_channel_realm_t libsyscall_realm;
-	libsyscall_channel_connect_flags_t libsyscall_flags = 0;
-
-	status = sys_channel_realm_to_libsyscall_realm(realm, &libsyscall_realm);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	if ((flags & sys_channel_connect_flag_no_wait) != 0) {
-		libsyscall_flags |= libsyscall_channel_connect_flag_no_wait;
-	}
-
-	if ((flags & sys_channel_connect_flag_recursive_realm) != 0) {
-		libsyscall_flags |= libsyscall_channel_connect_flag_recursive_realm;
-	}
-
-	// create the object first, because allocating memory is cheap in comparison to making syscalls
-
-	status = sys_object_new(&__sys_object_class_channel, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&channel);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	channel->channel_did = SYS_CHANNEL_DID_INVALID;
-
-	// now try to make the syscall
-
-	status = libsyscall_wrapper_channel_connect(server_name, server_name_length, libsyscall_realm, libsyscall_flags, &channel->channel_did);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-out:
-	if (status == ferr_ok) {
-		*out_channel = (void*)channel;
-	} else {
-		if (channel) {
-			sys_release((void*)channel);
-		}
-	}
 	return status;
 };
 
@@ -369,83 +264,6 @@ void sys_channel_close(sys_channel_t* object) {
 	libsyscall_wrapper_channel_close(channel->channel_did, false);
 };
 
-ferr_t sys_server_channel_create(const char* name, sys_channel_realm_t realm, sys_server_channel_t** out_server_channel) {
-	return sys_server_channel_create_n(name, simple_strlen(name), realm, out_server_channel);
-};
-
-ferr_t sys_server_channel_create_n(const char* name, size_t name_length, sys_channel_realm_t realm, sys_server_channel_t** out_server_channel) {
-	ferr_t status = ferr_ok;
-	libsyscall_channel_realm_t libsyscall_realm;
-	sys_server_channel_object_t* server_channel = NULL;
-
-	status = sys_channel_realm_to_libsyscall_realm(realm, &libsyscall_realm);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	status = sys_object_new(&server_channel_object_class, sizeof(sys_server_channel_object_t) - sizeof(sys_object_t), (void*)&server_channel);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	server_channel->server_did = SYS_CHANNEL_DID_INVALID;
-
-	status = libsyscall_wrapper_server_channel_create(name, name_length, libsyscall_realm, &server_channel->server_did);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-out:
-	if (status == ferr_ok) {
-		*out_server_channel = (void*)server_channel;
-	} else {
-		if (server_channel) {
-			sys_release((void*)server_channel);
-		}
-	}
-
-	return status;
-};
-
-ferr_t sys_server_channel_accept(sys_server_channel_t* object, sys_server_channel_accept_flags_t flags, sys_channel_t** out_channel) {
-	sys_server_channel_object_t* server_channel = (void*)object;
-	ferr_t status = ferr_ok;
-	sys_channel_object_t* channel = NULL;
-	fchannel_server_accept_flags_t libsyscall_flags = 0;
-
-	if ((flags & sys_server_channel_accept_flag_no_wait) != 0) {
-		libsyscall_flags |= fserver_channel_accept_flag_no_wait;
-	}
-
-	status = sys_object_new(&__sys_object_class_channel, sizeof(sys_channel_object_t) - sizeof(sys_object_t), (void*)&channel);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	channel->channel_did = SYS_CHANNEL_DID_INVALID;
-
-	status = libsyscall_wrapper_server_channel_accept(server_channel->server_did, libsyscall_flags, &channel->channel_did);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-out:
-	if (status == ferr_ok) {
-		*out_channel = (void*)channel;
-	} else {
-		if (channel) {
-			sys_release((void*)channel);
-		}
-	}
-
-	return status;
-};
-
-void sys_server_channel_close(sys_server_channel_t* object) {
-	sys_server_channel_object_t* server_channel = (void*)object;
-	libsyscall_wrapper_server_channel_close(server_channel->server_did, false);
-};
-
 ferr_t sys_channel_message_create(size_t initial_length, sys_channel_message_t** out_message) {
 	ferr_t status = ferr_ok;
 	sys_channel_message_object_t* message = NULL;
@@ -576,8 +394,6 @@ static sys_channel_message_attachment_type_t sys_channel_object_class_to_attachm
 		return sys_channel_message_attachment_type_shared_memory;
 	} else if (object_class == sys_object_class_data()) {
 		return sys_channel_message_attachment_type_data;
-	} else if (object_class == &channel_message_attachment_server_channel_object_class) {
-		return sys_channel_message_attachment_type_server_channel;
 	} else {
 		return sys_channel_message_attachment_type_invalid;
 	}
@@ -699,50 +515,6 @@ out:
 	} else {
 		if (data) {
 			sys_release((void*)data);
-		}
-	}
-
-	return status;
-};
-
-ferr_t sys_channel_message_attach_server_channel(sys_channel_message_t* object, sys_server_channel_t* server_channel_object, sys_channel_message_attachment_index_t* out_attachment_index) {
-	sys_channel_message_object_t* message = (void*)object;
-	ferr_t status = ferr_ok;
-	sys_channel_message_attachment_server_channel_object_t* attachment = NULL;
-	sys_channel_message_attachment_index_t index = UINT64_MAX;
-	sys_server_channel_object_t* channel = (void*)server_channel_object;
-
-	status = sys_object_new(&channel_message_attachment_server_channel_object_class, sizeof(sys_channel_message_attachment_server_channel_object_t) - sizeof(sys_object_t), (void*)&attachment);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	attachment->server_did = SYS_CHANNEL_DID_INVALID;
-
-	status = sys_mempool_reallocate(message->attachments, sizeof(*message->attachments) * (message->attachment_count + 1), NULL, (void*)&message->attachments);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	attachment->server_did = channel->server_did;
-	channel->server_did = SYS_CHANNEL_DID_INVALID;
-
-	index = message->attachment_count;
-
-	message->attachments[index] = (void*)attachment;
-
-	++message->attachment_count;
-
-out:
-	if (status == ferr_ok) {
-		if (out_attachment_index) {
-			*out_attachment_index = index;
-		}
-
-		sys_release(server_channel_object);
-	} else {
-		if (attachment) {
-			sys_release((void*)attachment);
 		}
 	}
 
@@ -871,57 +643,6 @@ out:
 	return status;
 };
 
-ferr_t sys_channel_message_detach_server_channel(sys_channel_message_t* object, sys_channel_message_attachment_index_t attachment_index, sys_server_channel_t** out_server_channel) {
-	sys_channel_message_object_t* message = (void*)object;
-	ferr_t status = ferr_ok;
-	sys_channel_message_attachment_server_channel_object_t* attachment = NULL;
-	sys_server_channel_object_t* server_channel = NULL;
-
-	if (attachment_index >= message->attachment_count) {
-		status = ferr_no_such_resource;
-		goto out;
-	}
-
-	if (sys_channel_message_attachment_type(object, attachment_index) != sys_channel_message_attachment_type_server_channel) {
-		status = ferr_invalid_argument;
-		goto out;
-	}
-
-	if (out_server_channel) {
-		status = sys_object_new(&server_channel_object_class, sizeof(sys_server_channel_object_t) - sizeof(sys_object_t), (void*)&server_channel);
-		if (status != ferr_ok) {
-			goto out;
-		}
-	}
-
-	attachment = (void*)message->attachments[attachment_index];
-	message->attachments[attachment_index] = NULL;
-
-	if (out_server_channel) {
-		server_channel->server_did = attachment->server_did;
-	} else {
-		libsyscall_wrapper_server_channel_close(attachment->server_did, true);
-	}
-	attachment->server_did = SYS_CHANNEL_DID_INVALID;
-
-out:
-	if (status == ferr_ok) {
-		if (out_server_channel) {
-			*out_server_channel = (void*)server_channel;
-		}
-	} else {
-		if (out_server_channel) {
-			sys_release((void*)server_channel);
-		}
-	}
-
-	if (attachment) {
-		sys_release((void*)attachment);
-	}
-
-	return status;
-};
-
 sys_channel_conversation_id_t sys_channel_message_get_conversation_id(sys_channel_message_t* object) {
 	sys_channel_message_object_t* message = (void*)object;
 	return message->conversation_id;
@@ -971,10 +692,6 @@ ferr_t sys_channel_message_serialize(sys_channel_message_t* object, libsyscall_c
 
 				case sys_channel_message_attachment_type_data:
 					out_syscall_message->attachments_length += sizeof(libsyscall_channel_message_attachment_data_t);
-					break;
-
-				case sys_channel_message_attachment_type_server_channel:
-					out_syscall_message->attachments_length += sizeof(libsyscall_channel_message_attachment_server_channel_t);
 					break;
 
 				default:
@@ -1042,15 +759,6 @@ ferr_t sys_channel_message_serialize(sys_channel_message_t* object, libsyscall_c
 					}
 				} break;
 
-				case sys_channel_message_attachment_type_server_channel: {
-					libsyscall_channel_message_attachment_server_channel_t* server_channel_attachment = (void*)current_header;
-					sys_channel_message_attachment_server_channel_object_t* server_channel_object = (void*)attachment;
-
-					server_channel_attachment->header.type = fchannel_message_attachment_type_server_context;
-					server_channel_attachment->header.length = sizeof(*server_channel_attachment);
-					server_channel_attachment->server_channel_id = server_channel_object->server_did;
-				} break;
-
 				default:
 					// bad attachment type
 					sys_abort();
@@ -1107,13 +815,6 @@ void sys_channel_message_consumed(sys_channel_message_t* object, libsyscall_chan
 					// or retained (for shared data) by the kernel;
 					// our data object is still perfectly valid
 					break;
-
-				case sys_channel_message_attachment_type_server_channel: {
-					sys_channel_message_attachment_server_channel_object_t* server_channel_attachment_object = (void*)attachment;
-
-					// the server channel descriptor has been consumed by the kernel, so we don't need to (and shouldn't) close it ourselves
-					server_channel_attachment_object->server_did = SYS_CHANNEL_DID_INVALID;
-				} break;
 
 				default:
 					// bad attachment type
@@ -1313,20 +1014,6 @@ ferr_t sys_channel_message_deserialize_prepare(sys_channel_message_deserializati
 					++message->attachment_count;
 				} break;
 
-				case fchannel_message_attachment_type_server_context: {
-					sys_channel_message_attachment_server_channel_object_t* attachment_object = NULL;
-
-					status = sys_object_new(&channel_message_attachment_server_channel_object_class, sizeof(sys_channel_message_attachment_server_channel_object_t) - sizeof(sys_object_t), (void*)&attachment_object);
-					if (status != ferr_ok) {
-						goto out;
-					}
-
-					attachment_object->server_did = SYS_CHANNEL_DID_INVALID;
-
-					message->attachments[message->attachment_count] = (void*)attachment_object;
-					++message->attachment_count;
-				} break;
-
 				case fchannel_message_attachment_type_null: {
 					// leave the entry in the attachment array as `NULL`
 					++message->attachment_count;
@@ -1407,15 +1094,6 @@ void sys_channel_message_deserialize_finalize(sys_channel_message_deserializatio
 					// the kernel already took care of everything;
 					// all we were missing was filling-in the data, which the kernel did for us.
 				}
-
-				++attachment_index;
-			} break;
-
-			case fchannel_message_attachment_type_server_context: {
-				libsyscall_channel_message_attachment_server_channel_t* syscall_attachment = (void*)header;
-				sys_channel_message_attachment_server_channel_object_t* attachment_object = (void*)message->attachments[attachment_index];
-
-				attachment_object->server_did = syscall_attachment->server_channel_id;
 
 				++attachment_index;
 			} break;

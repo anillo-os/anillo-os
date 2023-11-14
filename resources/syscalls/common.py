@@ -8,16 +8,6 @@ enums.extend([
 		('ns_relative', '1'),
 		('ns_absolute_monotonic', '2'),
 	]),
-	Enum('channel_realm', 'u8', [
-		('parent', '0'),
-		('children', '1'),
-		('local', '2'),
-		('global', '3'),
-	]),
-	Enum('channel_connect_flags', 'u64', prefix='channel_connect_flag', values=[
-		('recursive_realm', '1 << 0'),
-		('no_wait', '1 << 1'),
-	]),
 	Enum('channel_receive_flags', 'u64', prefix='channel_receive_flag', values=[
 		('no_wait', '1 << 0'),
 		('pre_receive_peek', '1 << 1'),
@@ -56,7 +46,7 @@ enums.extend([
 	Enum('monitor_item_type', 'u8', [
 		('invalid', '0'),
 		('channel', '1'),
-		('server_channel', '2'),
+		# 2 is reserved
 		('futex', '3'),
 		('timeout', '4'),
 	]),
@@ -68,8 +58,6 @@ enums.extend([
 		('channel_peer_queue_emptied', '1 << 3'),
 		('channel_peer_closed', '1 << 4'),
 		('channel_peer_queue_space_available', '1 << 5'),
-
-		('server_channel_client_arrived', '1 << 1'),
 
 		('futex_awoken', '1 << 1'),
 
@@ -142,10 +130,6 @@ structures.extend([
 		('length', 'u64'),
 		# descriptor (for shared data) or pointer (for non-shared data)
 		('target', 'u64'),
-	]),
-	Structure('channel_message_attachment_server_channel', [
-		('header', 's:channel_message_attachment_header'),
-		('server_channel_id', 'u64'),
 	]),
 	Structure('channel_message', [
 		('conversation_id', '!fchannel_conversation_id_t'),
@@ -255,10 +239,6 @@ structures.extend([
 	.add_syscall('process_suspend', process_handle='u64')
 	.add_syscall('process_resume', process_handle='u64')
 	.add_syscall('process_close', process_handle='u64')
-	.add_syscall('server_channel_create', channel_name='string', channel_name_length='u64', realm='e:channel_realm', out_server_channel_id='*[u64]')
-	.add_syscall('server_channel_accept', server_channel_id='u64', flags='!fchannel_server_accept_flags_t', out_channel_id='*[u64]')
-	.add_syscall('server_channel_close', server_channel_id='u64', release_descriptor='u8')
-	.add_syscall('channel_connect', server_channel_name='string', server_channel_name_length='u64', realm='e:channel_realm', flags='e:channel_connect_flags', out_channel_id='*[u64]')
 	.add_syscall('channel_create_pair', out_channel_ids='*[u64]')
 	.add_syscall('channel_conversation_create', channel_id='u64', out_conversation_id='*[!fchannel_conversation_id_t]')
 	.add_syscall('channel_send', channel_id='u64', flags='!fchannel_send_flags_t', timeout='u64', timeout_type='e:timeout_type', in_out_message='*[s:channel_message]')

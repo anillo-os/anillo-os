@@ -34,6 +34,8 @@
 
 FERRO_DECLARATIONS_BEGIN;
 
+FERRO_STRUCT_FWD(fchannel);
+
 FERRO_PACKED_STRUCT(fpci_mcfg_entry) {
 	uint64_t base_address;
 	uint16_t segment_group;
@@ -141,6 +143,8 @@ ferr_t fpci_function_register_interrupt_handler(fpci_function_info_t* function, 
 
 ferr_t farch_pci_function_register_msi_handler(fpci_capability_info_t* msi);
 ferr_t farch_pci_function_register_msi_x_handler(fpci_function_info_t* function, volatile fpci_msi_x_entry_t* table, size_t entry_count);
+
+extern fchannel_t* fpci_pciman_client_channel;
 
 FERRO_DECLARATIONS_END;
 

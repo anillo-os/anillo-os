@@ -27,6 +27,8 @@
 #include <ferro/core/console.h>
 #include <ferro/userspace/process-registry.h>
 #include <ferro/core/ramdisk.h>
+#include <ferro/drivers/pci.private.h>
+#include <ferro/syscalls/channels.private.h>
 
 extern const fproc_descriptor_class_t fsyscall_shared_page_class;
 
@@ -37,6 +39,7 @@ void ferro_userspace_entry(void) {
 	size_t ramdisk_size = 0;
 	fproc_did_t ramdisk_did = FPROC_DID_MAX;
 	void* ramdisk_copy_tmp = NULL;
+	fproc_did_t pciman_did = FPROC_DID_MAX;
 
 	futhread_init();
 
@@ -54,11 +57,11 @@ void ferro_userspace_entry(void) {
 	simple_memcpy(ramdisk_copy_tmp, ramdisk, ramdisk_size);
 	fpanic_status(fpage_space_remove_mapping(fpage_space_current(), ramdisk_copy_tmp));
 
-	fvfs_descriptor_t* vfsman_desc = NULL;
-	fpanic_status(fvfs_open("/sys/vfsman/vfsman_bootstrap", fvfs_descriptor_flag_read | fvfs_descriptor_flags_execute, &vfsman_desc));
+	fvfs_descriptor_t* sysman_desc = NULL;
+	fpanic_status(fvfs_open("/sys/sysman/sysman", fvfs_descriptor_flag_read | fvfs_descriptor_flags_execute, &sysman_desc));
 
 	fproc_t* proc = NULL;
-	fpanic_status(fproc_new(vfsman_desc, NULL, &proc));
+	fpanic_status(fproc_new(sysman_desc, NULL, &proc));
 
 	fpanic_status(fprocreg_register(proc));
 
@@ -71,8 +74,20 @@ void ferro_userspace_entry(void) {
 
 	fpage_mapping_release(ramdisk_mapping);
 
+	// wait for pciman to start
+	while (!fpci_pciman_client_channel) {
+		farch_lock_spin_yield();
+	}
+
+	fpanic_status(fproc_install_descriptor(proc, fpci_pciman_client_channel, &fsyscall_channel_descriptor_class, &pciman_did));
+
+	if (pciman_did != 1) {
+		// the pciman DID *has* to be the second in the process
+		fpanic("Wrong DID for pciman client channel");
+	}
+
 	fpanic_status(fproc_resume(proc));
 
-	fvfs_release(vfsman_desc);
+	fvfs_release(sysman_desc);
 	fproc_release(proc);
 };

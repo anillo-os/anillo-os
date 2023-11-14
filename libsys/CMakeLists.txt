@@ -31,6 +31,7 @@ set(libsys_support_sources
 	src/support/format.c
 	src/support/general.c
 	src/support/processes.c
+	src/support/sysman.c
 )
 
 set(libsys_libs

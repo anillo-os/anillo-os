@@ -1,7 +1,0 @@
-@interface = vfsman_handoff
-@server = "org.anillo.vfsman-handoff"
-@realm = global
-
-interface vfsman_handoff {
-	function handoff(server: out server_channel, ramdisk: out data, status: out i32)
-}

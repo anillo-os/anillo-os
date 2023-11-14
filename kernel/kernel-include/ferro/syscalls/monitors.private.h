@@ -106,19 +106,6 @@ FERRO_STRUCT(fsyscall_monitor_item_channel) {
 	fwaitq_waiter_t close_waiter;
 };
 
-FERRO_STRUCT(fsyscall_monitor_item_server_channel) {
-	fsyscall_monitor_item_t base;
-
-	fchannel_server_t* server_channel;
-
-	bool client_arrival_high;
-	fwaitq_waiter_t client_arrival_waiter;
-	fwaitq_waiter_t queue_empty_waiter;
-
-	bool close_high;
-	fwaitq_waiter_t close_waiter;
-};
-
 FERRO_STRUCT(fsyscall_monitor_item_futex) {
 	fsyscall_monitor_item_t base;
 	futex_t* futex;

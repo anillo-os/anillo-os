@@ -40,7 +40,9 @@ static void main_channel_message_send_error_handler(void* context, eve_channel_t
 
 static void do_pci_connection_init(void* context) {
 	sys_channel_t* sys_channel = NULL;
-	sys_abort_status_log(sys_channel_connect("org.anillo.pciman", sys_channel_realm_global, 0, &sys_channel));
+	sys_console_log_f("libpci: connecting to pciman\n");
+	sys_abort_status_log(sys_channel_connect_sync("org.anillo.pciman", &sys_channel));
+	sys_console_log_f("libpci: connected to pciman\n");
 	sys_abort_status_log(eve_channel_create(sys_channel, NULL, &pci_connection));
 	sys_release(sys_channel);
 	eve_channel_set_message_handler(pci_connection, main_channel_message_handler);
@@ -51,7 +53,7 @@ static void do_pci_connection_init(void* context) {
 };
 
 static void ensure_pci_connection(void) {
-	sys_once(&pci_connection_init, do_pci_connection_init, NULL, 0);
+	eve_once(&pci_connection_init, do_pci_connection_init, NULL, 0);
 };
 
 ferr_t pci_visit(pci_visitor_f iterator, void* context) {
@@ -201,7 +203,7 @@ ferr_t pci_connect(const pci_device_info_t* target, pci_device_t** out_device) {
 	device->interrupt_handler = NULL;
 	device->interrupt_handler_context = NULL;
 
-	status = sys_channel_connect("org.anillo.pciman", sys_channel_realm_global, 0, &sys_channel);
+	status = sys_channel_connect_sync("org.anillo.pciman", &sys_channel);
 	if (status != ferr_ok) {
 		goto out;
 	}
