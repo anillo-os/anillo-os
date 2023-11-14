@@ -423,16 +423,27 @@ static sys_channel_object_t pciman_channel = {
 	.channel_did = 1,
 };
 
+static sys_channel_object_t handoff_channel = {
+	.object = {
+		.flags = 0,
+		.object_class = &__sys_object_class_channel,
+		.reference_count = 1,
+	},
+
+	// the handoff channel DID is always the third descriptor
+	.channel_did = 2,
+};
+
 static size_t ramdisk_memory_page_count = 0;
 
-static void start_process(const char* filename) {
+static void start_process(const char* filename, sys_object_t** attached_objects, size_t attached_object_count) {
 	sys_proc_t* proc = NULL;
 	sys_file_t* file = NULL;
 
 	sys_abort_status_log(sys_file_open(filename, &file));
 
 	sysman_log_f("starting %s...\n", filename);
-	sys_abort_status_log(sys_proc_create(file, NULL, 0, sys_proc_flag_resume | sys_proc_flag_detach, &proc));
+	sys_abort_status_log(sys_proc_create(file, attached_objects, attached_object_count, sys_proc_flag_resume | sys_proc_flag_detach, &proc));
 	sysman_log_f("%s started with PID = %llu\n", filename, sys_proc_id(proc));
 
 	sys_release(file);
@@ -443,8 +454,10 @@ static void start_process(const char* filename) {
 };
 
 static void start_managers(void* context) {
-	start_process("/sys/netman/netman");
-	start_process("/sys/usbman/usbman");
+	sys_channel_t* handoff_channel_ptr = (void*)&handoff_channel;
+	start_process("/sys/displayman/displayman", &handoff_channel_ptr, 1);
+	start_process("/sys/netman/netman", NULL, 0);
+	start_process("/sys/usbman/usbman", NULL, 0);
 };
 
 void start(void) asm("start");
