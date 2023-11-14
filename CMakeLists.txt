@@ -185,6 +185,7 @@ add_subdirectory(netman)
 add_subdirectory(libpci)
 add_subdirectory(usbman)
 add_subdirectory(vfsman)
+add_subdirectory(displayman)
 
 add_custom_command(
 	OUTPUT
