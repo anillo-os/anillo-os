@@ -60,6 +60,7 @@ void main(void) {
 
 	simple_memcpy(&fb_info, sys_channel_message_data(incoming_message), sizeof(fb_info));
 
+#if 0
 	sys_console_log_f(
 		"fb info:\n"
 		"width=%lu; height=%lu;\n"
@@ -73,6 +74,7 @@ void main(void) {
 		fb_info.blue_mask, fb_info.other_mask,
 		fb_info.total_byte_size, fb_info.bytes_per_pixel
 	);
+#endif
 
 	if (sys_channel_message_detach_shared_memory(incoming_message, 0, &fb_memory) == ferr_ok) {
 		fb_page_count = sys_page_round_up_count(fb_info.total_byte_size);
