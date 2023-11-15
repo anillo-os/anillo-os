@@ -458,6 +458,8 @@ static void start_managers(void* context) {
 	start_process("/sys/displayman/displayman", &handoff_channel_ptr, 1);
 	start_process("/sys/netman/netman", NULL, 0);
 	start_process("/sys/usbman/usbman", NULL, 0);
+	start_process("/sys/hidman/hidman", NULL, 0);
+	start_process("/sys/conman/conman", NULL, 0);
 };
 
 void start(void) asm("start");
