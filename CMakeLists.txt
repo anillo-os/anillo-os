@@ -188,6 +188,7 @@ add_subdirectory(vfsman)
 add_subdirectory(displayman)
 add_subdirectory(conman)
 add_subdirectory(hidman)
+add_subdirectory(libjson)
 
 add_custom_command(
 	OUTPUT

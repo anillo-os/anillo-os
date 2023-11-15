@@ -25,7 +25,7 @@ add_library(libvfsman_static STATIC
 	"${CMAKE_CURRENT_BINARY_DIR}/vfs.server.c"
 )
 
-set_target_properties(libvfs_static PROPERTIES
+set_target_properties(libvfsman_static PROPERTIES
 	OUTPUT_NAME vfsman
 )
 
