@@ -29,6 +29,7 @@
 #include <ferro/core/ramdisk.h>
 #include <ferro/drivers/pci.private.h>
 #include <ferro/syscalls/channels.private.h>
+#include <ferro/core/mempool.h>
 
 extern const fproc_descriptor_class_t fsyscall_shared_page_class;
 
@@ -36,9 +37,9 @@ static void ferro_userspace_handoff_thread(void* data) {
 	fchannel_t* channel = data;
 	fchannel_message_t incoming_message;
 	fchannel_message_t outgoing_message;
-	fchannel_message_attachment_mapping_t attachment;
+	fchannel_message_attachment_mapping_t* attachment = NULL;
 	fpage_mapping_t* mapping = NULL;
-	ferro_fb_info_t body;
+	ferro_fb_info_t* body = NULL;
 
 	if (fchannel_receive(channel, 0, &incoming_message) != ferr_ok) {
 		// assume the other side was closed
@@ -49,26 +50,31 @@ static void ferro_userspace_handoff_thread(void* data) {
 	simple_memset(&outgoing_message, 0, sizeof(outgoing_message));
 	outgoing_message.conversation_id = incoming_message.conversation_id;
 
-	simple_memset(&body, 0, sizeof(body));
-	outgoing_message.body = &body;
-	outgoing_message.body_length = sizeof(body);
+	fpanic_status(fmempool_allocate(sizeof(*body), NULL, (void*)&body));
+	fpanic_status(fmempool_allocate(sizeof(*body), NULL, (void*)&attachment));
+
+	simple_memset(body, 0, sizeof(*body));
+	outgoing_message.body = body;
+	outgoing_message.body_length = sizeof(*body);
 
 	if (ferro_fb_get_info()) {
-		simple_memcpy(&body, ferro_fb_get_info(), sizeof(body));
-		body.base = NULL;
+		simple_memcpy(body, ferro_fb_get_info(), sizeof(*body));
+		body->base = NULL;
 	}
 
 	// we don't need the incoming messaage anymore
 	fchannel_message_destroy(&incoming_message);
 
-	simple_memset(&attachment, 0, sizeof(attachment));
-	attachment.header.length = sizeof(attachment);
-	attachment.header.next_offset = 0;
-	attachment.header.type = fchannel_message_attachment_type_mapping;
+	simple_memset(attachment, 0, sizeof(*attachment));
+	attachment->header.length = sizeof(*attachment);
+	attachment->header.next_offset = 0;
+	attachment->header.type = fchannel_message_attachment_type_mapping;
 
-	if (ferro_fb_handoff(&attachment.mapping) == ferr_ok) {
-		outgoing_message.attachments = &attachment.header;
-		outgoing_message.attachments_length = sizeof(attachment);
+	if (ferro_fb_handoff(&attachment->mapping) == ferr_ok) {
+		outgoing_message.attachments = (void*)attachment;
+		outgoing_message.attachments_length = sizeof(*attachment);
+	} else {
+		FERRO_WUR_IGNORE(fmempool_free(attachment));
 	}
 
 	if (fchannel_send(channel, 0, &outgoing_message) != ferr_ok) {
