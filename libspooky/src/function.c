@@ -24,6 +24,8 @@ static void spooky_function_destroy(spooky_object_t* obj) {
 	for (size_t i = 0; i < function->parameter_count; ++i) {
 		spooky_release(function->parameters[i].type);
 	}
+
+	sys_object_destroy(obj);
 };
 
 static const spooky_object_class_t function_class = {

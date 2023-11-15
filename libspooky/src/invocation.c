@@ -283,6 +283,8 @@ static void spooky_invocation_destroy(spooky_object_t* obj) {
 	if (invocation->name) {
 		LIBSPOOKY_WUR_IGNORE(sys_mempool_free(invocation->name));
 	}
+
+	sys_object_destroy(obj);
 };
 
 static const spooky_object_class_t invocation_class = {

@@ -37,6 +37,8 @@ static void sys_monitor_destroy(sys_object_t* obj) {
 	for (size_t i = monitor->item_count; i < monitor->array_size; ++i) {
 		sys_release(monitor->items[i]);
 	}
+
+	sys_object_destroy(obj);
 };
 
 static void sys_monitor_item_destroy(sys_object_t* obj) {
@@ -45,6 +47,8 @@ static void sys_monitor_item_destroy(sys_object_t* obj) {
 	// we shouldn't be attached to any monitors at this point
 
 	sys_release(item->target);
+
+	sys_object_destroy(obj);
 };
 
 static const sys_object_class_t monitor_class = {
