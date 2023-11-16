@@ -28,6 +28,25 @@ ferr_t json_parse_string_n(const char* string, size_t string_length, bool json5,
 };
 
 ferr_t json_parse_file(sys_file_t* file, bool json5, json_object_t** out_object) {
-	// TODO
-	return ferr_unsupported;
+	ferr_t status = ferr_ok;
+	sys_file_info_t info;
+	sys_data_t* data = NULL;
+
+	status = sys_file_get_info(file, &info);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = sys_file_read_data(file, 0, info.size, &data);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = json_parse_string_n(sys_data_contents(data), sys_data_length(data), json5, out_object);
+
+out:
+	if (data) {
+		sys_release(data);
+	}
+	return status;
 };

@@ -34,8 +34,21 @@ const json_object_class_t* json_object_class_number(void) {
 };
 
 ferr_t json_number_new_unsigned_integer(uint64_t value, json_number_t** out_number) {
-	// TODO
-	return ferr_unsupported;
+	ferr_t status = ferr_ok;
+	json_number_object_t* number = NULL;
+
+	status = sys_object_new(&json_number_class, sizeof(*number) - sizeof(number->object), (void*)&number);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	number->is_integral = true;
+	number->integer_value = value;
+
+	*out_number = (void*)number;
+
+out:
+	return status;
 };
 
 ferr_t json_number_new_signed_integer(int64_t value, json_number_t** out_number) {
@@ -44,13 +57,26 @@ ferr_t json_number_new_signed_integer(int64_t value, json_number_t** out_number)
 };
 
 ferr_t json_number_new_float(double value, json_number_t** out_number) {
-	// TODO
-	return ferr_unsupported;
+	ferr_t status = ferr_ok;
+	json_number_object_t* number = NULL;
+
+	status = sys_object_new(&json_number_class, sizeof(*number) - sizeof(number->object), (void*)&number);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	number->is_integral = false;
+	number->float_value = value;
+
+	*out_number = (void*)number;
+
+out:
+	return status;
 };
 
-uint64_t json_number_value_unsigned_integer(json_number_t* number) {
-	// TODO
-	return 0;
+uint64_t json_number_value_unsigned_integer(json_number_t* obj) {
+	json_number_object_t* number = (void*)obj;
+	return number->is_integral ? number->integer_value : (uint64_t)number->float_value;
 };
 
 int64_t json_number_value_signed_integer(json_number_t* number) {
@@ -58,12 +84,12 @@ int64_t json_number_value_signed_integer(json_number_t* number) {
 	return (int64_t)json_number_value_unsigned_integer(number);
 };
 
-double json_number_value_float(json_number_t* number) {
-	// TODO
-	return 0;
+double json_number_value_float(json_number_t* obj) {
+	json_number_object_t* number = (void*)obj;
+	return number->is_integral ? (double)number->integer_value : number->float_value;
 };
 
-bool json_number_is_integral(json_number_t* number) {
-	// TODO
-	return false;
+bool json_number_is_integral(json_number_t* obj) {
+	json_number_object_t* number = (void*)obj;
+	return number->is_integral;
 };

@@ -26,6 +26,8 @@ LIBJSON_DECLARATIONS_BEGIN;
 
 LIBJSON_STRUCT(json_array_object) {
 	json_object_t object;
+	size_t length;
+	json_object_t** objects;
 };
 
 LIBJSON_DECLARATIONS_END;
