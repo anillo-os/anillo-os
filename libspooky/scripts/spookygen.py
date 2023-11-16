@@ -607,7 +607,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 			'\t\treturn;\n',
 			'\t}\n',
 			'\n',
-			'\ttarget = ((struct _spookygen_callback_context*)context)->target;\n',
+			'\ttarget = (void*)((struct _spookygen_callback_context*)context)->target;\n',
 			'\ttarget_context = ((struct _spookygen_callback_context*)context)->target_context;\n',
 			'\tLIBSPOOKY_WUR_IGNORE(sys_mempool_free(context));\n\n',
 		])
@@ -617,7 +617,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 			'\t\treturn;\n',
 			'\t}\n',
 			'\n',
-			f'\ttarget = (({interface.name}_proxy_info_t*)context)->{raw_name};\n',
+			f'\ttarget = (void*)(({interface.name}_proxy_info_t*)context)->{raw_name};\n',
 			f'\ttarget_context = (({interface.name}_proxy_info_t*)context)->context;\n',
 		])
 	else:
@@ -761,7 +761,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 						'\t}\n',
 					])
 			elif isinstance(param.type, StructureType):
-				source_file.write(f'\tspooky_release_object_with_type(&arg{index}, _spookygen_types[{param.type_id}]);\n')
+				source_file.write(f'\tspooky_release_object_with_type(&arg{index}, _spookygen_types[{param.type_id}], false);\n')
 			elif isinstance(param.type, FunctionType):
 				source_file.writelines([
 					'\n',
@@ -971,7 +971,7 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 			elif isinstance(param.type, StructureType):
 				source_file.writelines([
 					f'\t\tif (arg{index} && arg{index}_should_cleanup_on_fail) {{\n',
-					f'\t\t\tspooky_release_object_with_type(arg{index}, _spookygen_types[{param.type_id}]);\n',
+					f'\t\t\tspooky_release_object_with_type(arg{index}, _spookygen_types[{param.type_id}], false);\n',
 					'\t\t}\n',
 				])
 			elif isinstance(param.type, FunctionType):
