@@ -21,11 +21,13 @@
 
 #include <libjson/dict.h>
 #include <libjson/objects.private.h>
+#include <libsimple/libsimple.h>
 
 LIBJSON_DECLARATIONS_BEGIN;
 
 LIBJSON_STRUCT(json_dict_object) {
 	json_object_t object;
+	simple_ghmap_t map;
 };
 
 LIBJSON_DECLARATIONS_END;

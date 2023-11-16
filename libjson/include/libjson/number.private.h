@@ -26,6 +26,11 @@ LIBJSON_DECLARATIONS_BEGIN;
 
 LIBJSON_STRUCT(json_number_object) {
 	json_object_t object;
+	bool is_integral;
+	union {
+		uint64_t integer_value;
+		double float_value;
+	};
 };
 
 LIBJSON_DECLARATIONS_END;

@@ -33,13 +33,27 @@ const json_object_class_t* json_object_class_dict(void) {
 	return &json_dict_class;
 };
 
-ferr_t json_dict_get(json_dict_t* dict, const char* key, sys_object_t** out_value) {
+ferr_t json_dict_new(size_t entries, const char* const* keys, const size_t* key_lengths, json_object_t* const* values, json_dict_t** out_dict) {
+	// TODO
+	return ferr_unsupported;
+};
+
+ferr_t json_dict_get(json_dict_t* dict, const char* key, json_object_t** out_value) {
 	return json_dict_get_n(dict, key, simple_strlen(key), out_value);
 };
 
-ferr_t json_dict_get_n(json_dict_t* obj, const char* key, size_t key_length, sys_object_t** out_value) {
+ferr_t json_dict_get_n(json_dict_t* obj, const char* key, size_t key_length, json_object_t** out_value) {
 	json_dict_object_t* dict = (void*)obj;
 
+	// TODO
+	return ferr_unsupported;
+};
+
+ferr_t json_dict_set(json_dict_t* dict, const char* key, json_object_t* value) {
+	return json_dict_set_n(dict, key, simple_strlen(key), value);
+};
+
+ferr_t json_dict_set_n(json_dict_t* dict, const char* key, size_t key_length, json_object_t* value) {
 	// TODO
 	return ferr_unsupported;
 };

@@ -26,10 +26,18 @@ LIBJSON_DECLARATIONS_BEGIN;
 
 LIBJSON_OBJECT_CLASS(dict);
 
-LIBJSON_TYPED_FUNC(bool, json_dict_iterator, void* context, const char* key, size_t key_length, sys_object_t* value);
+LIBJSON_TYPED_FUNC(bool, json_dict_iterator, void* context, const char* key, size_t key_length, json_object_t* value);
 
-LIBJSON_WUR ferr_t json_dict_get(json_dict_t* dict, const char* key, sys_object_t** out_value);
-LIBJSON_WUR ferr_t json_dict_get_n(json_dict_t* dict, const char* key, size_t key_length, sys_object_t** out_value);
+LIBJSON_WUR ferr_t json_dict_new(size_t entries, const char* const* keys, const size_t* key_lengths, json_object_t* const* values, json_dict_t** out_dict);
+
+LIBJSON_WUR ferr_t json_dict_get(json_dict_t* dict, const char* key, json_object_t** out_value);
+LIBJSON_WUR ferr_t json_dict_get_n(json_dict_t* dict, const char* key, size_t key_length, json_object_t** out_value);
+
+LIBJSON_WUR ferr_t json_dict_set(json_dict_t* dict, const char* key, json_object_t* value);
+LIBJSON_WUR ferr_t json_dict_set_n(json_dict_t* dict, const char* key, size_t key_length, json_object_t* value);
+
+LIBJSON_WUR ferr_t json_dict_clear(json_dict_t* dict, const char* key);
+LIBJSON_WUR ferr_t json_dict_clear_n(json_dict_t* dict, const char* key, size_t key_length);
 
 size_t json_dict_entries(json_dict_t* dict);
 
