@@ -195,6 +195,24 @@ ferr_t sys_file_copy_path(sys_file_t* obj, size_t buffer_size, void* out_buffer,
 	return vfs_file_copy_path(file->file, out_buffer, buffer_size, out_actual_size);
 };
 
+LIBSYS_WUR ferr_t sys_file_get_info(sys_file_t* obj, sys_file_info_t* out_info) {
+	sys_file_object_t* file = (void*)obj;
+	ferr_t status = ferr_ok;
+	vfs_file_info_t info;
+
+	status = vfs_file_get_info(file->file, &info);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (out_info) {
+		out_info->size = info.size;
+	}
+
+out:
+	return status;
+};
+
 ferr_t sys_file_copy_path_allocate(sys_file_t* file, char** out_string, size_t* out_string_length) {
 	ferr_t status = ferr_ok;
 	size_t required_size = 0;

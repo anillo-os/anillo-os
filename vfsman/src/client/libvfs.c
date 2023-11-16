@@ -295,6 +295,28 @@ out:
 	return status;
 };
 
+ferr_t vfs_file_get_info(vfs_file_t* obj, vfs_file_info_t* out_info) {
+	ferr_t status = ferr_ok;
+	ferr_t get_status = ferr_ok;
+	vfs_file_object_t* file = (void*)obj;
+	struct vfsman_file_info vfsman_info;
+
+	status = vfsman_file_get_info(file->proxy, &vfsman_info, &get_status);
+	if (status == ferr_ok) {
+		status = get_status;
+	}
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	if (out_info) {
+		out_info->size = vfsman_info.size;
+	}
+
+out:
+	return status;
+};
+
 ferr_t vfs_open_raw(sys_channel_t* channel, vfs_file_t** out_file) {
 	ferr_t status = ferr_ok;
 	vfs_file_object_t* file = NULL;

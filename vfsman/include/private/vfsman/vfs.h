@@ -39,6 +39,7 @@ FERRO_ENUM(uint8_t, vfsman_node_type) {
 
 FERRO_STRUCT(vfsman_node_info) {
 	vfsman_node_type_t type;
+	size_t size;
 };
 
 typedef uint64_t vfsman_list_children_context_t;

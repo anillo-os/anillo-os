@@ -674,6 +674,23 @@ out:
 	return ferr_ok;
 };
 
+static ferr_t vfsman_file_get_info_impl(void* _context, struct vfsman_file_info* info, ferr_t* out_status) {
+	vfsman_descriptor_object_t* descriptor = _context;
+	ferr_t status = ferr_ok;
+	vfsman_node_info_t node_info;
+
+	status = descriptor->mount->backend->copy_info(descriptor->mount->context, (void*)descriptor, &node_info);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	info->size = node_info.size;
+
+out:
+	*out_status = status;
+	return ferr_ok;
+};
+
 static const vfsman_file_proxy_info_t vfsman_file_proxy_info_base = {
 	.context = NULL,
 	.destructor = (void*)vfsman_release,
@@ -682,6 +699,7 @@ static const vfsman_file_proxy_info_t vfsman_file_proxy_info_base = {
 	.write = vfsman_file_write_impl,
 	.get_path = vfsman_file_get_path_impl,
 	.duplicate_raw = vfsman_file_duplicate_raw_impl,
+	.get_info = vfsman_file_get_info_impl,
 };
 
 ferr_t vfsman_open_impl(void* _context, sys_data_t* path, spooky_proxy_t** out_file, ferr_t* out_status) {

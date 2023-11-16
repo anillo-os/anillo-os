@@ -479,6 +479,7 @@ static ferr_t vfs_ramdisk_copy_info(void* context, vfsman_descriptor_t* descript
 	vfsman_ramdisk_node_descriptor_t* desc = (void*)descriptor;
 
 	out_info->type = entry_is_directory(desc->entry) ? vfsman_node_type_directory : vfsman_node_type_file;
+	out_info->size = desc->entry->size;
 
 	return ferr_ok;
 };

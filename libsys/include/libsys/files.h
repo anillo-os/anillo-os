@@ -35,6 +35,10 @@ LIBSYS_ENUM(uint64_t, sys_file_special_id) {
 
 LIBSYS_OBJECT_CLASS(file);
 
+LIBSYS_STRUCT(sys_file_info) {
+	size_t size;
+};
+
 LIBSYS_WUR ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file);
 
 LIBSYS_WUR ferr_t sys_file_open(const char* path, sys_file_t** out_file);
@@ -50,6 +54,8 @@ LIBSYS_WUR ferr_t sys_file_read_into_shared_data(sys_file_t* file, uint64_t read
 LIBSYS_WUR ferr_t sys_file_write(sys_file_t* file, uint64_t offset, size_t buffer_size, const void* buffer, size_t* out_written_count);
 
 LIBSYS_WUR ferr_t sys_file_copy_path(sys_file_t* file, size_t buffer_size, void* out_buffer, size_t* out_actual_size);
+
+LIBSYS_WUR ferr_t sys_file_get_info(sys_file_t* file, sys_file_info_t* out_info);
 
 /**
  * Like sys_file_copy_path(), but automatically allocates a buffer using the memory pool.

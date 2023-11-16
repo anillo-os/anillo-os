@@ -35,6 +35,10 @@ const vfs_object_class_t* vfs_object_class(vfs_object_t* object);
 
 LIBVFS_OBJECT_CLASS(file);
 
+LIBVFS_STRUCT(vfs_file_info) {
+	size_t size;
+};
+
 LIBVFS_WUR ferr_t vfs_open(const char* path, vfs_file_t** out_file);
 LIBVFS_WUR ferr_t vfs_open_n(const char* path, size_t length, vfs_file_t** out_file);
 
@@ -43,5 +47,6 @@ LIBVFS_WUR ferr_t vfs_file_read_data(vfs_file_t* file, size_t offset, size_t siz
 LIBVFS_WUR ferr_t vfs_file_read_into_shared_data(vfs_file_t* file, size_t read_offset, size_t size, sys_data_t* shared_data, size_t shared_data_offset, size_t* out_read_size);
 LIBVFS_WUR ferr_t vfs_file_write(vfs_file_t* file, size_t offset, size_t size, const void* buffer, size_t* out_written_size);
 LIBVFS_WUR ferr_t vfs_file_copy_path(vfs_file_t* file, char* buffer, size_t size, size_t* out_actual_size);
+LIBVFS_WUR ferr_t vfs_file_get_info(vfs_file_t* file, vfs_file_info_t* out_info);
 
 #endif // _LIBVFS_LIBVFS_H_
