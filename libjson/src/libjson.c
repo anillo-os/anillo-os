@@ -18,13 +18,14 @@
 
 #include <libjson/libjson.h>
 
-ferr_t json_parse_string(const char* string, bool json5, json_object_t** out_object) {
-	return json_parse_string_n(string, simple_strlen(string), json5, out_object);
+LIBJSON_STRUCT(json_object_stack) {
+	json_object_t* object;
+	char* pending_key;
+	size_t pending_key_length;
 };
 
-ferr_t json_parse_string_n(const char* string, size_t string_length, bool json5, json_object_t** out_object) {
-	// TODO
-	return ferr_unsupported;
+ferr_t json_parse_string(const char* string, bool json5, json_object_t** out_object) {
+	return json_parse_string_n(string, simple_strlen(string), json5, out_object);
 };
 
 ferr_t json_parse_file(sys_file_t* file, bool json5, json_object_t** out_object) {
@@ -47,6 +48,77 @@ ferr_t json_parse_file(sys_file_t* file, bool json5, json_object_t** out_object)
 out:
 	if (data) {
 		sys_release(data);
+	}
+	return status;
+};
+
+ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool json5, size_t* out_characters, char** out_string, size_t* out_string_length) {
+	ferr_t status = ferr_ok;
+	size_t offset = 0;
+	size_t parsed_length = 0;
+	char* parsed = NULL;
+	bool singleQuoteString = false;
+
+	if (buffer_length < 2) {
+		// a string requires at least the opening and closing quotation marks
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (json5 && buffer[offset] == '\'') {
+		singleQuoteString = true;
+	} else if (buffer[offset] != '"') {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	++offset;
+
+	for (; offset < buffer_length; ++offset) {
+		if () if (buffer[offset] == '"')
+	}
+
+	*out_characters = offset;
+	*out_string = parsed;
+	*out_string_length = parsed_length;
+
+out:
+	return status;
+};
+
+ferr_t json_parse_string_n(const char* string, size_t string_length, bool json5, json_object_t** out_object) {
+	json_object_stack_t* object_stack = NULL;
+	size_t object_stack_size = 0;
+	ferr_t status = ferr_ok;
+	json_object_t* result = NULL;
+
+	while (string_length > 0) {
+
+	}
+
+	if (object_stack_size > 0) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	if (!result) {
+		status = ferr_invalid_argument;
+		goto out;
+	}
+
+	*out_object = result;
+
+out:
+	if (object_stack_size > 0) {
+		for (size_t i = 0; i < object_stack_size; ++i) {
+			if (object_stack[i].pending_key) {
+				LIBJSON_WUR_IGNORE(sys_mempool_free(object_stack[i].pending_key));
+			}
+			if (object_stack[i].object) {
+				LIBJSON_WUR_IGNORE(json_release(object_stack[i].object));
+			}
+		}
+		LIBJSON_WUR_IGNORE(sys_mempool_free(object_stack));
 	}
 	return status;
 };
