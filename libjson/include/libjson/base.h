@@ -35,4 +35,6 @@
 #define LIBJSON_WUR_IGNORE LIBSYS_WUR_IGNORE
 #define LIBJSON_TYPED_FUNC LIBSYS_TYPED_FUNC
 
+#define json_assert(x) fassert(x)
+
 #endif // _LIBJSON_BASE_H_
