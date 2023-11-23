@@ -121,13 +121,13 @@ static uint8_t utf32_to_utf8(uint32_t code_point, char* out_bytes) {
 		return 2;
 	} else if (code_point < 0x10000) {
 		out_bytes[0] = 0xe0 | ((code_point & (0x0fULL << 12)) >> 12);
-		out_bytes[1] = 0x80 | (code_point & (0x3fULL << 6) >> 6);
+		out_bytes[1] = 0x80 | ((code_point & (0x3fULL << 6)) >> 6);
 		out_bytes[2] = 0x80 | (code_point & 0x3f);
 		return 3;
 	} else {
 		out_bytes[0] = 0xf0 | ((code_point & (0x07ULL << 18)) >> 18);
-		out_bytes[1] = 0x80 | (code_point & (0x3fULL << 12) >> 12);
-		out_bytes[2] = 0x80 | (code_point & (0x3fULL << 6) >> 6);
+		out_bytes[1] = 0x80 | ((code_point & (0x3fULL << 12)) >> 12);
+		out_bytes[2] = 0x80 | ((code_point & (0x3fULL << 6)) >> 6);
 		out_bytes[3] = 0x80 | (code_point & 0x3f);
 		return 4;
 	}

@@ -67,8 +67,24 @@ out:
 	return utf32_char;
 };
 
+static uint8_t utf16_to_utf8(const uint16_t* sequence, size_t max_length, char* out_bytes) {
+
+};
+
 LIBJSON_ALWAYS_INLINE bool is_hex_digit(char character) {
 	return (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F');
+};
+
+LIBJSON_ALWAYS_INLINE uint8_t hex_digit_value(char character) {
+	if (character >= 'a' && character <= 'f') {
+		return (character - 'a') + 10;
+	} else if (character >= 'A' && character <= 'F') {
+		return (character - 'A') + 10;
+	} else if (character >= '0' && character <= '9') {
+		return character - '0';
+	} else {
+		return UINT8_MAX;
+	}
 };
 
 ferr_t json_parse_string(const char* string, bool json5, json_object_t** out_object) {
@@ -177,8 +193,8 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 					// consume the first three hex digits (the last hex digit is consumed by the loop's increment)
 					offset += 4;
 
-					// a Unicode escape sequence requires 2 bytes to be represented
-					parsed_length += 2;
+					// a Unicode escape sequence may require up to 3 UTF-8 bytes to be represented
+					parsed_length += 3;
 					break;
 
 				case 'x':
@@ -314,7 +330,9 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 					}
 					break;
 
-				case 'u':
+				case 'u': {
+					uint16_t utf16;
+
 					fassert(offset + 4 < buffer_length);
 
 					// consume the 'u'
@@ -322,8 +340,14 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 
 					fassert(is_hex_digit(buffer[offset]) && is_hex_digit(buffer[offset + 1]) && is_hex_digit(buffer[offset + 2]) && is_hex_digit(buffer[offset + 3]));
 
-					// TODO WORKING HERE
-					break;
+					utf16 =
+						((uint16_t)hex_digit_value(buffer[offset    ]) << 12) |
+						((uint16_t)hex_digit_value(buffer[offset + 1]) <<  8) |
+						((uint16_t)hex_digit_value(buffer[offset + 2]) <<  4) |
+						((uint16_t)hex_digit_value(buffer[offset + 3]) <<  0) ;
+
+					
+				} break;
 
 				case 'x':
 					if (json5) {
