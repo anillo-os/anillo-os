@@ -24,53 +24,6 @@ LIBJSON_STRUCT(json_object_stack) {
 	size_t pending_key_length;
 };
 
-static uint32_t utf8_to_utf32(const char* sequence, size_t max_length, size_t* out_utf8_length) {
-	uint32_t utf32_char = UINT32_MAX;
-	uint8_t required_length = 0;
-
-	if (max_length > 0) {
-		uint8_t first_char = sequence[0];
-
-		if (first_char & 0x80) {
-			if ((first_char & 0x20) == 0) {
-				// 2 bytes
-				required_length = 2;
-				if (max_length < required_length)
-					goto out;
-				utf32_char = ((first_char & 0x1f) << 6) | (sequence[1] & 0x3f);
-			} else if ((first_char & 0x10) == 0) {
-				// 3 bytes
-				required_length = 3;
-				if (max_length < required_length)
-					goto out;
-				utf32_char = ((first_char & 0x0f) << 12) | ((sequence[1] & 0x3f) << 6) | (sequence[2] & 0x3f);
-			} else if ((first_char & 0x08) == 0) {
-				// 4 bytes
-				required_length = 4;
-				if (max_length < required_length)
-					goto out;
-				utf32_char = ((first_char & 0x07) << 18) | ((sequence[1] & 0x3f) << 12) | ((sequence[2] & 0x3f) << 6) | (sequence[3] & 0x3f);
-			} else {
-				// more than 4 bytes???
-				goto out;
-			}
-		} else {
-			required_length = 1;
-			utf32_char = first_char;
-		}
-	}
-
-out:
-	if (out_utf8_length) {
-		*out_utf8_length = required_length;
-	}
-	return utf32_char;
-};
-
-static uint8_t utf16_to_utf8(const uint16_t* sequence, size_t max_length, char* out_bytes) {
-
-};
-
 LIBJSON_ALWAYS_INLINE bool is_hex_digit(char character) {
 	return (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F');
 };
@@ -119,9 +72,12 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 	ferr_t status = ferr_ok;
 	size_t offset = 0;
 	size_t parsed_length = 0;
-	char* parsed = NULL;
+	uint16_t* parsed = NULL;
 	bool singleQuoteString = false;
 	size_t parsed_index = 0;
+	char* result = NULL;
+	size_t utf8_length = 0;
+	size_t utf8_index = 0;
 
 	if (buffer_length < 2) {
 		// a string requires at least the opening and closing quotation marks
@@ -191,10 +147,10 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 					}
 
 					// consume the first three hex digits (the last hex digit is consumed by the loop's increment)
-					offset += 4;
+					offset += 3;
 
-					// a Unicode escape sequence may require up to 3 UTF-8 bytes to be represented
-					parsed_length += 3;
+					// a Unicode escape sequence only requires 1 UTF-16 word to be represented
+					++parsed_length;
 					break;
 
 				case 'x':
@@ -217,7 +173,7 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 						// consume the first hex digit (the second is consumed by the loop's increment)
 						++offset;
 
-						// a hex escape sequence requires 1 byte to be represented
+						// a hex escape sequence requires 1 word (actually, just 1 byte) to be represented
 						++parsed_length;
 					} else {
 						// otherwise, we just pass it through like the default case
@@ -243,7 +199,11 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 					break;
 
 				default: {
-					uint32_t u32 = utf8_to_utf32(&buffer[offset], buffer_length - offset, NULL);
+					uint32_t u32 = UINT32_MAX;
+					status = simple_utf8_to_utf32(&buffer[offset], buffer_length - offset, NULL, &u32);
+					if (status != ferr_ok) {
+						goto out;
+					}
 					if (buffer[offset] < 0x20) {
 						// we don't accept control characters inside strings
 						//
@@ -257,7 +217,12 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 						// (it'll just produce the character itself)
 						//
 						// this character is consumed by the loop's increment
-						++parsed_length;
+						size_t utf16_length = 0;
+						status = simple_utf8_to_utf16(&buffer[offset], buffer_length - offset, 0, NULL, NULL, &utf16_length);
+						if (status != ferr_ok) {
+							goto out;
+						}
+						parsed_length += utf16_length;
 					}
 				} break;
 			}
@@ -266,12 +231,17 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 			status = ferr_invalid_argument;
 			goto out;
 		} else {
-			++parsed_length;
+			size_t utf16_length = 0;
+			status = simple_utf8_to_utf16(&buffer[offset], buffer_length - offset, 0, NULL, NULL, &utf16_length);
+			if (status != ferr_ok) {
+				goto out;
+			}
+			parsed_length += utf16_length;
 		}
 	}
 
 	// now that we've checked this is indeed a valid string, let's populate it
-	status = sys_mempool_allocate(parsed_length, NULL, (void*)&parsed);
+	status = sys_mempool_allocate(sizeof(uint16_t) * parsed_length, NULL, (void*)&parsed);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -284,7 +254,7 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 			// consume the escape
 			++i;
 
-			switch (buffer[offset]) {
+			switch (buffer[i]) {
 				case '"':
 					parsed[parsed_index++] = '"';
 					break;
@@ -333,97 +303,116 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 				case 'u': {
 					uint16_t utf16;
 
-					fassert(offset + 4 < buffer_length);
+					fassert(i + 4 < buffer_length);
 
 					// consume the 'u'
 					++i;
 
-					fassert(is_hex_digit(buffer[offset]) && is_hex_digit(buffer[offset + 1]) && is_hex_digit(buffer[offset + 2]) && is_hex_digit(buffer[offset + 3]));
+					fassert(is_hex_digit(buffer[i]) && is_hex_digit(buffer[i + 1]) && is_hex_digit(buffer[i + 2]) && is_hex_digit(buffer[i + 3]));
 
-					utf16 =
-						((uint16_t)hex_digit_value(buffer[offset    ]) << 12) |
-						((uint16_t)hex_digit_value(buffer[offset + 1]) <<  8) |
-						((uint16_t)hex_digit_value(buffer[offset + 2]) <<  4) |
-						((uint16_t)hex_digit_value(buffer[offset + 3]) <<  0) ;
+					parsed[parsed_index++] =
+						((uint16_t)hex_digit_value(buffer[i    ]) << 12) |
+						((uint16_t)hex_digit_value(buffer[i + 1]) <<  8) |
+						((uint16_t)hex_digit_value(buffer[i + 2]) <<  4) |
+						((uint16_t)hex_digit_value(buffer[i + 3]) <<  0) ;
 
-					
+					// consume the first three hex digits (the last hex digit is consumed by the loop's increment)
+					i += 3;
 				} break;
 
 				case 'x':
 					if (json5) {
-						if (offset + 2 >= buffer_length) {
-							// not enough characters for hex escape sequence
-							status = ferr_invalid_argument;
-							goto out;
-						}
+						fassert(i + 2 >= buffer_length);
 
 						// consume the 'x'
-						++offset;
+						++i;
 
-						if (!is_hex_digit(buffer[offset]) || !is_hex_digit(buffer[offset + 1])) {
-							// following characters aren't hex digits
-							status = ferr_invalid_argument;
-							goto out;
-						}
+						fassert(is_hex_digit(buffer[i]) && is_hex_digit(buffer[i + 1]));
+
+						parsed[parsed_index++] =
+							((uint16_t)hex_digit_value(buffer[i    ]) << 4) |
+							((uint16_t)hex_digit_value(buffer[i + 1]) << 0) ;
 
 						// consume the first hex digit (the second is consumed by the loop's increment)
-						++offset;
-
-						// a hex escape sequence requires 1 byte to be represented
-						++parsed_length;
+						++i;
 					} else {
 						// otherwise, we just pass it through like the default case
-						++parsed_length;
+						parsed[parsed_index++] = 'x';
 					}
 					break;
 
 				case '\r':
-					if (offset + 1 >= buffer_length && buffer[offset + 1] == '\n') {
+					if (i + 1 >= buffer_length && buffer[i + 1] == '\n') {
 						// consume the carriage return
-						++offset;
+						++i;
 					}
 					// fallthrough
 				case '\n':
-					if (!json5) {
-						// line contiuations are only allowed in JSON5
-						status = ferr_invalid_argument;
-						goto out;
-					}
+					fassert(json5);
 					// the newline is consumed by the loop's increment
 
-					// do *not* increment `parsed_length`: a line continuation eliminates the line terminator characters from the string
+					// a line continuation eliminates the line terminator characters from the string
 					break;
 
 				default: {
-					uint32_t u32 = utf8_to_utf32(&buffer[offset], buffer_length - offset, NULL);
-					if (buffer[offset] < 0x20) {
-						// we don't accept control characters inside strings
-						//
-						// the only time we accept *certain* control characters is when JSON5 is enabled and the character is a line terminator
-						status = ferr_invalid_argument;
-						goto out;
-					} else if (json5 && u32 == 0x2028 || u32 == 0x2029) {
-						// these count as line terminators, so this is a line continuation and `parsed_length` is *not* incremented
+					uint32_t u32 = UINT32_MAX;
+					fassert(simple_utf8_to_utf32(&buffer[offset], buffer_length - offset, NULL, &u32) == ferr_ok);
+					fassert(u32 >= 0x20);
+					if (json5 && u32 == 0x2028 || u32 == 0x2029) {
+						// these count as line terminators, so this is a line continuation these are eliminated from the string
 					} else {
 						// for any other character, this is technically an invalid escape sequence, but let's accept it anyways
 						// (it'll just produce the character itself)
 						//
 						// this character is consumed by the loop's increment
-						++parsed_length;
+						size_t utf16_length = 0;
+						fassert(simple_utf8_to_utf16(&buffer[i], buffer_length - i, parsed_length - parsed_index, NULL, &parsed[parsed_index], &utf16_length) == ferr_ok);
+						parsed_index += utf16_length;
 					}
 				} break;
 			}
 		} else {
 			fassert(buffer[i] >= 0x20);
-			parsed[parsed_index++] = buffer[i];
+			size_t utf16_length = 0;
+			fassert(simple_utf8_to_utf16(&buffer[i], buffer_length - i, parsed_length - parsed_index, NULL, &parsed[parsed_index], &utf16_length) == ferr_ok);
+			parsed_index += utf16_length;
 		}
 	}
 
+	// now let's convert the string from UTF-16 to UTF-8
+	fassert(parsed_index == parsed_length);
+
+	parsed_index = 0;
+	while (parsed_index < parsed_length) {
+		size_t utf16_length = 0;
+		size_t codepoint_utf8_length = 0;
+		fassert(simple_utf16_to_utf8(&parsed[parsed_index], parsed_length - parsed_index, 0, &utf16_length, NULL, &codepoint_utf8_length));
+		parsed_index += utf16_length;
+		utf8_length += codepoint_utf8_length;
+	}
+
+	status = sys_mempool_allocate(sizeof(char) * utf8_length, NULL, (void*)&result);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	parsed_index = 0;
+	while (parsed_index < parsed_length && utf8_index < utf8_length) {
+		size_t utf16_length = 0;
+		size_t codepoint_utf8_length = 0;
+		fassert(simple_utf16_to_utf8(&parsed[parsed_index], parsed_length - parsed_index, utf8_length - utf8_index, &utf16_length, &result[utf8_index], &codepoint_utf8_length));
+		parsed_index += utf16_length;
+		utf8_index += codepoint_utf8_length;
+	}
+
 	*out_characters = offset;
-	*out_string = parsed;
+	*out_string = result;
 	*out_string_length = parsed_length;
 
 out:
+	if (parsed) {
+		LIBJSON_WUR_IGNORE(sys_mempool_free(parsed));
+	}
 	return status;
 };
 
