@@ -40,6 +40,10 @@ LIBJSON_ALWAYS_INLINE uint8_t hex_digit_value(char character) {
 	}
 };
 
+LIBJSON_ALWAYS_INLINE bool json_isspace(char character) {
+	return character == ' ' || character == '\t' || character == '\n' || character == '\r';
+};
+
 ferr_t json_parse_string(const char* string, bool json5, json_object_t** out_object) {
 	return json_parse_string_n(string, simple_strlen(string), json5, out_object);
 };
@@ -423,7 +427,19 @@ ferr_t json_parse_string_n(const char* string, size_t string_length, bool json5,
 	json_object_t* result = NULL;
 
 	while (string_length > 0) {
+		// skip whitespace
+		while (string_length > 0 && json_isspace(string[0])) {
+			++string;
+			--string_length;
+		}
 
+		if (string_length == 0) {
+			break;
+		}
+
+		json_object_stack_t* 
+
+		if ()
 	}
 
 	if (object_stack_size > 0) {

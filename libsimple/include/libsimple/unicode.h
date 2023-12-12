@@ -20,6 +20,7 @@
 #define _LIBSIMPLE_UNICODE_H_
 
 #include <stdint.h>
+#include <stddef.h>
 
 #include <ferro/error.h>
 #include <libsimple/base.h>
