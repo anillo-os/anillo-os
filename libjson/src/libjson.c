@@ -22,10 +22,74 @@ LIBJSON_STRUCT(json_object_stack) {
 	json_object_t* object;
 	char* pending_key;
 	size_t pending_key_length;
+	bool negative: 1;
+};
+
+LIBJSON_ENUM(uint8_t, json_parser_state) {
+	json_parser_state_any_start,
+
+	json_parser_state_object_key,
+	json_parser_state_object_key_or_end,
+	json_parser_state_object_colon,
+	json_parser_state_object_value,
+	json_parser_state_object_comma_or_end,
+
+	json_parser_state_array_value,
+	json_parser_state_array_value_or_end,
+	json_parser_state_array_comma_or_end,
+
+	json_parser_state_end,
+};
+
+LIBJSON_ENUM(uint8_t, json_token_type) {
+	json_token_type_invalid = 0,
+
+	json_token_type_eof,
+
+	json_token_type_opening_brace,
+	json_token_type_closing_brace,
+	json_token_type_opening_square,
+	json_token_type_closing_square,
+	json_token_type_colon,
+	json_token_type_comma,
+	json_token_type_identifier,
+	json_token_type_single_quote,
+	json_token_type_double_quote,
+	json_token_type_decimal_point,
+	json_token_type_plus,
+	json_token_type_minus,
+	json_token_type_hex_integer,
+	json_token_type_decimal_integer,
+};
+
+LIBJSON_STRUCT(json_token) {
+	json_token_type_t type;
+	const char* contents;
+	size_t length;
 };
 
 LIBJSON_ALWAYS_INLINE bool is_hex_digit(char character) {
 	return (character >= '0' && character <= '9') || (character >= 'a' && character <= 'f') || (character >= 'A' && character <= 'F');
+};
+
+LIBJSON_ALWAYS_INLINE bool is_identifier_start(char character) {
+	return (character >= 'a' && character <= 'z') || (character <= 'A' && character >= 'Z') || (character == '_');
+};
+
+LIBJSON_ALWAYS_INLINE bool is_identifier_body(char character) {
+	return is_identifier_start(character) || (character >= '0' && character <= '9');
+};
+
+LIBJSON_ALWAYS_INLINE bool json_is_line_terminator(uint32_t utf32) {
+	switch (utf32) {
+		case '\n':
+		case '\r':
+		case 0x2028: // Line separator
+		case 0x2029: // Paragraph separator
+			return true;
+		default:
+			return false;
+	}
 };
 
 LIBJSON_ALWAYS_INLINE uint8_t hex_digit_value(char character) {
@@ -420,6 +484,186 @@ out:
 	return status;
 };
 
+void json_lexer_next(const char** in_out_string, size_t* in_out_string_length, bool skip_whitespace, bool skip_comments, json_token_t* out_token) {
+	const char* start = NULL;
+
+	simple_memset(out_token, 0, sizeof(*out_token));
+
+	if (skip_comments) {
+		bool check_comment = true;
+		while (check_comment) {
+			if (skip_whitespace) {
+				// skip whitespace
+				while ((*in_out_string_length) > 0 && json_isspace((*in_out_string)[0])) {
+					++(*in_out_string);
+					--(*in_out_string_length);
+				}
+			}
+
+			check_comment = false;
+
+			if ((*in_out_string_length) > 1) {
+				if ((*in_out_string)[0] == '/' && (*in_out_string)[1] == '/') {
+					// single line comment
+					check_comment = true;
+					*in_out_string += 2;
+					*in_out_string_length -= 2;
+
+					while (true) {
+						uint32_t utf32 = 0;
+						size_t utf8_length = 0;
+
+						if (simple_utf8_to_utf32(*in_out_string, *in_out_string_length, &utf8_length, &utf32) != ferr_ok) {
+							break;
+						}
+
+						*in_out_string += utf8_length;
+						*in_out_string_length -= utf8_length;
+
+						if (utf32 == '\r' && (*in_out_string_length) > 0 && (*in_out_string)[0] == '\n') {
+							++(*in_out_string);
+							--(*in_out_string_length);
+						}
+
+						if (json_is_line_terminator(utf32)) {
+							break;
+						}
+					}
+				} else if ((*in_out_string)[0] == '/' && (*in_out_string)[1] == '*') {
+					check_comment = true;
+					*in_out_string += 2;
+					*in_out_string_length -= 2;
+
+					while (true) {
+						if (*in_out_string_length < 2) {
+							// the comment implicitly lasts for the rest of the string, since the comment terminator sequence is 2 characters
+							*in_out_string += *in_out_string_length;
+							*in_out_string_length = 0;
+							break;
+						}
+
+						// here, we know the string is at least 2 characters long
+						char first = (*in_out_string)[0];
+						char second = (*in_out_string)[1];
+
+						*in_out_string += 2;
+						*in_out_string_length -= 2;
+
+						if (first == '*' && second == '/') {
+							break;
+						}
+					}
+				}
+			}
+
+			if ((*in_out_string_length) == 0) {
+				out_token->type = json_token_type_eof;
+				return;
+			}
+		}
+	}
+
+	if (skip_whitespace) {
+		// skip whitespace
+		while ((*in_out_string_length) > 0 && json_isspace((*in_out_string)[0])) {
+			++(*in_out_string);
+			--(*in_out_string_length);
+		}
+	}
+
+	if ((*in_out_string_length) == 0) {
+		out_token->type = json_token_type_eof;
+		return;
+	}
+
+	start = *in_out_string;
+
+	switch ((*in_out_string)[0]) {
+		case '{':
+			out_token->type = json_token_type_opening_brace;
+			++(*in_out_string);
+			break;
+		case '}':
+			out_token->type = json_token_type_closing_brace;
+			++(*in_out_string);
+			break;
+		case '[':
+			out_token->type = json_token_type_opening_square;
+			++(*in_out_string);
+			break;
+		case ']':
+			out_token->type = json_token_type_closing_square;
+			++(*in_out_string);
+			break;
+		case ':':
+			out_token->type = json_token_type_colon;
+			++(*in_out_string);
+			break;
+		case ',':
+			out_token->type = json_token_type_comma;
+			++(*in_out_string);
+			break;
+		case '.':
+			out_token->type = json_token_type_decimal_point;
+			++(*in_out_string);
+			break;
+		case '+':
+			out_token->type = json_token_type_plus;
+			++(*in_out_string);
+			break;
+		case '-':
+			out_token->type = json_token_type_minus;
+			++(*in_out_string);
+			break;
+
+		// for these, we do *not* consume the character; they are consumed by `json_parse_string_object`
+		case '\'':
+			out_token->type = json_token_type_single_quote;
+			break;
+		case '"':
+			out_token->type = json_token_type_double_quote;
+			break;
+
+		case '0':
+			// this is either '0' by itself (decimal integer) or '0x1234abcd...' (hex integer)
+			if ((*in_out_string_length) > 2 && ((*in_out_string)[1] == 'x' || (*in_out_string)[1] == 'X') && is_hex_digit((*in_out_string)[2])) {
+				// hex integer
+				out_token->type = json_token_type_hex_integer;
+				*in_out_string += 3; // we know at least '0x' and a single hex digit are present
+				while (is_hex_digit((*in_out_string)[0])) {
+					++(*in_out_string);
+				}
+			} else {
+				// just 0
+				out_token->type = json_token_type_decimal_integer;
+				++(*in_out_string);
+			}
+			break;
+
+		default: {
+			// let's try the multi-character tokens
+			if ((*in_out_string)[0] >= '1' && (*in_out_string)[0] <= '9') {
+				// decimal integer
+				++(*in_out_string);
+				while ((*in_out_string)[0] >= '1' && (*in_out_string)[0] <= '9') {
+					++(*in_out_string);
+				}
+			} else if (is_identifier_start((*in_out_string)[0])) {
+				++(*in_out_string);
+				while (is_identifier_body((*in_out_string)[0])) {
+					++(*in_out_string);
+				}
+			}
+		} break;
+	}
+
+	if (start && out_token->type != json_token_type_invalid) {
+		out_token->contents = start;
+		out_token->length = (*in_out_string) - start;
+		*in_out_string_length -= out_token->length;
+	}
+};
+
 ferr_t json_parse_string_n(const char* string, size_t string_length, bool json5, json_object_t** out_object) {
 	json_object_stack_t* object_stack = NULL;
 	size_t object_stack_size = 0;
@@ -437,9 +681,34 @@ ferr_t json_parse_string_n(const char* string, size_t string_length, bool json5,
 			break;
 		}
 
-		json_object_stack_t* 
+		json_object_stack_t* current_object = (object_stack_size > 0) ? (&object_stack[object_stack_size - 1]) : NULL;
 
-		if ()
+		if (!current_object || !current_object->object) {
+			// we can parse the beginning of any object
+
+			if (current_object) {
+				// if we have a current object on the stack, the only time we should be here is if we parsed a key and are now looking for a value
+				fassert(current_object->pending_key && current_object->pending_key_length > 0);
+			} else {
+				// otherwise, let's create an entry on the stack
+				status = sys_mempool_reallocate(object_stack, sizeof(*object_stack) * (object_stack_size + 1), NULL, (void*)&object_stack);
+				if (status != ferr_ok) {
+					goto out;
+				}
+
+				++object_stack_size;
+
+				current_object = &object_stack[object_stack_size - 1];
+				simple_memset(current_object, 0, sizeof(*current_object));
+			}
+
+			if (string[0] == '{') {
+
+			} else if (string[0] == '[') {
+
+			} else if (string[0] == '')
+		} else {
+		}
 	}
 
 	if (object_stack_size > 0) {
