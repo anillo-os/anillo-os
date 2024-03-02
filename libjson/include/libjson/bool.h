@@ -26,6 +26,10 @@ LIBJSON_DECLARATIONS_BEGIN;
 
 LIBJSON_OBJECT_CLASS(bool);
 
+json_bool_t* json_bool_new(bool value);
+
+bool json_bool_value(json_bool_t* boolean);
+
 LIBJSON_DECLARATIONS_END;
 
 #endif // _LIBJSON_BOOL_H_

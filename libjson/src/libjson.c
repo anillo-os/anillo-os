@@ -22,7 +22,6 @@ LIBJSON_STRUCT(json_object_stack) {
 	json_object_t* object;
 	char* pending_key;
 	size_t pending_key_length;
-	bool negative: 1;
 };
 
 LIBJSON_ENUM(uint8_t, json_parser_state) {
@@ -644,11 +643,13 @@ void json_lexer_next(const char** in_out_string, size_t* in_out_string_length, b
 			// let's try the multi-character tokens
 			if ((*in_out_string)[0] >= '1' && (*in_out_string)[0] <= '9') {
 				// decimal integer
+				out_token->type = json_token_type_decimal_integer;
 				++(*in_out_string);
 				while ((*in_out_string)[0] >= '1' && (*in_out_string)[0] <= '9') {
 					++(*in_out_string);
 				}
 			} else if (is_identifier_start((*in_out_string)[0])) {
+				out_token->type = json_token_type_identifier;
 				++(*in_out_string);
 				while (is_identifier_body((*in_out_string)[0])) {
 					++(*in_out_string);
@@ -664,50 +665,278 @@ void json_lexer_next(const char** in_out_string, size_t* in_out_string_length, b
 	}
 };
 
+void json_lexer_peek(const char* string, size_t length, bool skip_whitespace, bool skip_comments, json_token_t* out_token) {
+	json_lexer_next(&string, &length, skip_whitespace, skip_comments, out_token);
+};
+
 ferr_t json_parse_string_n(const char* string, size_t string_length, bool json5, json_object_t** out_object) {
 	json_object_stack_t* object_stack = NULL;
 	size_t object_stack_size = 0;
+	bool need_new_object = true;
 	ferr_t status = ferr_ok;
 	json_object_t* result = NULL;
 
+continue_loop:
 	while (string_length > 0) {
-		// skip whitespace
-		while (string_length > 0 && json_isspace(string[0])) {
-			++string;
-			--string_length;
-		}
+		json_object_stack_t* current_object = (!need_new_object && object_stack_size > 0) ? (&object_stack[object_stack_size - 1]) : NULL;
 
-		if (string_length == 0) {
-			break;
-		}
-
-		json_object_stack_t* current_object = (object_stack_size > 0) ? (&object_stack[object_stack_size - 1]) : NULL;
-
-		if (!current_object || !current_object->object) {
+		if (need_new_object) {
 			// we can parse the beginning of any object
 
-			if (current_object) {
-				// if we have a current object on the stack, the only time we should be here is if we parsed a key and are now looking for a value
-				fassert(current_object->pending_key && current_object->pending_key_length > 0);
-			} else {
-				// otherwise, let's create an entry on the stack
-				status = sys_mempool_reallocate(object_stack, sizeof(*object_stack) * (object_stack_size + 1), NULL, (void*)&object_stack);
-				if (status != ferr_ok) {
+			need_new_object = false;
+
+			json_token_t token;
+			json_lexer_next(&string, &string_length, true, json5, &token);
+
+			switch (token.type) {
+				case json_token_type_opening_brace:
+				case json_token_type_opening_square: {
+					// let's create an entry on the stack
+					status = sys_mempool_reallocate(object_stack, sizeof(*object_stack) * (object_stack_size + 1), NULL, (void*)&object_stack);
+					if (status != ferr_ok) {
+						goto out;
+					}
+
+					++object_stack_size;
+
+					current_object = &object_stack[object_stack_size - 1];
+					simple_memset(current_object, 0, sizeof(*current_object));
+
+					if (token.type == json_token_type_opening_brace) {
+						status = json_dict_new(0, NULL, NULL, NULL, &current_object->object);
+					} else {
+						status = json_array_new(0, NULL, &current_object->object);
+					}
+					if (status != ferr_ok) {
+						goto out;
+					}
+				} break;
+
+				case json_token_type_single_quote:
+				case json_token_type_double_quote: {
+					size_t consumed_chars = 0;
+					char* parsed = NULL;
+					size_t parsed_length = 0;
+
+					status = json_parse_string_object(string, string_length, json5, &consumed_chars, &parsed, &parsed_length);
+					if (status != ferr_ok) {
+						goto out;
+					}
+
+					string += consumed_chars;
+					string_length -= consumed_chars;
+
+					status = json_string_new_n(parsed, parsed_length, &result);
+					if (status != ferr_ok) {
+						goto out;
+					}
+
+					LIBJSON_WUR_IGNORE(sys_mempool_free(parsed));
+				} break;
+
+				case json_token_type_decimal_integer:
+				case json_token_type_hex_integer:
+				case json_token_type_plus:
+				case json_token_type_minus:
+				case json_token_type_decimal_point: {
+					bool negative = false;
+					bool found_whole_part = false;
+					bool found_fraction_part = false;
+					bool found_exponent_part = false;
+					bool found_decimal_point = false;
+					uintmax_t whole_part = 0;
+					uintmax_t fraction_part = 0;
+					uintmax_t exponent_part = 1;
+					double val = 0;
+
+					if (token.type == json_token_type_plus) {
+						if (!json5) {
+							status = ferr_invalid_argument;
+							goto out;
+						}
+						json_lexer_next(&string, &string_length, true, json5, &token);
+					} else if (token.type == json_token_type_minus) {
+						negative = true;
+						json_lexer_next(&string, &string_length, true, json5, &token);
+					}
+
+					// this can only occur if we had a `+` or `-`
+					if (token.type == json_token_type_identifier) {
+						if (!json5) {
+							status = ferr_invalid_argument;
+							goto out;
+						}
+
+						if (token.length == 8 && simple_strncmp(token.contents, "Infinity", 8) == 0) {
+							status = json_number_new_float(negative ? (-__builtin_inf()) : __builtin_inf(), &result);
+						} else if (token.length == 3 && simple_strncmp(token.contents, "NaN", 3) == 0) {
+							status = json_number_new_float(negative ? (-__builtin_nan("0")) : __builtin_nan("0"), &result);
+						}
+
+						if (status != ferr_ok) {
+							goto out;
+						}
+
+						if (!result) {
+							status = ferr_invalid_argument;
+							goto out;
+						}
+
+						goto continue_loop;
+					}
+
+					if (token.type == json_token_type_hex_integer) {
+						if (!json5) {
+							status = ferr_invalid_argument;
+							goto out;
+						}
+
+						uintmax_t value;
+						status = simple_string_to_integer_unsigned(token.contents, token.length, NULL, 16, &value);
+						if (status != ferr_ok) {
+							goto out;
+						}
+
+						if (negative) {
+							status = json_number_new_signed_integer(-(int64_t)value, &result);
+						} else {
+							status = json_number_new_unsigned_integer(value, &result);
+						}
+
+						if (status != ferr_ok) {
+							goto out;
+						}
+
+						goto continue_loop;
+					}
+
+					if (token.type == json_token_type_decimal_integer) {
+						found_whole_part = true;
+						status = simple_string_to_integer_unsigned(token.contents, token.length, NULL, 10, &whole_part);
+						if (status != ferr_ok) {
+							goto out;
+						}
+
+						val += (double)whole_part;
+
+						json_lexer_peek(string, string_length, false, false, &token);
+					}
+
+					if (token.type == json_token_type_decimal_point) {
+						if (!json5 && !found_whole_part) {
+							status = ferr_invalid_argument;
+							goto out;
+						}
+
+						// consume it
+						json_lexer_next(&string, &string_length, false, false, &token);
+						found_decimal_point = true;
+
+						json_lexer_peek(string, string_length, false, false, &token);
+						if ((!json5 || !found_whole_part) && token.type != json_token_type_decimal_integer) {
+							// only JSON5 allows trailing decimal points...
+							// ...but also, under JSON5, if we have a leading decimal point, we MUST have a fraction part
+							status = ferr_invalid_argument;
+							goto out;
+						}
+
+						if (token.type == json_token_type_decimal_integer) {
+							// consume it
+							json_lexer_next(&string, &string_length, false, false, &token);
+							found_fraction_part = true;
+
+							status = simple_string_to_integer_unsigned(token.contents, token.length, NULL, 10, &fraction_part);
+							if (status != ferr_ok) {
+								goto out;
+							}
+
+							val += (double)fraction_part / __builtin_pow(10, token.length);
+
+							json_lexer_peek(string, string_length, false, false, &token);
+						}
+					}
+
+					if (token.type == json_token_type_identifier && token.length == 1 && (token.contents[0] == 'e' || token.contents[0] == 'E')) {
+						if (!found_whole_part && !found_fraction_part) {
+							status = ferr_invalid_argument;
+							goto out;
+						}
+
+						// consume it
+						json_lexer_next(&string, &string_length, false, false, &token);
+						found_exponent_part = true;
+
+						// this *has* to be followed by a decimal integer for the exponent value
+						json_lexer_next(&string, &string_length, false, false, &token);
+						if (token.type != json_token_type_decimal_integer) {
+							status = ferr_invalid_argument;
+							goto out;
+						}
+
+						status = simple_string_to_integer_unsigned(token.contents, token.length, NULL, 10, &exponent_part);
+						if (status != ferr_ok) {
+							goto out;
+						}
+
+						val *= __builtin_pow(10, exponent_part);
+					}
+
+					if (!found_whole_part && !found_fraction_part && !found_exponent_part) {
+						status = ferr_invalid_argument;
+						goto out;
+					}
+
+					if (negative) {
+						val *= -1;
+					}
+
+					if (found_fraction_part || found_exponent_part) {
+						status = json_number_new_float(val, &result);
+					} else if (negative) {
+						status = json_number_new_signed_integer(-(int64_t)whole_part, &result);
+					} else {
+						status = json_number_new_unsigned_integer(whole_part, &result);
+					}
+
+					if (status != ferr_ok) {
+						goto out;
+					}
+				} break;
+
+				case json_token_type_identifier: {
+					// this could be few different things
+					if (token.length == 4) {
+						if (simple_strncmp(token.contents, "true", 4) == 0) {
+							result = json_bool_new(true);
+						} else if (simple_strncmp(token.contents, "null", 4) == 0) {
+							result = json_null_new();
+						}
+					} else if (token.length == 5 && simple_strncmp(token.contents, "false", 5) == 0) {
+						result = json_bool_new(false);
+					} else if (token.length == 8 && simple_strncmp(token.contents, "Infinity", 8) == 0) {
+						status = json_number_new_float(__builtin_inf(), &result);
+						if (status != ferr_ok) {
+							goto out;
+						}
+					} else if (token.length == 3 && simple_strncmp(token.contents, "NaN", 3) == 0) {
+						status = json_number_new_float(__builtin_nan("0"), &result);
+						if (status != ferr_ok) {
+							goto out;
+						}
+					}
+
+					if (!result) {
+						status = ferr_invalid_argument;
+						goto out;
+					}
+				} break;
+
+				default:
+					status = ferr_invalid_argument;
 					goto out;
-				}
-
-				++object_stack_size;
-
-				current_object = &object_stack[object_stack_size - 1];
-				simple_memset(current_object, 0, sizeof(*current_object));
 			}
-
-			if (string[0] == '{') {
-
-			} else if (string[0] == '[') {
-
-			} else if (string[0] == '')
 		} else {
+			// TODO: WORKING HERE
 		}
 	}
 

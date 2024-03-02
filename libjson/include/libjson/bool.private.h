@@ -28,10 +28,6 @@ LIBJSON_STRUCT(json_bool_object) {
 	json_object_t object;
 };
 
-json_bool_t* json_bool_new(bool value);
-
-bool json_bool_value(json_bool_t* boolean);
-
 LIBJSON_DECLARATIONS_END;
 
 #endif // _LIBJSON_BOOL_PRIVATE_H_
