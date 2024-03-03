@@ -15,6 +15,11 @@ add_anillo_executable(hidman
 		src/hidman.c
 )
 
+add_to_ramdisk(
+	SOURCE resources/org.anillo.hidman.json5
+	DESTINATION /sys/config/sysman/org.anillo.hidman.json5
+)
+
 target_link_libraries(hidman PUBLIC
 	libc
 	libsys

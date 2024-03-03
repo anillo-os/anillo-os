@@ -15,6 +15,11 @@ add_anillo_executable(conman
 		src/conman.c
 )
 
+add_to_ramdisk(
+	SOURCE resources/org.anillo.conman.json5
+	DESTINATION /sys/config/sysman/org.anillo.conman.json5
+)
+
 target_link_libraries(conman PUBLIC
 	libc
 	libsys

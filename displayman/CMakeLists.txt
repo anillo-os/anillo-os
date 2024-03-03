@@ -15,6 +15,11 @@ add_anillo_executable(displayman
 		src/displayman.c
 )
 
+add_to_ramdisk(
+	SOURCE resources/org.anillo.displayman.json5
+	DESTINATION /sys/config/sysman/org.anillo.displayman.json5
+)
+
 target_link_libraries(displayman PUBLIC
 	libc
 	libsys

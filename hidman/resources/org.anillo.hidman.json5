@@ -1,0 +1,12 @@
+{
+	manager: {
+		path: "/sys/hidman/hidman",
+		ipc_name: "org.anillo.hidman",
+		wanted_by: [
+			"org.anillo.system.boot",
+		],
+		requires: [
+			"org.anillo.usbman",
+		],
+	},
+}

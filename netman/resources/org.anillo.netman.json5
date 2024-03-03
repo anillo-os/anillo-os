@@ -1,0 +1,9 @@
+{
+	manager: {
+		path: "/sys/netman/netman",
+		ipc_name: "org.anillo.netman",
+		wanted_by: [
+			"org.anillo.system.boot",
+		],
+	},
+}
