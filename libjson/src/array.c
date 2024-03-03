@@ -95,7 +95,7 @@ out:
 	return status;
 };
 
-ferr_t json_array_append(json_array_t* obj, size_t index, json_object_t* value) {
+ferr_t json_array_append(json_array_t* obj, json_object_t* value) {
 	json_array_object_t* array = (void*)obj;
 	ferr_t status = ferr_ok;
 

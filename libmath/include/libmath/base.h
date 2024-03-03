@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2024 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,16 +16,25 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <ferro/asm/common.hS>
+#ifndef _LIBMATH_BASE_H_
+#define _LIBMATH_BASE_H_
 
-.text
+#include <libsimple/base.h>
 
-.global FERRO_SYM(__stack_chk_fail)
-FERRO_SYM(__stack_chk_fail):
-	ud2
+#define LIBMATH_DECLARATIONS_BEGIN LIBSIMPLE_DECLARATIONS_BEGIN
+#define LIBMATH_DECLARATIONS_END LIBSIMPLE_DECLARATIONS_END
 
-.data
+#define LIBMATH_WUR LIBSIMPLE_WUR
+#define LIBMATH_WUR_IGNORE LIBSIMPLE_WUR_IGNORE
 
-.global FERRO_SYM(__stack_chk_guard)
-FERRO_SYM(__stack_chk_guard):
-	.quad 0
+#define LIBMATH_STRUCT LIBSIMPLE_STRUCT
+#define LIBMATH_STRUCT_FWD LIBSIMPLE_STRUCT_FWD
+#define LIBMATH_ENUM LIBSIMPLE_ENUM
+#define LIBMATH_OPTIONS LIBSIMPLE_OPTIONS
+
+#define LIBMATH_ALWAYS_INLINE LIBSIMPLE_ALWAYS_INLINE
+#define LIBMATH_NO_RETURN LIBSIMPLE_NO_RETURN
+
+#define math_assert(x) fassert(x)
+
+#endif // _LIBMATH_BASE_H_

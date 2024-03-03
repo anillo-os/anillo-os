@@ -16,10 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <ferro/asm/common.hS>
+
 .align 4
 .text
-.global _libsyscall_invoke
-_libsyscall_invoke:
+.global FERRO_SYM(libsyscall_invoke)
+FERRO_SYM(libsyscall_invoke):
 	// move the syscall number into x8
 	mov x8, x0
 

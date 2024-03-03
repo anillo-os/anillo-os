@@ -32,7 +32,7 @@ LIBJSON_WUR ferr_t json_array_new(size_t length, json_object_t* const* values, j
 
 LIBJSON_WUR ferr_t json_array_get(json_array_t* array, size_t index, json_object_t** out_value);
 LIBJSON_WUR ferr_t json_array_set(json_array_t* array, size_t index, json_object_t* value);
-LIBJSON_WUR ferr_t json_array_append(json_array_t* array, size_t index, json_object_t* value);
+LIBJSON_WUR ferr_t json_array_append(json_array_t* array, json_object_t* value);
 LIBJSON_WUR ferr_t json_array_clear(json_array_t* array, size_t index);
 
 size_t json_array_length(json_array_t* array);

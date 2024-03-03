@@ -4,7 +4,7 @@ import os
 import sys
 
 SCRIPT_DIR = os.path.dirname(__file__)
-SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..', '..')
+SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..')
 
 sys.path.append(os.path.join(SOURCE_ROOT, 'scripts'))
 import anillo_util

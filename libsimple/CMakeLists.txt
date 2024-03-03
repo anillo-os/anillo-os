@@ -72,12 +72,21 @@ foreach(forced_opt IN LISTS libsimple_force_optimization_sources)
 	)
 endforeach()
 
-target_link_options(libsimple_static_compat INTERFACE
-	-Wl,-alias,_simple_memset,_memset
-	-Wl,-alias,_simple_memcpy,_memcpy
-	-Wl,-alias,_simple_bzero,_bzero
-	-Wl,-alias,_simple_bzero,___bzero
-)
+if (ANILLO_HOST_TESTING)
+	target_link_options(libsimple_static_compat INTERFACE
+		-Wl,--defsym,memset=simple_memset
+		-Wl,--defsym,memcpy=simple_memcpy
+		-Wl,--defsym,bzero=simple_bzero
+		-Wl,--defsym,__bzero=simple_bzero
+	)
+else()
+	target_link_options(libsimple_static_compat INTERFACE
+		-Wl,-alias,_simple_memset,_memset
+		-Wl,-alias,_simple_memcpy,_memcpy
+		-Wl,-alias,_simple_bzero,_bzero
+		-Wl,-alias,_simple_bzero,___bzero
+	)
+endif()
 
 target_link_options(libsimple_static_kernel_compat INTERFACE
 	-Wl,--defsym,memset=simple_memset

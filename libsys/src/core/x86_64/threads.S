@@ -18,10 +18,11 @@
 
 #include <gen/ferro/userspace/syscall-index.h>
 #include <ferro/asm/x86_64/helpers.hS>
+#include <ferro/asm/common.hS>
 
 .text
-.global ___sys_thread_entry
-___sys_thread_entry:
+.global FERRO_SYM(__sys_thread_entry)
+FERRO_SYM(__sys_thread_entry):
 	// this is the stack layout upon entry:
 	// -------------------- < rsp (stack top)
 	// |  entry function  | < rsp - 8
@@ -49,7 +50,7 @@ ___sys_thread_entry:
 
 	// set up the thread (e.g. TLS)
 	movq 8(%rsp), %rdi
-	call ___sys_thread_setup
+	call FERRO_SYM(__sys_thread_setup)
 
 	// now load the arguments for the entry function (as well as the function pointer itself)
 	movq 8(%rsp), %rsi
@@ -64,11 +65,11 @@ ___sys_thread_entry:
 	call *%rax
 
 	// this should not return
-	call ___sys_thread_exit_self
+	call FERRO_SYM(__sys_thread_exit_self)
 	ud2
 
-.global ___sys_thread_die
-___sys_thread_die:
+.global FERRO_SYM(__sys_thread_die)
+FERRO_SYM(__sys_thread_die):
 	// rdi = thread id
 	// rsi = stack pointer to free (maybe null)
 

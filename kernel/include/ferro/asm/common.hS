@@ -19,13 +19,19 @@
 #ifndef _FERRO_ASM_COMMON_HS_
 #define _FERRO_ASM_COMMON_HS_
 
-#ifdef FERRO
+#if defined(FERRO)
 	#ifdef FERRO_ELF
 		#define FERRO_SYM(x) x
 	#elif defined(FERRO_MACHO)
 		#define FERRO_SYM(x) _ ## x
 	#else
 		#error Unknown object format!
+	#endif
+#else
+	#if ANILLO_HOST_TESTING
+		#define FERRO_SYM(x) x
+	#else
+		#define FERRO_SYM(x) _ ## x
 	#endif
 #endif
 

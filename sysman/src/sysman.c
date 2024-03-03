@@ -462,7 +462,10 @@ static void start_managers(void* context) {
 	start_process("/sys/conman/conman", NULL, 0);
 };
 
-void start(void) asm("start");
+#if !ANILLO_HOST_TESTING
+	void start(void) asm("start");
+#endif
+
 void start(void) {
 	eve_loop_t* main_loop = NULL;
 	sys_channel_t* vfsman_channel = NULL;

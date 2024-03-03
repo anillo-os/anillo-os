@@ -29,6 +29,7 @@ target_link_libraries(libjson PUBLIC
 
 target_link_libraries(libjson PRIVATE
 	libsimple
+	libmath
 )
 
 target_include_directories(libjson PUBLIC ${libjson_includes})
@@ -45,6 +46,9 @@ target_link_libraries(libjson_static PUBLIC
 
 target_link_libraries(libjson_static PRIVATE
 	libsimple_headers
+	libmath_headers
 )
 
 target_include_directories(libjson_static PUBLIC ${libjson_includes})
+
+add_subdirectory(tests)

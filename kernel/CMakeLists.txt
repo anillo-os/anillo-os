@@ -10,6 +10,8 @@ add_link_options(
 
 	-fuse-ld=lld
 	"--ld-path=${LD_LLD_PATH}"
+
+	-nostdlib
 )
 
 add_compile_options(
@@ -22,6 +24,12 @@ add_compile_options(
 	-mno-red-zone
 
 	-target "${ANILLO_TARGET_TRIPLE_KERNEL}"
+
+	-ffreestanding
+	-mno-implicit-float
+	-nostdlib
+	-U__APPLE__
+	-D__ANILLO__=1
 )
 
 add_compile_definitions(

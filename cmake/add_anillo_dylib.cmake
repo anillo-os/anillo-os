@@ -29,12 +29,21 @@ function(add_anillo_dylib target_name)
 		OUTPUT_NAME "${ANILLO_DYLIB_NAME}"
 	)
 
-	target_link_options(${target_name} PRIVATE
-		-Wl,-dylib
-		-Wl,-dylib_install_name,${ANILLO_DYLIB_INSTALL_PATH}
-		-Wl,-dylib_current_version,${ANILLO_DYLIB_VERSION}
-		-Wl,-dylib_compatibility_version,${ANILLO_DYLIB_COMPAT_VERSION}
-	)
+	if (ANILLO_HOST_TESTING)
+		target_compile_options(${target_name} PRIVATE
+			-nostdlib
+		)
+		target_link_options(${target_name} PRIVATE
+			-nostdlib
+		)
+	else()
+		target_link_options(${target_name} PRIVATE
+			-Wl,-dylib
+			-Wl,-dylib_install_name,${ANILLO_DYLIB_INSTALL_PATH}
+			-Wl,-dylib_current_version,${ANILLO_DYLIB_VERSION}
+			-Wl,-dylib_compatibility_version,${ANILLO_DYLIB_COMPAT_VERSION}
+		)
+	endif()
 
 	if (ANILLO_DYLIB_RAMDISK)
 		add_to_ramdisk(

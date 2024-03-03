@@ -41,13 +41,14 @@ ferr_t json_string_new_n(const char* contents, size_t contents_length, json_stri
 	ferr_t status = ferr_ok;
 	json_string_object_t* string = NULL;
 
-	status = sys_object_new(&json_string_class, (sizeof(*string) - sizeof(string->object)) + contents_length, (void*)&string);
+	status = sys_object_new(&json_string_class, (sizeof(*string) - sizeof(string->object)) + contents_length + 1, (void*)&string);
 	if (status != ferr_ok) {
 		goto out;
 	}
 
 	string->length = contents_length;
 	simple_memcpy(string->contents, contents, contents_length);
+	string->contents[contents_length] = '\0';
 
 	*out_string = (void*)string;
 

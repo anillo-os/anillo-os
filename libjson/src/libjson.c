@@ -17,6 +17,7 @@
  */
 
 #include <libjson/libjson.h>
+#include <libmath/libmath.h>
 
 LIBJSON_STRUCT(json_object_stack) {
 	json_object_t* object;
@@ -669,6 +670,16 @@ void json_lexer_peek(const char* string, size_t length, bool skip_whitespace, bo
 	json_lexer_next(&string, &length, skip_whitespace, skip_comments, out_token);
 };
 
+void json_lexer_consume_peek(json_token_t* in_token, const char** in_out_string, size_t* in_out_string_length) {
+	if (*in_out_string >= in_token->contents) {
+		return;
+	}
+
+	size_t skipped_len = in_token->contents - *in_out_string;
+	*in_out_string += skipped_len + in_token->length;
+	*in_out_string_length -= skipped_len + in_token->length;
+};
+
 ferr_t json_parse_string_n(const char* string, size_t string_length, bool json5, json_object_t** out_object) {
 	json_object_stack_t* object_stack = NULL;
 	size_t object_stack_size = 0;
@@ -677,7 +688,7 @@ ferr_t json_parse_string_n(const char* string, size_t string_length, bool json5,
 	json_object_t* result = NULL;
 
 continue_loop:
-	while (string_length > 0) {
+	while (string_length > 0 && (need_new_object || object_stack_size != 0)) {
 		json_object_stack_t* current_object = (!need_new_object && object_stack_size > 0) ? (&object_stack[object_stack_size - 1]) : NULL;
 
 		if (need_new_object) {
@@ -828,8 +839,10 @@ continue_loop:
 							goto out;
 						}
 
-						// consume it
-						json_lexer_next(&string, &string_length, false, false, &token);
+						if (found_whole_part) {
+							// this was a peek; consume it
+							json_lexer_consume_peek(&token, &string, &string_length);
+						}
 						found_decimal_point = true;
 
 						json_lexer_peek(string, string_length, false, false, &token);
@@ -842,7 +855,7 @@ continue_loop:
 
 						if (token.type == json_token_type_decimal_integer) {
 							// consume it
-							json_lexer_next(&string, &string_length, false, false, &token);
+							json_lexer_consume_peek(&token, &string, &string_length);
 							found_fraction_part = true;
 
 							status = simple_string_to_integer_unsigned(token.contents, token.length, NULL, 10, &fraction_part);
@@ -850,7 +863,7 @@ continue_loop:
 								goto out;
 							}
 
-							val += (double)fraction_part / __builtin_pow(10, token.length);
+							val += (double)fraction_part / (double)math_pow_u64(10, token.length, NULL);
 
 							json_lexer_peek(string, string_length, false, false, &token);
 						}
@@ -863,7 +876,7 @@ continue_loop:
 						}
 
 						// consume it
-						json_lexer_next(&string, &string_length, false, false, &token);
+						json_lexer_consume_peek(&token, &string, &string_length);
 						found_exponent_part = true;
 
 						// this *has* to be followed by a decimal integer for the exponent value
@@ -878,7 +891,7 @@ continue_loop:
 							goto out;
 						}
 
-						val *= __builtin_pow(10, exponent_part);
+						val *= (double)math_pow_u64(10, exponent_part, NULL);
 					}
 
 					if (!found_whole_part && !found_fraction_part && !found_exponent_part) {
@@ -936,7 +949,128 @@ continue_loop:
 					goto out;
 			}
 		} else {
-			// TODO: WORKING HERE
+			bool is_dict;
+			json_token_t token;
+
+			if (json_object_class(current_object->object) == json_object_class_dict()) {
+				is_dict = true;
+			} else {
+				fassert(json_object_class(current_object->object) == json_object_class_array());
+				is_dict = false;
+			}
+
+			json_lexer_peek(string, string_length, true, json5, &token);
+
+			if (!result) {
+				// this means we're on the first iteration
+
+				if ((is_dict && token.type == json_token_type_closing_brace) || (!is_dict && token.type == json_token_type_closing_square)) {
+					// alright, this is an empty dictionary/array
+
+					// consume the closing brace/square
+					json_lexer_consume_peek(&token, &string, &string_length);
+
+					result = current_object->object;
+					--object_stack_size;
+					// try to shrink the stack, but ignore any failures
+					LIBJSON_WUR_IGNORE(sys_mempool_reallocate(object_stack, sizeof(*object_stack) * object_stack_size, NULL, (void*)&object_stack));
+					continue;
+				}
+			} else {
+				bool had_comma = false;
+
+				// we're not on the first iteration, so we need to 1) assign the produced value to our object, and 2) check for a comma before accepting another entry
+
+				if (is_dict) {
+					status = json_dict_set_n(current_object->object, current_object->pending_key, current_object->pending_key_length, result);
+				} else {
+					status = json_array_append(current_object->object, result);
+				}
+				if (status != ferr_ok) {
+					goto out;
+				}
+
+				if (current_object->pending_key) {
+					LIBJSON_WUR_IGNORE(sys_mempool_free(current_object->pending_key));
+
+					current_object->pending_key = NULL;
+					current_object->pending_key_length = 0;
+				}
+				result = NULL;
+
+				if (token.type == json_token_type_comma) {
+					// consume it
+					json_lexer_consume_peek(&token, &string, &string_length);
+
+					json_lexer_peek(string, string_length, true, json5, &token);
+
+					had_comma = true;
+				}
+
+				if ((is_dict && token.type == json_token_type_closing_brace) || (!is_dict && token.type == json_token_type_closing_square)) {
+					if (!json5 && had_comma) {
+						// trailing commas are only allowed in JSON5
+						status = ferr_invalid_argument;
+						goto out;
+					}
+
+					// consume it
+					json_lexer_consume_peek(&token, &string, &string_length);
+
+					json_lexer_peek(string, string_length, true, json5, &token);
+
+					result = current_object->object;
+					--object_stack_size;
+					// try to shrink the stack, but ignore any failures
+					LIBJSON_WUR_IGNORE(sys_mempool_reallocate(object_stack, sizeof(*object_stack) * object_stack_size, NULL, (void*)&object_stack));
+					continue;
+				} else if (!had_comma) {
+					// if we didn't find a comma, we HAD to find a closing brace/square
+					status = ferr_invalid_argument;
+					goto out;
+				}
+			}
+
+			if (is_dict) {
+				// we only peeked at the token before; when we get here, we MUST have a token, so let's consume it
+				json_lexer_consume_peek(&token, &string, &string_length);
+
+				if (token.type == json_token_type_single_quote || token.type == json_token_type_double_quote) {
+					size_t consumed_chars = 0;
+					status = json_parse_string_object(string, string_length, json5, &consumed_chars, &current_object->pending_key, &current_object->pending_key_length);
+					if (status != ferr_ok) {
+						goto out;
+					}
+
+					string += consumed_chars;
+					string_length -= consumed_chars;
+				} else if (token.type == json_token_type_identifier) {
+					if (!json5) {
+						// only JSON5 allows identifiers as keys
+						status = ferr_invalid_argument;
+						goto out;
+					}
+
+					status = sys_mempool_allocate(token.length, NULL, (void*)&current_object->pending_key);
+					if (status != ferr_ok) {
+						goto out;
+					}
+
+					simple_memcpy(current_object->pending_key, token.contents, token.length);
+				} else {
+					status = ferr_invalid_argument;
+					goto out;
+				}
+
+				json_lexer_next(&string, &string_length, true, json5, &token);
+
+				if (token.type != json_token_type_colon) {
+					status = ferr_invalid_argument;
+					goto out;
+				}
+			}
+
+			need_new_object = true;
 		}
 	}
 
@@ -963,6 +1097,11 @@ out:
 			}
 		}
 		LIBJSON_WUR_IGNORE(sys_mempool_free(object_stack));
+	}
+	if (status != ferr_ok) {
+		if (result) {
+			LIBJSON_WUR_IGNORE(json_release(result));
+		}
 	}
 	return status;
 };

@@ -16,6 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <ferro/asm/common.hS>
+
 .text
 
 //
@@ -24,9 +26,9 @@
 //   [8..16]  = image handle address (typically the address of `_dyld_private` in the image)
 //
 .align 4
-.global _dymple_bind_stub     // defined in C
-.global _dymple_bind_stub_raw // defined here
-_dymple_bind_stub_raw:
+.global FERRO_SYM(dymple_bind_stub)     // defined in C
+.global FERRO_SYM(dymple_bind_stub_raw) // defined here
+FERRO_SYM(dymple_bind_stub_raw):
 	// save the frame pointer and link register and update the frame pointer
 	sub sp, sp, #16
 	stp fp, lr, [sp]
@@ -94,12 +96,12 @@ _dymple_bind_stub_raw:
 	br x9
 
 .align 4
-.global ___stack_chk_fail
-___stack_chk_fail:
+.global FERRO_SYM(__stack_chk_fail)
+FERRO_SYM(__stack_chk_fail):
 	udf #0
 
 .align 4
 .data
-.global ___stack_chk_guard
-___stack_chk_guard:
+.global FERRO_SYM(__stack_chk_guard)
+FERRO_SYM(__stack_chk_guard):
 	.long 0

@@ -4,20 +4,11 @@ include_directories(
 	"${CMAKE_CURRENT_BINARY_DIR}/include"
 )
 
-add_custom_command(
-	OUTPUT
-		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/gdbstub/target.xml.h"
-	COMMAND
-		"${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/encode-file.py" "${CMAKE_CURRENT_SOURCE_DIR}/../../src/gdbstub/${ANILLO_ARCH}/target.xml" "${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/gdbstub/target.xml.h" "target_xml_data"
-	MAIN_DEPENDENCY
-		"${CMAKE_CURRENT_SOURCE_DIR}/../../src/gdbstub/${ANILLO_ARCH}/target.xml"
-	DEPENDS
-		"${CMAKE_CURRENT_SOURCE_DIR}/../../scripts/encode-file.py"
-)
-
-add_custom_target(generate_target_xml_header
-	DEPENDS
-		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/gdbstub/target.xml.h"
+encode_file(
+	"../../src/gdbstub/${ANILLO_ARCH}/target.xml"
+	"include/gen/ferro/gdbstub/target.xml.h"
+	target_xml_data
+	generate_target_xml_header
 )
 
 add_library(ferro_gdbstub STATIC
@@ -25,6 +16,8 @@ add_library(ferro_gdbstub STATIC
 	malloc.c
 	packet-buffer.c
 )
+
+add_dependencies(ferro_gdbstub generate_target_xml_header)
 
 add_subdirectory("${ANILLO_ARCH}")
 

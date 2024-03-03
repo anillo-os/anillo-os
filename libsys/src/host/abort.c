@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2021 Anillo OS Developers
+ * Copyright (C) 2024 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,16 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <ferro/asm/common.hS>
+#include <libsys/abort.h>
 
-.text
+#include <stdlib.h>
 
-.global FERRO_SYM(__stack_chk_fail)
-FERRO_SYM(__stack_chk_fail):
-	ud2
-
-.data
-
-.global FERRO_SYM(__stack_chk_guard)
-FERRO_SYM(__stack_chk_guard):
-	.quad 0
+LIBSYS_NO_RETURN void sys_abort(void) {
+	abort();
+};

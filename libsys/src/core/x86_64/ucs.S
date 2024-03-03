@@ -18,6 +18,7 @@
 
 #include <ferro/asm/x86_64/helpers.hS>
 #include <libsys/gen/offsets.h>
+#include <ferro/asm/common.hS>
 
 // NOTE: these functions do not care about stack alignment,
 //       so they CANNOT call C code. well, they also can't call
@@ -25,8 +26,8 @@
 
 // arg 0 (rdi) is a pointer to the context to save into
 .text
-.global ___sys_ucs_save
-___sys_ucs_save:
+.global FERRO_SYM(__sys_ucs_save)
+FERRO_SYM(__sys_ucs_save):
 	// we don't want to re-run the function if we load the context,
 	// so save the address of the function exit point
 	lea 0f(%rip), %rsi
@@ -50,8 +51,8 @@ ___sys_ucs_save:
 
 // arg 0 (rdi) is an optional pointer to the context to save into
 // arg 1 (rsi) is a pointer to the context to load
-.global ___sys_ucs_switch
-___sys_ucs_switch:
+.global FERRO_SYM(__sys_ucs_switch)
+FERRO_SYM(__sys_ucs_switch):
 	// check if arg 0 is non-null
 	test %rdi, %rdi
 	jz 0f

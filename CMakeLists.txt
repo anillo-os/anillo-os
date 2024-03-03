@@ -1,4 +1,12 @@
-cmake_minimum_required(VERSION 3.20)
+cmake_minimum_required(VERSION 3.24)
+
+if (NOT DEFINED ANILLO_HOST_TESTING)
+	set(ANILLO_HOST_TESTING OFF)
+endif()
+
+if (NOT ANILLO_HOST_TESTING)
+	set(CMAKE_TOOLCHAIN_FILE "cmake/toolchains/${ANILLO_ARCH}.cmake")
+endif()
 
 add_compile_options(
 	-ferror-limit=0
@@ -31,7 +39,27 @@ if (NOT ("${ANILLO_ARCH}" IN_LIST ANILLO_SUPPORTED_ARCHS))
 	message(FATAL_ERROR "Unsupported arch: ${ANILLO_ARCH}")
 endif()
 
-set(CMAKE_TOOLCHAIN_FILE "cmake/toolchains/${ANILLO_ARCH}.cmake")
+if (ANILLO_HOST_TESTING)
+	find_program(CLANG_PATH clang REQUIRED)
+	find_program(CLANGXX_PATH clang++ REQUIRED)
+	find_program(LLVM_AR_PATH llvm-ar REQUIRED)
+	find_program(LLVM_RANLIB_PATH llvm-ranlib REQUIRED)
+	find_program(LLVM_SIZE_PATH llvm-size REQUIRED)
+	find_program(LLVM_STRIP_PATH llvm-strip REQUIRED)
+	find_program(LLVM_OBJCOPY_PATH llvm-objcopy REQUIRED)
+
+	set(CMAKE_AR "${LLVM_AR_PATH}" CACHE INTERNAL "")
+	set(CMAKE_ASM_COMPILER "${CLANG_PATH}" CACHE INTERNAL "")
+	set(CMAKE_C_COMPILER "${CLANG_PATH}" CACHE INTERNAL "")
+	set(CMAKE_CXX_COMPILER "${CLANGXX_PATH}" CACHE INTERNAL "")
+	set(CMAKE_LINKER "${LD_PATH}" CACHE INTERNAL "")
+	set(CMAKE_OBJCOPY "${LLVM_OBJCOPY_PATH}" CACHE INTERNAL "")
+	set(CMAKE_RANLIB "${LLVM_RANLIB_PATH}" CACHE INTERNAL "")
+	set(CMAKE_SIZE "${LLVM_SIZE_PATH}" CACHE INTERNAL "")
+	set(CMAKE_STRIP "${LLVM_STRIP_PATH}" CACHE INTERNAL "")
+else()
+	set(CMAKE_TOOLCHAIN_FILE "cmake/toolchains/${ANILLO_ARCH}.cmake")
+endif()
 
 if (NOT DEFINED CMAKE_BUILD_TYPE)
 	set(CMAKE_BUILD_TYPE Release)
@@ -43,6 +71,12 @@ if (CMAKE_BUILD_TYPE STREQUAL "Debug")
 	add_compile_options(
 		-fno-omit-frame-pointer
 	)
+endif()
+
+if (ANILLO_HOST_TESTING)
+	add_compile_definitions(ANILLO_HOST_TESTING=1)
+else()
+	add_compile_definitions(ANILLO_HOST_TESTING=0)
 endif()
 
 # we use `<arch>-unknown-linux-elf` instead of `<arch>-unknown-none-elf` for KASan support
@@ -57,6 +91,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_executable.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/dsym.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/spooky_gen.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/calculate_offsets.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/encode_file.cmake)
 
 find_dsymutil()
 
@@ -158,19 +193,24 @@ add_custom_target(generate_offsets_header
 		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/offsets.h"
 )
 
-add_custom_target(generate_ramdisk
-	ALL
-	COMMAND
-		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py" "${CMAKE_CURRENT_BINARY_DIR}/ramdisksrc" "${OFFSETS_JSON_PATH}" "${CMAKE_BINARY_DIR}/ramdisk"
-	BYPRODUCTS
-		"${CMAKE_BINARY_DIR}/ramdisk"
-	DEPENDS
-		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py"
-		"${OFFSETS_JSON_PATH}"
-)
+if (NOT ANILLO_HOST_TESTING)
+	add_custom_target(generate_ramdisk
+		ALL
+		COMMAND
+			"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py" "${CMAKE_CURRENT_BINARY_DIR}/ramdisksrc" "${OFFSETS_JSON_PATH}" "${CMAKE_BINARY_DIR}/ramdisk"
+		BYPRODUCTS
+			"${CMAKE_BINARY_DIR}/ramdisk"
+		DEPENDS
+			"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py"
+			"${OFFSETS_JSON_PATH}"
+	)
+endif()
+
+if (NOT ANILLO_HOST_TESTING)
+	add_subdirectory(kernel/src/bootstrap/uefi)
+endif()
 
 add_subdirectory(kernel)
-add_subdirectory(kernel/src/bootstrap/uefi)
 add_subdirectory(libsyscall)
 add_subdirectory(sysman)
 add_subdirectory(dymple)
@@ -189,23 +229,26 @@ add_subdirectory(displayman)
 add_subdirectory(conman)
 add_subdirectory(hidman)
 add_subdirectory(libjson)
+add_subdirectory(libmath)
 
-add_custom_command(
-	OUTPUT
-		"${CMAKE_CURRENT_BINARY_DIR}/disk.img"
-	COMMAND
-		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-image.py" "${ANILLO_ARCH}" "$<TARGET_FILE:uefi-bootstrap>" "$<TARGET_FILE:ferro>" "${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/startup.nsh" "${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/config.txt" "${CMAKE_CURRENT_BINARY_DIR}/ramdisk" "${CMAKE_CURRENT_BINARY_DIR}/disk.img"
-	DEPENDS
-		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-image.py"
-		"$<TARGET_FILE:uefi-bootstrap>"
-		"$<TARGET_FILE:ferro>"
-		"${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/startup.nsh"
-		"${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/config.txt"
-		"${CMAKE_BINARY_DIR}/ramdisk"
-)
+if (NOT ANILLO_HOST_TESTING)
+	add_custom_command(
+		OUTPUT
+			"${CMAKE_CURRENT_BINARY_DIR}/disk.img"
+		COMMAND
+			"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-image.py" "${ANILLO_ARCH}" "$<TARGET_FILE:uefi-bootstrap>" "$<TARGET_FILE:ferro>" "${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/startup.nsh" "${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/config.txt" "${CMAKE_CURRENT_BINARY_DIR}/ramdisk" "${CMAKE_CURRENT_BINARY_DIR}/disk.img"
+		DEPENDS
+			"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-image.py"
+			"$<TARGET_FILE:uefi-bootstrap>"
+			"$<TARGET_FILE:ferro>"
+			"${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/startup.nsh"
+			"${CMAKE_CURRENT_SOURCE_DIR}/imagesrc/config.txt"
+			"${CMAKE_BINARY_DIR}/ramdisk"
+	)
 
-add_custom_target(generate_image
-	ALL
-	DEPENDS
-		"${CMAKE_CURRENT_BINARY_DIR}/disk.img"
-)
+	add_custom_target(generate_image
+		ALL
+		DEPENDS
+			"${CMAKE_CURRENT_BINARY_DIR}/disk.img"
+	)
+endif()
