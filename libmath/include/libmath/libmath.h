@@ -37,6 +37,7 @@ double math_pow_d(double base, double exponent, math_error_t* out_error);
 float math_pow_f(float base, float exponent, math_error_t* out_error);
 long double math_pow_ld(long double base, long double exponent, math_error_t* out_error);
 uint64_t math_pow_u64(uint64_t base, uint64_t exponent, math_error_t* out_error);
+double math_pow_di(double base, int64_t exponent, math_error_t* out_error);
 
 LIBMATH_DECLARATIONS_END;
 

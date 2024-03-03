@@ -58,6 +58,7 @@ FERRO_SYM(__sys_ucs_save):
 
 // arg 0 (x0) is an optional pointer to the context to save into
 // arg 1 (x1) is a pointer to the context to load
+.align 4
 .global FERRO_SYM(__sys_ucs_switch)
 FERRO_SYM(__sys_ucs_switch):
 	// check if arg 0 is null

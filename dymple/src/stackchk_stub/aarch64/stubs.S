@@ -20,12 +20,14 @@
 
 .text
 
+.align 4
 .global FERRO_SYM(__stack_chk_fail)
 FERRO_SYM(__stack_chk_fail):
 	udf #0
 
 .data
 
+.align 4
 .global FERRO_SYM(__stack_chk_guard)
 FERRO_SYM(__stack_chk_guard):
 	.quad 0

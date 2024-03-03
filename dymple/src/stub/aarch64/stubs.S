@@ -20,6 +20,7 @@
 
 .text
 
+.align 4
 .global FERRO_SYM(__stack_chk_fail)
 FERRO_SYM(__stack_chk_fail):
 	udf #0
@@ -29,6 +30,7 @@ FERRO_SYM(__stack_chk_fail):
 .macro stub func
 	.text
 	.global \func
+	.align 4
 	\func\():
 		udf #0
 .endm
@@ -45,6 +47,7 @@ stub FERRO_SYM(dymple_open_process_binary_raw)
 
 .data
 
+.align 4
 .global FERRO_SYM(__stack_chk_guard)
 FERRO_SYM(__stack_chk_guard):
 	.quad 0

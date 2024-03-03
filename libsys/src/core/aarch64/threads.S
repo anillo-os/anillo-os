@@ -70,6 +70,7 @@ FERRO_SYM(__sys_thread_entry):
 	bl FERRO_SYM(__sys_thread_exit_self)
 	udf #0
 
+.align 4
 .global FERRO_SYM(__sys_thread_die)
 FERRO_SYM(__sys_thread_die):
 	// x0 = thread id

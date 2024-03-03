@@ -18,6 +18,8 @@
 
 #include <libmath/libmath.h>
 
+#include <stdbool.h>
+
 // TODO
 
 #define math_pow_def(_suffix, _builtin_suffix, _type) \
@@ -63,4 +65,42 @@ uint64_t math_pow_u64(uint64_t base, uint64_t exponent, math_error_t* out_error)
 	}
 
 	return odd_accumulator * even_accumulator;
+};
+
+// this is implemented as above, except we handle the case of having a negative exponent
+
+double math_pow_di(double base, int64_t exponent, math_error_t* out_error) {
+	if (out_error) {
+		*out_error = math_error_none;
+	}
+
+	if (exponent == 0) {
+		return 1;
+	}
+
+	bool reciprocal = false;
+
+	if (exponent < 0) {
+		reciprocal = true;
+		exponent *= -1;
+	}
+
+	double odd_accumulator = 1;
+	double even_accumulator = base;
+
+	while (exponent > 1) {
+		// the compiler should optimize this to effectively `(exponent & 1) != 0`, but this is clearer about our intentions
+		if ((exponent % 2) != 0) {
+			// odd
+			odd_accumulator *= even_accumulator;
+			exponent -= 1;
+		}
+
+		even_accumulator *= even_accumulator;
+		exponent /= 2; // likewise, the compiler should optimize this to `exponent >>= 1`
+	}
+
+	double result = odd_accumulator * even_accumulator;
+
+	return reciprocal ? ((double)1 / result) : result;
 };

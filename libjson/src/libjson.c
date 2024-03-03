@@ -73,7 +73,7 @@ LIBJSON_ALWAYS_INLINE bool is_hex_digit(char character) {
 };
 
 LIBJSON_ALWAYS_INLINE bool is_identifier_start(char character) {
-	return (character >= 'a' && character <= 'z') || (character <= 'A' && character >= 'Z') || (character == '_');
+	return (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') || (character == '_');
 };
 
 LIBJSON_ALWAYS_INLINE bool is_identifier_body(char character) {
@@ -546,8 +546,15 @@ void json_lexer_next(const char** in_out_string, size_t* in_out_string_length, b
 						char first = (*in_out_string)[0];
 						char second = (*in_out_string)[1];
 
-						*in_out_string += 2;
-						*in_out_string_length -= 2;
+						if (second == '*') {
+							// we can only advance by a single character for the next iteration
+							// since we might have a termination sequence (`*/`)
+							*in_out_string += 1;
+							*in_out_string_length -= 1;
+						} else {
+							*in_out_string += 2;
+							*in_out_string_length -= 2;
+						}
 
 						if (first == '*' && second == '/') {
 							break;
@@ -671,13 +678,13 @@ void json_lexer_peek(const char* string, size_t length, bool skip_whitespace, bo
 };
 
 void json_lexer_consume_peek(json_token_t* in_token, const char** in_out_string, size_t* in_out_string_length) {
-	if (*in_out_string >= in_token->contents) {
+	if (*in_out_string >= (in_token->contents + in_token->length)) {
 		return;
 	}
 
-	size_t skipped_len = in_token->contents - *in_out_string;
-	*in_out_string += skipped_len + in_token->length;
-	*in_out_string_length -= skipped_len + in_token->length;
+	size_t skipped_len = (in_token->contents + in_token->length) - *in_out_string;
+	*in_out_string += skipped_len;
+	*in_out_string_length -= skipped_len;
 };
 
 ferr_t json_parse_string_n(const char* string, size_t string_length, bool json5, json_object_t** out_object) {
@@ -751,6 +758,7 @@ continue_loop:
 				case json_token_type_minus:
 				case json_token_type_decimal_point: {
 					bool negative = false;
+					bool negative_exponent = false;
 					bool found_whole_part = false;
 					bool found_fraction_part = false;
 					bool found_exponent_part = false;
@@ -803,7 +811,7 @@ continue_loop:
 						}
 
 						uintmax_t value;
-						status = simple_string_to_integer_unsigned(token.contents, token.length, NULL, 16, &value);
+						status = simple_string_to_integer_unsigned(&token.contents[2], token.length - 2, NULL, 16, &value);
 						if (status != ferr_ok) {
 							goto out;
 						}
@@ -869,18 +877,27 @@ continue_loop:
 						}
 					}
 
-					if (token.type == json_token_type_identifier && token.length == 1 && (token.contents[0] == 'e' || token.contents[0] == 'E')) {
+					if (token.type == json_token_type_identifier && token.length >= 1 && (token.contents[0] == 'e' || token.contents[0] == 'E')) {
 						if (!found_whole_part && !found_fraction_part) {
 							status = ferr_invalid_argument;
 							goto out;
 						}
 
-						// consume it
-						json_lexer_consume_peek(&token, &string, &string_length);
+						// consume only the first character
+						size_t skip_count = (token.contents + 1) - string;
+						string += skip_count;
+						string_length -= skip_count;
 						found_exponent_part = true;
 
-						// this *has* to be followed by a decimal integer for the exponent value
+						// this *has* to be followed by a decimal integer for the exponent value (with an optional plus or minus)
 						json_lexer_next(&string, &string_length, false, false, &token);
+						if (token.type == json_token_type_plus) {
+							negative_exponent = false;
+							json_lexer_next(&string, &string_length, false, false, &token);
+						} else if (token.type == json_token_type_minus) {
+							negative_exponent = true;
+							json_lexer_next(&string, &string_length, false, false, &token);
+						}
 						if (token.type != json_token_type_decimal_integer) {
 							status = ferr_invalid_argument;
 							goto out;
@@ -891,7 +908,11 @@ continue_loop:
 							goto out;
 						}
 
-						val *= (double)math_pow_u64(10, exponent_part, NULL);
+						if (negative_exponent) {
+							val *= math_pow_di(10, -(int64_t)exponent_part, NULL);
+						} else {
+							val *= (double)math_pow_u64(10, exponent_part, NULL);
+						}
 					}
 
 					if (!found_whole_part && !found_fraction_part && !found_exponent_part) {
@@ -1057,6 +1078,7 @@ continue_loop:
 					}
 
 					simple_memcpy(current_object->pending_key, token.contents, token.length);
+					current_object->pending_key_length = token.length;
 				} else {
 					status = ferr_invalid_argument;
 					goto out;
