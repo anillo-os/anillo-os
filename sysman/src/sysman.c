@@ -453,8 +453,12 @@ static void start_process(const char* filename, sys_object_t** attached_objects,
 };
 
 static void start_managers(void* context) {
-	start_process("/sys/netman/netman");
-	start_process("/sys/usbman/usbman");
+	sys_channel_t* handoff_channel_ptr = (void*)&handoff_channel;
+	start_process("/sys/displayman/displayman", &handoff_channel_ptr, 1);
+	start_process("/sys/netman/netman", NULL, 0);
+	start_process("/sys/usbman/usbman", NULL, 0);
+	start_process("/sys/hidman/hidman", NULL, 0);
+	start_process("/sys/conman/conman", NULL, 0);
 };
 
 #if !ANILLO_HOST_TESTING
