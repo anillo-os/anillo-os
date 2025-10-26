@@ -66,7 +66,7 @@ ferr_t spooky_structure_create(size_t total_size, const spooky_structure_member_
 		goto out;
 	}
 
-	status = sys_object_new(&structure_class, sizeof(*structure) - sizeof(structure->base.object), (void*)&structure);
+	status = sys_object_new(&structure_class, sizeof(*structure) - sizeof(structure->base.object) + (sizeof(*members) * member_count), (void*)&structure);
 	if (status != ferr_ok) {
 		goto out;
 	}
