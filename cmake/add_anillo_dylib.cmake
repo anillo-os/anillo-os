@@ -21,7 +21,9 @@ function(add_anillo_dylib target_name)
 		set(ANILLO_DYLIB_SOURCES "${CMAKE_SOURCE_DIR}/cmake/dummy.c")
 	endif()
 
-	add_library(${target_name} SHARED ${ANILLO_DYLIB_SOURCES})
+	anillo_exit_asm_hack()
+
+	add_library(${target_name} SHARED ${ANILLO_DYLIB_SOURCES} "${CMAKE_BINARY_DIR}/exit-asm.o")
 
 	set_target_properties(${target_name} PROPERTIES
 		PREFIX "lib"

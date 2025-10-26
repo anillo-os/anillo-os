@@ -9,7 +9,9 @@ function(add_anillo_executable target_name)
 		set(ANILLO_EXEC_SOURCES "${CMAKE_SOURCE_DIR}/cmake/dummy.c")
 	endif()
 
-	add_executable(${target_name} ${ANILLO_EXEC_SOURCES})
+	anillo_exit_asm_hack()
+
+	add_executable(${target_name} ${ANILLO_EXEC_SOURCES} "${CMAKE_BINARY_DIR}/exit-asm.o")
 
 	set_target_properties(${target_name} PROPERTIES
 		PREFIX ""

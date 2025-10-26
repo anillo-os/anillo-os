@@ -87,6 +87,7 @@ option(FERRO_KASAN "Enable KASan for Ferro" OFF)
 option(USERSPACE_ASAN "Enable ASan for all of userspace" OFF)
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_to_ramdisk.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/anillo_exit_asm_hack.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_dylib.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_executable.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/dsym.cmake)
