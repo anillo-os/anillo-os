@@ -18,17 +18,16 @@
 
 #include <libsys/libsys.private.h>
 #include <libeve/libeve.h>
-#include <stdatomic.h>
 #include <libspooky/libspooky.h>
 #include <vfsman/vfs.h>
 #include <vfsman/ramdisk.h>
 #include <vfs.server.h>
-#include <con.server.h>
+#include <log.server.h>
 
 #define SYNC_LOG 1
 
 #define VFSMAN_SERVER_NAME "org.anillo.vfsman"
-#define CONMAN_SERVER_NAME "org.anillo.conman"
+#define LOGMAN_SERVER_NAME "org.anillo.logman"
 
 LIBSYS_STRUCT(sysman_server) {
 	const char* name;
@@ -447,11 +446,14 @@ static void start_managers(void* context) {
 	start_process("/sys/usbman/usbman");
 };
 
+#if !ANILLO_HOST_TESTING
 void start(void) asm("start");
+#endif
+
 void start(void) {
 	eve_loop_t* main_loop = NULL;
 	sys_channel_t* vfsman_channel = NULL;
-	sys_channel_t* conman_channel = NULL;
+	sys_channel_t* logman_channel = NULL;
 	sysman_server_t* pciman_server = NULL;
 	bool created = false;
 	eve_channel_t* pciman_eve_channel = NULL;
@@ -494,9 +496,9 @@ void start(void) {
 	sys_abort_status_log(vfsman_serve_explicit(main_loop, vfsman_channel));
 	vfsman_channel = NULL;
 
-	sys_abort_status_log(sysman_register(CONMAN_SERVER_NAME, sizeof(CONMAN_SERVER_NAME) - 1, sys_sysman_realm_global, &conman_channel));
-	sys_abort_status_log(conman_serve_explicit(main_loop, conman_channel));
-	conman_channel = NULL;
+	sys_abort_status_log(sysman_register(LOGMAN_SERVER_NAME, sizeof(LOGMAN_SERVER_NAME) - 1, sys_sysman_realm_global, &logman_channel));
+	sys_abort_status_log(logman_serve_explicit(main_loop, logman_channel));
+	logman_channel = NULL;
 
 	sys_abort_status_log(eve_loop_enqueue(main_loop, start_managers, NULL));
 

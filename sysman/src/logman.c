@@ -16,9 +16,9 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <con.server.h>
+#include <log.server.h>
 
-ferr_t conman_log_string_impl(void* _context, sys_data_t* contents, int32_t* out_status) {
+ferr_t logman_log_string_impl(void* _context, sys_data_t* contents, int32_t* out_status) {
 	ferr_t status = ferr_ok;
 
 	// for now

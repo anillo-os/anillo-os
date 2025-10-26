@@ -1,32 +1,32 @@
 project(sysman C)
 
-spooky_gen(conman_client src/con.spky
-	HEADER "${CMAKE_CURRENT_BINARY_DIR}/public/libconman/libconman.h"
+spooky_gen(logman_client src/log.spky
+	HEADER "${CMAKE_CURRENT_BINARY_DIR}/public/liblogman/liblogman.h"
 )
-spooky_gen(conman_server src/con.spky SERVER)
+spooky_gen(logman_server src/log.spky SERVER)
 
-add_library(libconman_static STATIC
-	"${CMAKE_CURRENT_BINARY_DIR}/con.client.c"
+add_library(liblogman_static STATIC
+	"${CMAKE_CURRENT_BINARY_DIR}/log.client.c"
 )
 
-target_include_directories(libconman_static PUBLIC
+target_include_directories(liblogman_static PUBLIC
 	"${CMAKE_CURRENT_BINARY_DIR}/public"
 )
 
-target_include_directories(libconman_static PRIVATE
-	"${CMAKE_CURRENT_BINARY_DIR}/public/libconman"
+target_include_directories(liblogman_static PRIVATE
+	"${CMAKE_CURRENT_BINARY_DIR}/public/liblogman"
 )
 
-set_target_properties(libconman_static PROPERTIES
-	OUTPUT_NAME conman
+set_target_properties(liblogman_static PROPERTIES
+	OUTPUT_NAME logman
 )
 
-target_link_libraries(libconman_static PUBLIC
+target_link_libraries(liblogman_static PUBLIC
 	libsys_headers
 	libeve_headers
 )
 
-target_link_libraries(libconman_static PRIVATE
+target_link_libraries(liblogman_static PRIVATE
 	libsimple_headers
 	libspooky_headers
 )
@@ -40,8 +40,8 @@ add_anillo_executable(sysman
 	INSTALL_PATH /sys/sysman/sysman
 	SOURCES
 		src/sysman.c
-		src/conman.c
-		"${CMAKE_CURRENT_BINARY_DIR}/con.server.c"
+		src/logman.c
+		"${CMAKE_CURRENT_BINARY_DIR}/log.server.c"
 )
 
 target_include_directories(sysman PRIVATE
@@ -79,4 +79,10 @@ target_link_libraries(tinysh PUBLIC
 	libsimple
 	libeve
 	libspooky
+)
+
+sanitize_targets(
+	liblogman_static
+	sysman
+	tinysh
 )

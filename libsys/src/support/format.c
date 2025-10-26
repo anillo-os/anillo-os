@@ -20,7 +20,7 @@
 #include <libsimple/general.h>
 
 #if !BUILDING_DYMPLE
-#include <libconman/libconman.h>
+#include <liblogman/liblogman.h>
 
 static ferr_t sys_format_out_console_handler(const void* buffer, size_t buffer_length) {
 	ferr_t status = ferr_ok;
@@ -33,7 +33,7 @@ static ferr_t sys_format_out_console_handler(const void* buffer, size_t buffer_l
 		goto out;
 	}
 
-	status = conman_log_string(NULL, data, &status2);
+	status = logman_log_string(NULL, data, &status2);
 	if (status == ferr_ok) {
 		status = status2;
 	}
