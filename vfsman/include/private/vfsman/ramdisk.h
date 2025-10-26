@@ -22,6 +22,7 @@
 #include <stdint.h>
 
 #include <libvfs/base.h>
+#include <libsys/pages.h>
 
 LIBVFS_DECLARATIONS_BEGIN;
 

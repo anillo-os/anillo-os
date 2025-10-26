@@ -57,10 +57,10 @@ ferr_t sys_support_format_init(void) {
 	return ferr_ok;
 };
 
-SYS_FORMAT_VARIANT_WRAPPER(file, { sys_file_t* file; uint64_t offset; }, SYS_FORMAT_CONTEXT_INIT(file, offset), sys_file_t* file, uint64_t offset) {
+SYS_FORMAT_VARIANT_WRAPPER(file, { vfs_node_t* file; uint64_t offset; }, SYS_FORMAT_CONTEXT_INIT(file, offset), vfs_node_t* file, uint64_t offset) {
 	SYS_FORMAT_WRITE_HEADER(file);
 
-	ferr_t status = sys_file_write(context->file, context->offset, buffer_length, buffer, out_written_count);
+	ferr_t status = vfs_node_write(context->file, context->offset, buffer_length, buffer, out_written_count);
 
 	if (status == ferr_ok) {
 		context->offset += *out_written_count;

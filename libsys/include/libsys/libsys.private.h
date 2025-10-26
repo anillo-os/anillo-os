@@ -38,5 +38,6 @@
 #include <libsys/sysman.private.h>
 #include <libsys/threads.private.h>
 #include <libsys/timeout.private.h>
+#include <libsys/vfs.private.h>
 
 #endif // _LIBSYS_LIBSYS_PRIVATE_H_

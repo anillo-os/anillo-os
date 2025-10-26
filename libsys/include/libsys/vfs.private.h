@@ -19,20 +19,10 @@
 #ifndef _LIBSYS_FILES_PRIVATE_H_
 #define _LIBSYS_FILES_PRIVATE_H_
 
-#include <libsys/files.h>
+#include <libsys/vfs.h>
 #include <libsys/objects.private.h>
 
 LIBSYS_DECLARATIONS_BEGIN;
-
-// HACK
-// this should not be here, since it exposes implementation details of libvfs
-typedef sys_object_t vfs_object_t;
-typedef vfs_object_t vfs_file_t;
-
-LIBSYS_STRUCT(sys_file_object) {
-	sys_object_t object;
-	vfs_file_t* file;
-};
 
 LIBSYS_DECLARATIONS_END;
 

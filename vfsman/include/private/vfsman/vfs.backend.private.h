@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2022 Anillo OS Developers
+ * Copyright (C) 2024 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,22 +16,18 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBVFS_BASE_H_
-#define _LIBVFS_BASE_H_
+#ifndef _VFSMAN_VFS_BACKEND_PRIVATE_H_
+#define _VFSMAN_VFS_BACKEND_PRIVATE_H_
 
-#include <libsys/base.h>
+#include <vfsman/vfs.backend.h>
 
-#define LIBVFS_NO_RETURN LIBSYS_NO_RETURN
-#define LIBVFS_DECLARATIONS_BEGIN LIBSYS_DECLARATIONS_BEGIN
-#define LIBVFS_DECLARATIONS_END LIBSYS_DECLARATIONS_END
-#define LIBVFS_STRUCT LIBSYS_STRUCT
-#define LIBVFS_PACKED_STRUCT LIBSYS_PACKED_STRUCT
-#define LIBVFS_ALWAYS_INLINE LIBSYS_ALWAYS_INLINE
-#define LIBVFS_ENUM LIBSYS_ENUM
-#define LIBVFS_STRUCT_FWD LIBSYS_STRUCT_FWD
-#define LIBVFS_WUR LIBSYS_WUR
-#define LIBVFS_PRINTF LIBSYS_PRINTF
-#define LIBVFS_OPTIONS LIBSYS_OPTIONS
-#define LIBVFS_WUR_IGNORE LIBSYS_WUR_IGNORE
+FERRO_STRUCT(vfsman_mount) {
+	void* context;
+	const vfsman_backend_t* backend;
+	uint64_t open_descriptor_count;
 
-#endif // _LIBVFS_BASE_H_
+	size_t path_length;
+	char path[];
+};
+
+#endif // _VFSMAN_VFS_BACKEND_PRIVATE_H_

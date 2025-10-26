@@ -20,10 +20,15 @@
 #include <libsys/objects.private.h>
 #include <libspooky/libspooky.h>
 
-LIBVFS_STRUCT(vfs_file_object) {
+LIBVFS_STRUCT(vfs_node_object) {
 	vfs_object_t object;
 	spooky_proxy_t* proxy;
 };
 
-LIBVFS_WUR ferr_t vfs_file_duplicate_raw(vfs_file_t* file, sys_channel_t** out_channel);
-LIBVFS_WUR ferr_t vfs_open_raw(sys_channel_t* channel, vfs_file_t** out_file);
+LIBVFS_STRUCT(vfs_listing_object) {
+	vfs_object_t object;
+	spooky_proxy_t* proxy;
+};
+
+LIBVFS_WUR ferr_t vfs_node_duplicate_raw(vfs_node_t* node, sys_channel_t** out_channel);
+LIBVFS_WUR ferr_t vfs_open_raw(sys_channel_t* channel, vfs_node_t** out_node);

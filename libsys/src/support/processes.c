@@ -23,7 +23,7 @@
 #include <libsys/mempool.h>
 #include <libmacho/libmacho.h>
 #include <libsys/pages.h>
-#include <libsys/files.private.h>
+#include <libsys/vfs.private.h>
 #include <libvfs/libvfs.private.h>
 #include <libspooky/proxy.private.h>
 #include <libsys/channels.private.h>
@@ -152,16 +152,16 @@ LIBSYS_STRUCT(sys_uloader_info) {
 	sys_uloader_loaded_segment_info_t loaded_segments[];
 };
 
-static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_info) {
+static ferr_t sys_uloader_load_file(vfs_node_t* file, sys_uloader_info_t** out_info) {
 	ferr_t status = ferr_ok;
 	macho_header_t header;
 	macho_header_t dynamic_linker_header;
 	size_t loadable_segment_count = 0;
 	sys_uloader_info_t* info = NULL;
-	sys_file_t* dynamic_linker_descriptor = NULL;
+	vfs_node_t* dynamic_linker_descriptor = NULL;
 
 	macho_header_t* header_to_load = &header;
-	sys_file_t* file_to_load = file;
+	vfs_node_t* file_to_load = file;
 	sys_data_t* cmd_data = NULL;
 	char* cmd_data_ptr = NULL;
 
@@ -176,7 +176,7 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 	}
 
 	// read the main Mach-O header
-	status = sys_file_read_retry(file, 0, sizeof(header), &header, NULL);
+	status = vfs_node_read_retry(file, 0, sizeof(header), &header, NULL);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -194,7 +194,7 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 	}
 
 	// read all the load commands
-	status = sys_file_read_data(file, sizeof(header), header.total_command_size, &cmd_data);
+	status = vfs_node_read_data(file, sizeof(header), header.total_command_size, &cmd_data);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -244,13 +244,13 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 		}
 
 		// now try to open a file descriptor for the dynamic linker
-		status = sys_file_open_n(dynamic_linker_path, dynamic_linker_path_length, &dynamic_linker_descriptor);
+		status = vfs_open_n(dynamic_linker_path, dynamic_linker_path_length, &dynamic_linker_descriptor);
 		if (status != ferr_ok) {
 			goto out;
 		}
 
 		// read the main Mach-O header
-		status = sys_file_read_retry(dynamic_linker_descriptor, 0, sizeof(dynamic_linker_header), &dynamic_linker_header, NULL);
+		status = vfs_node_read_retry(dynamic_linker_descriptor, 0, sizeof(dynamic_linker_header), &dynamic_linker_header, NULL);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -269,7 +269,7 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 		old_cmd_data = cmd_data;
 
 		// read all the load commands
-		status = sys_file_read_data(dynamic_linker_descriptor, sizeof(dynamic_linker_header), dynamic_linker_header.total_command_size, &cmd_data);
+		status = vfs_node_read_data(dynamic_linker_descriptor, sizeof(dynamic_linker_header), dynamic_linker_header.total_command_size, &cmd_data);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -383,7 +383,7 @@ static ferr_t sys_uloader_load_file(sys_file_t* file, sys_uloader_info_t** out_i
 		}
 
 		// read it in from the file
-		status = sys_file_read_retry(file_to_load, segment_64_load_command->file_offset, segment_64_load_command->file_size, load_start_addr, NULL);
+		status = vfs_node_read_retry(file_to_load, segment_64_load_command->file_offset, segment_64_load_command->file_size, load_start_addr, NULL);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -424,7 +424,7 @@ static ferr_t sys_uloader_unload_file(sys_uloader_info_t* info) {
 	return ferr_ok;
 };
 
-ferr_t sys_proc_create(sys_file_t* file, sys_object_t** attached_objects, size_t attached_object_count, sys_proc_flags_t flags, sys_proc_t** out_proc) {
+ferr_t sys_proc_create(vfs_node_t* file, sys_object_t** attached_objects, size_t attached_object_count, sys_proc_flags_t flags, sys_proc_t** out_proc) {
 	ferr_t status = ferr_ok;
 	sys_proc_object_t* proc = NULL;
 	bool release_file_on_exit = false;
@@ -509,7 +509,7 @@ ferr_t sys_proc_create(sys_file_t* file, sys_object_t** attached_objects, size_t
 
 	// create the process binary descriptor
 
-	status = vfs_file_duplicate_raw(((sys_file_object_t*)file)->file, &binary_desc);
+	status = vfs_node_duplicate_raw(file, &binary_desc);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -724,10 +724,7 @@ ferr_t sys_proc_init_context_detach_object(uint64_t object_index, sys_object_t**
 
 	sys_mutex_lock(&proc_init_message_mutex);
 
-	status = sys_channel_message_attachment_type(proc_init_message, object_index);
-	if (status != ferr_ok) {
-		goto out;
-	}
+	type = sys_channel_message_attachment_type(proc_init_message, object_index);
 
 	switch (type) {
 		case sys_channel_message_attachment_type_channel:

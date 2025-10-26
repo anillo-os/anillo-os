@@ -16,7 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#include <libsys/files.private.h>
+#include <libsys/vfs.private.h>
 #include <libsys/mempool.h>
 #include <libsys/abort.h>
 #include <stdbool.h>
@@ -43,47 +43,19 @@ static uint8_t proc_binary_channel_used = 0;
 #include <dymple/dymple.h>
 #endif
 
-static void sys_file_destroy(sys_object_t* object);
-
-static const sys_object_class_t file_class = {
-	LIBSYS_OBJECT_CLASS_INTERFACE(NULL),
-	.destroy = sys_file_destroy,
-};
-
-LIBSYS_OBJECT_CLASS_GETTER(file, file_class);
-
-static void sys_file_destroy(sys_object_t* object) {
-	sys_file_object_t* file = (void*)object;
-
-	if (file->file) {
-		vfs_release(file->file);
-	}
-
-	sys_object_destroy(object);
-};
-
-ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file) {
+ferr_t vfs_open_special(vfs_node_special_id_t id, vfs_node_t** out_node) {
 	ferr_t status = ferr_ok;
-	sys_file_t* xfile = NULL;
-	sys_file_object_t* file = NULL;
-
-	status = sys_object_new(&file_class, sizeof(sys_file_object_t) - sizeof(sys_object_t), &xfile);
-	if (status != ferr_ok) {
-		goto out;
-	}
-	file = (void*)xfile;
-
-	file->file = NULL;
+	vfs_node_t* node = NULL;
 
 	switch (id) {
-		case sys_file_special_id_process_binary: {
+		case vfs_node_special_id_process_binary: {
 #if BUILDING_DYMPLE
 			if (__atomic_test_and_set(&proc_binary_channel_used, __ATOMIC_RELAXED)) {
 				status = ferr_permanent_outage;
 				goto out;
 			}
 
-			status = vfs_open_raw((void*)&proc_binary_channel, &file->file);
+			status = vfs_open_raw((void*)&proc_binary_channel, &node);
 			if (status != ferr_ok) {
 				goto out;
 			}
@@ -95,7 +67,7 @@ ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file) {
 				goto out;
 			}
 
-			status = vfs_open_raw(channel, &file->file);
+			status = vfs_open_raw(channel, &node);
 			if (status != ferr_ok) {
 				sys_release(channel);
 				goto out;
@@ -112,28 +84,18 @@ ferr_t sys_file_open_special(sys_file_special_id_t id, sys_file_t** out_file) {
 
 out:
 	if (status == ferr_ok) {
-		*out_file = xfile;
+		*out_node = node;
 	} else {
-		if (xfile) {
-			sys_release(xfile);
+		if (node) {
+			sys_release(node);
 		}
 	}
 	return status;
 };
 
-ferr_t sys_file_read(sys_file_t* obj, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count) {
-	sys_file_object_t* file = (void*)obj;
-	return vfs_file_read(file->file, offset, buffer_size, out_buffer, out_read_count);
-};
-
-ferr_t sys_file_read_data(sys_file_t* obj, uint64_t offset, size_t size, sys_data_t** out_data) {
-	sys_file_object_t* file = (void*)obj;
-	return vfs_file_read_data(file->file, offset, size, out_data);
-};
-
 #define OUTAGE_LIMIT 5
 
-ferr_t sys_file_read_retry(sys_file_t* file, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count) {
+ferr_t vfs_node_read_retry(vfs_node_t* node, uint64_t offset, size_t buffer_size, void* out_buffer, size_t* out_read_count) {
 	ferr_t status = ferr_ok;
 	char* buffer_offset = out_buffer;
 	size_t total_read_count = 0;
@@ -141,7 +103,7 @@ ferr_t sys_file_read_retry(sys_file_t* file, uint64_t offset, size_t buffer_size
 	size_t outages = 0;
 
 	while (total_read_count < buffer_size) {
-		status = sys_file_read(file, offset + total_read_count, buffer_size - total_read_count, buffer_offset, &current_read_count);
+		status = vfs_node_read(node, offset + total_read_count, buffer_size - total_read_count, buffer_offset, &current_read_count);
 		if (status != ferr_ok) {
 			switch (status) {
 				case ferr_permanent_outage:
@@ -180,22 +142,7 @@ ferr_t sys_file_read_retry(sys_file_t* file, uint64_t offset, size_t buffer_size
 	return status;
 };
 
-ferr_t sys_file_read_into_shared_data(sys_file_t* obj, uint64_t read_offset, uint64_t shared_data_offset, size_t size, sys_data_t* shared_data, size_t* out_read_count) {
-	sys_file_object_t* file = (void*)obj;
-	return vfs_file_read_into_shared_data(file->file, read_offset, size, shared_data, shared_data_offset, out_read_count);
-};
-
-ferr_t sys_file_write(sys_file_t* obj, uint64_t offset, size_t buffer_size, const void* buffer, size_t* out_written_count) {
-	sys_file_object_t* file = (void*)obj;
-	return vfs_file_write(file->file, offset, buffer_size, buffer, out_written_count);
-};
-
-ferr_t sys_file_copy_path(sys_file_t* obj, size_t buffer_size, void* out_buffer, size_t* out_actual_size) {
-	sys_file_object_t* file = (void*)obj;
-	return vfs_file_copy_path(file->file, out_buffer, buffer_size, out_actual_size);
-};
-
-ferr_t sys_file_copy_path_allocate(sys_file_t* file, char** out_string, size_t* out_string_length) {
+ferr_t vfs_node_copy_path_allocate(vfs_node_t* node, char** out_string, size_t* out_string_length) {
 	ferr_t status = ferr_ok;
 	size_t required_size = 0;
 	void* buffer = NULL;
@@ -204,7 +151,7 @@ ferr_t sys_file_copy_path_allocate(sys_file_t* file, char** out_string, size_t* 
 		return ferr_invalid_argument;
 	}
 
-	status = sys_file_copy_path(file, 0, NULL, &required_size);
+	status = vfs_node_copy_path(node, 0, NULL, &required_size);
 
 	if (status != ferr_too_big) {
 		// that's weird.
@@ -218,7 +165,7 @@ ferr_t sys_file_copy_path_allocate(sys_file_t* file, char** out_string, size_t* 
 			return ferr_temporary_outage;
 		}
 
-		status = sys_file_copy_path(file, required_size, buffer, &required_size);
+		status = vfs_node_copy_path(node, required_size, buffer, &required_size);
 		if (status == ferr_too_big) {
 			continue;
 		} else if (status != ferr_ok) {
@@ -235,39 +182,5 @@ ferr_t sys_file_copy_path_allocate(sys_file_t* file, char** out_string, size_t* 
 		*out_string_length = required_size;
 	}
 
-	return status;
-};
-
-ferr_t sys_file_open(const char* path, sys_file_t** out_file) {
-	if (!path) {
-		return ferr_invalid_argument;
-	}
-
-	return sys_file_open_n(path, simple_strlen(path), out_file);
-};
-
-ferr_t sys_file_open_n(const char* path, size_t path_length, sys_file_t** out_file) {
-	ferr_t status = ferr_ok;
-	sys_file_t* xfile = NULL;
-	sys_file_object_t* file = NULL;
-
-	status = sys_object_new(&file_class, sizeof(sys_file_object_t) - sizeof(sys_object_t), &xfile);
-	if (status != ferr_ok) {
-		goto out;
-	}
-	file = (void*)xfile;
-
-	file->file = NULL;
-
-	status = vfs_open_n(path, path_length, &file->file);
-
-out:
-	if (status == ferr_ok) {
-		*out_file = xfile;
-	} else {
-		if (xfile) {
-			sys_release(xfile);
-		}
-	}
 	return status;
 };

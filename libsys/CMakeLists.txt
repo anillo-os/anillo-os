@@ -27,7 +27,7 @@ set(libsys_core_sources
 )
 
 set(libsys_support_sources
-	src/support/files.c
+	src/support/vfs.c
 	src/support/format.c
 	src/support/general.c
 	src/support/processes.c
@@ -113,7 +113,7 @@ target_link_libraries(libsys_support_static PUBLIC
 	libeve_static
 	libspooky_static
 	libmacho
-	libconman_static
+	liblogman_static
 )
 target_link_libraries(libsys_core_dymple PUBLIC
 	${libsys_libs}
@@ -149,7 +149,7 @@ target_link_libraries(libsys_support PRIVATE
 	libspooky
 	libeve
 	libmacho
-	libconman_static
+	liblogman_static
 )
 
 if (NOT ANILLO_HOST_TESTING)
@@ -259,11 +259,19 @@ if (ANILLO_HOST_TESTING)
 		src/host/mempool.c
 		src/host/console.c
 		src/host/abort.c
+		src/host/vfs.c
 		src/host/pages.c
 	)
 
 	target_link_libraries(libsys_host PUBLIC libsys_headers)
 endif()
+
+target_link_libraries(libsys_core PUBLIC libvfs_headers)
+target_link_libraries(libsys PUBLIC libvfs_headers)
+target_link_libraries(libsys_core_static PUBLIC libvfs_headers)
+target_link_libraries(libsys_support_static PUBLIC libvfs_headers)
+target_link_libraries(libsys_core_dymple PUBLIC libvfs_headers)
+target_link_libraries(libsys_headers INTERFACE libvfs_headers)
 
 sanitize_targets(
 	libsys

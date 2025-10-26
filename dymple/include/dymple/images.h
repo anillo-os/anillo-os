@@ -31,7 +31,7 @@ DYMPLE_STRUCT_FWD(dymple_image);
 DYMPLE_WUR ferr_t dymple_load_image_by_name(const char* name, dymple_image_t** out_image);
 DYMPLE_WUR ferr_t dymple_load_image_by_name_n(const char* name, size_t name_length, dymple_image_t** out_image);
 
-DYMPLE_WUR ferr_t dymple_load_image_from_file(sys_file_t* file, dymple_image_t** out_image);
+DYMPLE_WUR ferr_t dymple_load_image_from_file(vfs_node_t* file, dymple_image_t** out_image);
 
 DYMPLE_WUR ferr_t dymple_find_loaded_image_by_name(const char* name, dymple_image_t** out_image);
 DYMPLE_WUR ferr_t dymple_find_loaded_image_by_name_n(const char* name, size_t name_length, dymple_image_t** out_image);

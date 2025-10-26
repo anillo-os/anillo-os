@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2022 Anillo OS Developers
+ * Copyright (C) 2024 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,22 +16,23 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _LIBVFS_BASE_H_
-#define _LIBVFS_BASE_H_
+#ifndef _VFSMAN_SERVER_H_
+#define _VFSMAN_SERVER_H_
 
-#include <libsys/base.h>
+#include <libvfs/base.h>
+#include <vfsman/vfs.h>
 
-#define LIBVFS_NO_RETURN LIBSYS_NO_RETURN
-#define LIBVFS_DECLARATIONS_BEGIN LIBSYS_DECLARATIONS_BEGIN
-#define LIBVFS_DECLARATIONS_END LIBSYS_DECLARATIONS_END
-#define LIBVFS_STRUCT LIBSYS_STRUCT
-#define LIBVFS_PACKED_STRUCT LIBSYS_PACKED_STRUCT
-#define LIBVFS_ALWAYS_INLINE LIBSYS_ALWAYS_INLINE
-#define LIBVFS_ENUM LIBSYS_ENUM
-#define LIBVFS_STRUCT_FWD LIBSYS_STRUCT_FWD
-#define LIBVFS_WUR LIBSYS_WUR
-#define LIBVFS_PRINTF LIBSYS_PRINTF
-#define LIBVFS_OPTIONS LIBSYS_OPTIONS
-#define LIBVFS_WUR_IGNORE LIBSYS_WUR_IGNORE
+LIBVFS_DECLARATIONS_BEGIN;
 
-#endif // _LIBVFS_BASE_H_
+LIBVFS_STRUCT(vfsman_listing_context) {
+	sys_mutex_t mutex;
+	vfsman_descriptor_t* descriptor;
+	vfsman_list_children_context_t listing_context;
+	sys_path_t children[32];
+	size_t count;
+	size_t offset;
+};
+
+LIBVFS_DECLARATIONS_END;
+
+#endif // _VFSMAN_SERVER_H_

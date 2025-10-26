@@ -24,7 +24,7 @@
 
 #include <libsys/base.h>
 #include <libsys/objects.h>
-#include <libsys/files.h>
+#include <libsys/vfs.h>
 
 #include <ferro/error.h>
 
@@ -53,7 +53,7 @@ LIBSYS_OPTIONS(uint64_t, sys_proc_flags) {
  * In such a case, the old objects are invalid and you must use the new (identical) objects! This only applies to channel and server channel objects
  * because such objects are consumed if the process creation succeeds.
  */
-LIBSYS_WUR ferr_t sys_proc_create(sys_file_t* file, sys_object_t** attached_objects, size_t attached_object_count, sys_proc_flags_t flags, sys_proc_t** out_proc);
+LIBSYS_WUR ferr_t sys_proc_create(vfs_node_t* file, sys_object_t** attached_objects, size_t attached_object_count, sys_proc_flags_t flags, sys_proc_t** out_proc);
 LIBSYS_WUR ferr_t sys_proc_resume(sys_proc_t* proc);
 LIBSYS_WUR ferr_t sys_proc_suspend(sys_proc_t* proc);
 sys_proc_t* sys_proc_current(void);

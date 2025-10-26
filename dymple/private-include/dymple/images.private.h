@@ -52,7 +52,7 @@ DYMPLE_STRUCT(dymple_image) {
 	const char* name;
 	size_t name_length;
 
-	sys_file_t* file;
+	vfs_node_t* file;
 	void* entry_address;
 
 	void* base;

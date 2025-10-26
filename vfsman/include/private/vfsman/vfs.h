@@ -21,6 +21,7 @@
 
 #include <libvfs/base.h>
 #include <vfsman/objects.h>
+#include <vfsman/libvfs-common.h>
 
 LIBVFS_DECLARATIONS_BEGIN;
 
@@ -32,13 +33,9 @@ FERRO_OPTIONS(uint64_t, vfsman_descriptor_flags) {
 
 VFSMAN_OBJECT_CLASS(descriptor);
 
-FERRO_ENUM(uint8_t, vfsman_node_type) {
-	vfsman_node_type_file,
-	vfsman_node_type_directory,
-};
-
 FERRO_STRUCT(vfsman_node_info) {
 	vfsman_node_type_t type;
+	size_t size;
 };
 
 typedef uint64_t vfsman_list_children_context_t;

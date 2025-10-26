@@ -22,7 +22,7 @@
 #include <dymple/relocations.h>
 #include <dymple/api.private.h>
 #include <libsimple/libsimple.h>
-#include <libsys/files.private.h>
+#include <libsys/vfs.private.h>
 #include <libvfs/libvfs.private.h>
 
 #include <libmacho/libmacho.h>
@@ -36,8 +36,8 @@ static simple_ghmap_t images;
 // TODO: actually use this lol
 static sys_spinlock_t images_lock = SYS_SPINLOCK_INIT;
 
-static ferr_t dymple_open_image_by_name(const char* name, size_t name_length, sys_file_t** out_file);
-static ferr_t dymple_load_image_from_file_internal(sys_file_t* file, dymple_image_t** out_image);
+static ferr_t dymple_open_image_by_name(const char* name, size_t name_length, vfs_node_t** out_file);
+static ferr_t dymple_load_image_from_file_internal(vfs_node_t* file, dymple_image_t** out_image);
 static ferr_t dymple_load_image_by_name_n_internal(const char* name, size_t name_length, dymple_image_t** out_image);
 
 #if 0
@@ -85,7 +85,7 @@ static bool dymple_images_print_each(void* context, simple_ghmap_t* hashmap, sim
 	return true;
 };
 
-static sys_file_t* process_binary_file = NULL;
+static vfs_node_t* process_binary_file = NULL;
 
 ferr_t dymple_images_init(dymple_image_t** out_image) {
 	ferr_t status = ferr_ok;
@@ -95,7 +95,7 @@ ferr_t dymple_images_init(dymple_image_t** out_image) {
 		goto out;
 	}
 
-	status = sys_file_open_special(sys_file_special_id_process_binary, &process_binary_file);
+	status = vfs_open_special(vfs_node_special_id_process_binary, &process_binary_file);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -113,9 +113,9 @@ out:
 	return status;
 };
 
-static ferr_t dymple_read_exact(sys_file_t* file, size_t offset, void* buffer, size_t buffer_size) {
+static ferr_t dymple_read_exact(vfs_node_t* file, size_t offset, void* buffer, size_t buffer_size) {
 	size_t read = 0;
-	ferr_t status = sys_file_read_retry(file, offset, buffer_size, buffer, &read);
+	ferr_t status = vfs_node_read_retry(file, offset, buffer_size, buffer, &read);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -129,7 +129,7 @@ out:
 	return status;
 };
 
-static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path, size_t file_path_length, dymple_image_t** out_image) {
+static ferr_t dymple_load_image_internal(vfs_node_t* file, const char* file_path, size_t file_path_length, dymple_image_t** out_image) {
 	ferr_t status = ferr_ok;
 	macho_header_t header = {0};
 	bool release_file_on_fail = false;
@@ -196,7 +196,7 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 	image->file = file;
 
 	// read all the load commands
-	status = sys_file_read_data(file, sizeof(header), header.total_command_size, &cmd_data);
+	status = vfs_node_read_data(file, sizeof(header), header.total_command_size, &cmd_data);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -294,7 +294,7 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 
 				dymple_log_debug(dymple_log_category_image_loading, "Loading %llu bytes at %p (with a target size of %llu bytes; zeroing rest)\n", segment_64_load_command->file_size, this_load_base, segment_64_load_command->memory_size);
 
-				status = sys_file_read_into_shared_data(file, segment_64_load_command->file_offset, shmem_offset, segment_64_load_command->file_size, shared_data, &read_count);
+				status = vfs_node_read_into_shared_data(file, segment_64_load_command->file_offset, shmem_offset, segment_64_load_command->file_size, shared_data, &read_count);
 				if (status != ferr_ok) {
 					goto out;
 				}
@@ -408,7 +408,7 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 		void* this_load_base = NULL;
 		char* load_path = NULL;
 		size_t load_path_length = 0;
-		sys_file_t* dep_file = NULL;
+		vfs_node_t* dep_file = NULL;
 		dymple_image_t* dep_image = NULL;
 
 		load_command = (void*)(cmd_data_ptr + cmd_offset);
@@ -511,7 +511,7 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 		dymple_log_debug(dymple_log_category_image_loading, "Image contains %u symbols (with a string table of size %u)\n", symbol_table_info_load_command->symbol_table_entry_count, symbol_table_info_load_command->string_table_size);
 
 		// TODO: we *really* need the ability to memory-map files
-		status = sys_file_read_data(file, symbol_table_info_load_command->string_table_offset, symbol_table_info_load_command->string_table_size, &string_table_data);
+		status = vfs_node_read_data(file, symbol_table_info_load_command->string_table_offset, symbol_table_info_load_command->string_table_size, &string_table_data);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -524,7 +524,7 @@ static ferr_t dymple_load_image_internal(sys_file_t* file, const char* file_path
 		dymple_log_debug(dymple_log_category_image_loading, "Loaded image string table\n");
 
 		symbol_table_size = symbol_table_info_load_command->symbol_table_entry_count * sizeof(macho_symbol_table_entry_t);
-		status = sys_file_read_data(file, symbol_table_info_load_command->symbol_table_offset, symbol_table_size, &symbol_table_data);
+		status = vfs_node_read_data(file, symbol_table_info_load_command->symbol_table_offset, symbol_table_size, &symbol_table_data);
 		if (status != ferr_ok) {
 			goto out;
 		}
@@ -705,8 +705,8 @@ ferr_t dymple_load_image_by_name(const char* name, dymple_image_t** out_image) {
 	return dymple_load_image_by_name_n(name, simple_strlen(name), out_image);
 };
 
-static ferr_t dymple_open_image_by_name(const char* name, size_t name_length, sys_file_t** out_file) {
-	sys_file_t* file = NULL;
+static ferr_t dymple_open_image_by_name(const char* name, size_t name_length, vfs_node_t** out_file) {
+	vfs_node_t* file = NULL;
 	ferr_t status = ferr_no_such_resource;
 
 	if (!name || !out_file) {
@@ -716,7 +716,7 @@ static ferr_t dymple_open_image_by_name(const char* name, size_t name_length, sy
 
 	// TODO: support RPATH resolution
 
-	status = sys_file_open_n(name, name_length, &file);
+	status = vfs_open_n(name, name_length, &file);
 
 out:
 	if (status == ferr_ok) {
@@ -729,12 +729,12 @@ out:
 	return status;
 };
 
-static ferr_t dymple_load_image_from_file_internal(sys_file_t* file, dymple_image_t** out_image) {
+static ferr_t dymple_load_image_from_file_internal(vfs_node_t* file, dymple_image_t** out_image) {
 	ferr_t status = ferr_ok;
 	char* file_path = NULL;
 	size_t file_path_length = 0;
 
-	status = sys_file_copy_path_allocate(file, &file_path, &file_path_length);
+	status = vfs_node_copy_path_allocate(file, &file_path, &file_path_length);
 	if (status != ferr_ok) {
 		goto out;
 	}
@@ -748,7 +748,7 @@ out:
 	return status;
 };
 
-ferr_t dymple_load_image_from_file(sys_file_t* file, dymple_image_t** out_image) {
+ferr_t dymple_load_image_from_file(vfs_node_t* file, dymple_image_t** out_image) {
 	dymple_api_lock();
 	ferr_t status = dymple_load_image_from_file_internal(file, out_image);
 	dymple_api_unlock();
@@ -756,7 +756,7 @@ ferr_t dymple_load_image_from_file(sys_file_t* file, dymple_image_t** out_image)
 };
 
 static ferr_t dymple_load_image_by_name_n_internal(const char* name, size_t name_length, dymple_image_t** out_image) {
-	sys_file_t* file = NULL;
+	vfs_node_t* file = NULL;
 	ferr_t status = ferr_ok;
 
 	status = dymple_open_image_by_name(name, name_length, &file);
@@ -857,5 +857,5 @@ out:
 };
 
 ferr_t dymple_open_process_binary_raw(sys_channel_t** out_channel) {
-	return vfs_file_duplicate_raw(((sys_file_object_t*)process_binary_file)->file, out_channel);
+	return vfs_node_duplicate_raw(process_binary_file, out_channel);
 };

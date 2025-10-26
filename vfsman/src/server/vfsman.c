@@ -24,15 +24,7 @@
 #include <vfsman/ramdisk.h>
 #include <libsys/pages.private.h>
 #include <libspooky/proxy.private.h>
-
-FERRO_STRUCT(vfsman_mount) {
-	void* context;
-	const vfsman_backend_t* backend;
-	uint64_t open_descriptor_count;
-
-	size_t path_length;
-	char path[];
-};
+#include <vfsman/vfs.backend.private.h>
 
 static vfsman_mount_t** mounts = NULL;
 static size_t mount_count = 0;
@@ -82,7 +74,7 @@ out:
 
 static vfsman_mount_t* vfsman_mount_new(const char* path, size_t path_length, const vfsman_backend_t* backend, void* context) {
 	vfsman_mount_t* result;
-	sys_mutex_lock(&mount_list_mutex);
+	eve_mutex_lock(&mount_list_mutex);
 	result = vfsman_mount_new_locked(path, path_length, backend, context);
 	sys_mutex_unlock(&mount_list_mutex);
 	return result;
@@ -103,7 +95,7 @@ static void vfsman_mount_destroy_locked(vfsman_mount_t* mount) {
 };
 
 static void vfsman_mount_destroy(vfsman_mount_t* mount) {
-	sys_mutex_lock(&mount_list_mutex);
+	eve_mutex_lock(&mount_list_mutex);
 	vfsman_mount_destroy_locked(mount);
 	sys_mutex_unlock(&mount_list_mutex);
 };
@@ -176,7 +168,7 @@ static vfsman_mount_t* vfsman_mount_open_for_path_locked(const char* path, size_
 
 static vfsman_mount_t* vfsman_mount_open_for_path(const char* path, size_t path_length) {
 	vfsman_mount_t* result;
-	sys_mutex_lock(&mount_list_mutex);
+	eve_mutex_lock(&mount_list_mutex);
 	result = vfsman_mount_open_for_path_locked(path, path_length);
 	sys_mutex_unlock(&mount_list_mutex);
 	return result;
@@ -269,7 +261,7 @@ ferr_t vfsman_mount(const char* path, size_t path_length, const vfsman_backend_t
 		return ferr_invalid_argument;
 	}
 
-	sys_mutex_lock(&mount_list_mutex);
+	eve_mutex_lock(&mount_list_mutex);
 
 	mount = vfsman_mount_open_for_path_locked(path, path_length);
 
@@ -301,7 +293,7 @@ ferr_t vfsman_unmount(const char* path, size_t path_length) {
 		return ferr_invalid_argument;
 	}
 
-	sys_mutex_lock(&mount_list_mutex);
+	eve_mutex_lock(&mount_list_mutex);
 
 	mount = vfsman_mount_open_for_path_locked(path, path_length);
 
@@ -523,194 +515,4 @@ ferr_t vfsman_write(vfsman_descriptor_t* obj, size_t offset, const void* buffer,
 	}
 
 	return descriptor->mount->backend->write(descriptor->mount->context, obj, offset, buffer, buffer_size, out_written_count);
-};
-
-static const vfsman_file_proxy_info_t vfsman_file_proxy_info_base;
-
-static ferr_t vfsman_file_read_impl(void* _context, uint64_t offset, uint64_t size, sys_data_t** out_buffer, ferr_t* out_status) {
-	vfsman_descriptor_t* descriptor = _context;
-	void* data = NULL;
-	ferr_t status = ferr_ok;
-	size_t read_count = 0;
-	sys_shared_memory_t* shmem = NULL;
-	void* mapping = NULL;
-
-	// TODO: limit `size` to something reasonable (e.g. under 32KiB)
-
-	// it's faster to copy small buffers than to setup shared memory for them
-	if (size < 1024) {
-		status = sys_mempool_allocate(size, NULL, &data);
-	} else {
-		status = sys_shared_memory_allocate(sys_page_round_up_count(size), 0, &shmem);
-		if (status != ferr_ok) {
-			goto out;
-		}
-
-		status = sys_shared_memory_map(shmem, sys_page_round_up_count(size), 0, &mapping);
-	}
-
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	status = vfsman_read(descriptor, offset, mapping ? mapping : data, size, &read_count);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	if (mapping) {
-		status = sys_data_create_from_shared_memory(shmem, 0, read_count, out_buffer);
-	} else {
-		status = sys_data_create_transfer(data, read_count, out_buffer);
-		data = NULL;
-	}
-
-out:
-	if (status != ferr_ok) {
-		*out_buffer = NULL;
-	}
-	if (mapping) {
-		LIBVFS_WUR_IGNORE(sys_page_free(mapping));
-	}
-	if (shmem) {
-		sys_release(shmem);
-	}
-	if (data) {
-		LIBVFS_WUR_IGNORE(sys_mempool_free(data));
-	}
-	*out_status = status;
-	return ferr_ok;
-};
-
-ferr_t vfsman_file_read_shared_impl(void* _context, uint64_t offset, uint64_t size, sys_data_t* shared_buffer, uint64_t buffer_offset, uint64_t* out_read_count, int32_t* out_status) {
-	vfsman_descriptor_t* descriptor = _context;
-	ferr_t status = ferr_ok;
-	size_t read_count = 0;
-
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	status = vfsman_read(descriptor, offset, (char*)sys_data_contents(shared_buffer) + buffer_offset, size, &read_count);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-out:
-	*out_read_count = read_count;
-	*out_status = status;
-	return ferr_ok;
-};
-
-static ferr_t vfsman_file_write_impl(void* _context, uint64_t offset, sys_data_t* buffer, uint64_t* out_written_count, ferr_t* out_status) {
-	vfsman_descriptor_t* descriptor = _context;
-	ferr_t status = ferr_ok;
-	size_t written_count = 0;
-
-	status = vfsman_write(descriptor, offset, sys_data_contents(buffer), sys_data_length(buffer), &written_count);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	*out_written_count = written_count;
-
-out:
-	*out_status = status;
-	return ferr_ok;
-};
-
-static ferr_t vfsman_file_get_path_impl(void* _context, sys_data_t** out_path, ferr_t* out_status) {
-	vfsman_descriptor_t* descriptor = _context;
-	ferr_t status = ferr_ok;
-	size_t buffer_size = 128;
-	void* buffer = NULL;
-	size_t actual_length = 0;
-
-	status = sys_mempool_allocate(buffer_size, &buffer_size, &buffer);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	status = ferr_too_big;
-	while (status != ferr_ok) {
-		status = vfsman_copy_path(descriptor, true, buffer, buffer_size, &actual_length);
-		if (status == ferr_too_big) {
-			buffer_size = actual_length;
-			status = sys_mempool_reallocate(buffer, buffer_size, &buffer_size, &buffer);
-			if (status != ferr_ok) {
-				goto out;
-			}
-			continue;
-		} else if (status != ferr_ok) {
-			goto out;
-		}
-		break;
-	}
-
-	// try to shrink it
-	LIBVFS_WUR_IGNORE(sys_mempool_reallocate(buffer, actual_length, NULL, &buffer));
-
-	status = sys_data_create_transfer(buffer, actual_length, out_path);
-
-out:
-	if (status != ferr_ok) {
-		*out_path = NULL;
-	}
-	*out_status = status;
-	return ferr_ok;
-};
-
-static ferr_t vfsman_file_duplicate_raw_impl(void* _context, sys_channel_t** out_channel, ferr_t* out_status) {
-	vfsman_descriptor_t* descriptor = _context;
-	ferr_t status = ferr_ok;
-
-	status = spooky_outgoing_proxy_create_channel(((vfsman_descriptor_object_t*)descriptor)->internal_context, out_channel);
-
-out:
-	if (status != ferr_ok) {
-		*out_channel = NULL;
-	}
-	*out_status = status;
-	return ferr_ok;
-};
-
-static const vfsman_file_proxy_info_t vfsman_file_proxy_info_base = {
-	.context = NULL,
-	.destructor = (void*)vfsman_release,
-	.read = vfsman_file_read_impl,
-	.read_shared = vfsman_file_read_shared_impl,
-	.write = vfsman_file_write_impl,
-	.get_path = vfsman_file_get_path_impl,
-	.duplicate_raw = vfsman_file_duplicate_raw_impl,
-};
-
-ferr_t vfsman_open_impl(void* _context, sys_data_t* path, spooky_proxy_t** out_file, ferr_t* out_status) {
-	ferr_t status = ferr_ok;
-	vfsman_descriptor_t* desc = NULL;
-	vfsman_file_proxy_info_t proxy_info;
-
-	status = vfsman_open_n(sys_data_contents(path), sys_data_length(path), 0, &desc);
-	if (status != ferr_ok) {
-		goto out;
-	}
-
-	simple_memcpy(&proxy_info, &vfsman_file_proxy_info_base, sizeof(proxy_info));
-	proxy_info.context = desc;
-	desc = NULL;
-
-	status = vfsman_file_create_proxy(&proxy_info, out_file);
-
-	if (status == ferr_ok) {
-		((vfsman_descriptor_object_t*)proxy_info.context)->internal_context = *out_file;
-	}
-
-out:
-	if (status != ferr_ok) {
-		*out_file = NULL;
-	}
-	if (desc) {
-		vfsman_release(desc);
-	}
-	*out_status = status;
-	return ferr_ok;
 };

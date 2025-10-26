@@ -22,10 +22,11 @@ add_dependencies(libvfs_static vfsman_client)
 add_library(libvfsman_static STATIC
 	src/server/ramdisk.c
 	src/server/vfsman.c
+	src/server/server.c
 	"${CMAKE_CURRENT_BINARY_DIR}/vfs.server.c"
 )
 
-set_target_properties(libvfs_static PROPERTIES
+set_target_properties(libvfsman_static PROPERTIES
 	OUTPUT_NAME vfsman
 )
 
@@ -68,6 +69,10 @@ target_link_libraries(libvfsman_static PRIVATE
 	libeve_static
 	libspooky_static
 )
+
+add_library(libvfs_headers INTERFACE)
+target_include_directories(libvfs_headers INTERFACE include/public)
+target_link_libraries(libvfs_headers INTERFACE libsys_headers)
 
 sanitize_targets(
 	libvfs_static
