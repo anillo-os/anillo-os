@@ -1,0 +1,39 @@
+{
+	"foo": "bar",
+	"test": 9999999999,
+	"test2": -9999999999,
+	"numbers": [
+		8.9e3,
+		0.4,
+		0.8e2,
+		5.0,
+		3.0e1,
+		43,
+		0.4e-3,
+		0.9e+2
+	],
+	"nested": {
+		"this": {
+			"is": {
+				"very": {
+					"nested": {}
+				}
+			}
+		},
+		"now with arrays": [
+			{
+				"testing": 5,
+				"cool": true,
+				"some random thing": null,
+				"another": [
+					{
+						"nested": [
+							"thing",
+							"with a single quote string"
+						]
+					}
+				]
+			}
+		]
+	}
+}

@@ -1,0 +1,43 @@
+{
+	foo: "bar",
+	test: +Infinity,
+	test2: -Infinity,
+	numbers: [
+		8.9e3,
+		.4,
+		.8e2,
+		5.,
+		3.e1,
+		0xcafe,
+		-0x4f,
+		+43,
+		+0x4,
+		.4e-3,
+		.9e+2,
+	],
+	nested: {
+		this: {
+			is: {
+				very: {
+					nested: {},
+				},
+			},
+		},
+		"now with arrays": [
+			{
+				testing: 5,
+				cool: true,
+				"some random thing": null,
+				another: [
+					{
+						"nested": [
+							"thing",
+							'with a single quote string' // look ma, no trailing comma!
+							/* ...but we *do* have comments :) */
+						],
+					},
+				],
+			}
+		],
+	},
+}

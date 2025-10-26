@@ -228,6 +228,7 @@ if (NOT ANILLO_HOST_TESTING)
 	add_subdirectory(libpci)
 	add_subdirectory(usbman)
 	add_subdirectory(vfsman)
+	add_subdirectory(libjson)
 	add_subdirectory(libmath)
 endif()
 
