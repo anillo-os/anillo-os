@@ -18,13 +18,14 @@
 
 #include <ferro/asm/aarch64/helpers.hS>
 #include <libsys/gen/offsets.h>
+#include <ferro/asm/common.hS>
 
 .align 4
 .text
 
 // arg 0 (x0) is a pointer to the context to save into
-.global ___sys_ucs_save
-___sys_ucs_save:
+.global FERRO_SYM(__sys_ucs_save)
+FERRO_SYM(__sys_ucs_save):
 	// we don't want to re-run the function if we load the context,
 	// so save the address of the function exit point
 	adr x1, 0f
@@ -57,8 +58,9 @@ ___sys_ucs_save:
 
 // arg 0 (x0) is an optional pointer to the context to save into
 // arg 1 (x1) is a pointer to the context to load
-.global ___sys_ucs_switch
-___sys_ucs_switch:
+.align 4
+.global FERRO_SYM(__sys_ucs_switch)
+FERRO_SYM(__sys_ucs_switch):
 	// check if arg 0 is null
 	// if it is, skip the context saving portion of this function
 	cbz x0, 0f

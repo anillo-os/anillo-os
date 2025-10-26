@@ -18,11 +18,12 @@
 
 #include <gen/ferro/userspace/syscall-index.h>
 #include <ferro/asm/aarch64/helpers.hS>
+#include <ferro/asm/common.hS>
 
 .align 4
 .text
-.global ___sys_thread_entry
-___sys_thread_entry:
+.global FERRO_SYM(__sys_thread_entry)
+FERRO_SYM(__sys_thread_entry):
 	// the initial stack layout is the same as on x86_64:
 	// -------------------- < rsp (stack top)
 	// |  entry function  | < rsp - 8
@@ -49,7 +50,7 @@ ___sys_thread_entry:
 
 	// set up the thread (e.g. TLS)
 	ldr x0, [sp, #8]
-	bl ___sys_thread_setup
+	bl FERRO_SYM(__sys_thread_setup)
 
 	// now load the arguments for the entry function (as well as the function pointer itself)
 	// x1 = thread object
@@ -66,11 +67,12 @@ ___sys_thread_entry:
 	blr x11
 
 	// this should not return
-	bl ___sys_thread_exit_self
+	bl FERRO_SYM(__sys_thread_exit_self)
 	udf #0
 
-.global ___sys_thread_die
-___sys_thread_die:
+.align 4
+.global FERRO_SYM(__sys_thread_die)
+FERRO_SYM(__sys_thread_die):
 	// x0 = thread id
 	// x1 = stack pointer to free (maybe null)
 

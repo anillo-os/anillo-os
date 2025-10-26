@@ -1,6 +1,6 @@
 /*
  * This file is part of Anillo OS
- * Copyright (C) 2023 Anillo OS Developers
+ * Copyright (C) 2024 Anillo OS Developers
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as published by
@@ -16,23 +16,10 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _FERRO_ASM_COMMON_HS_
-#define _FERRO_ASM_COMMON_HS_
+#include <libsys/abort.h>
 
-#if defined(FERRO)
-	#ifdef FERRO_ELF
-		#define FERRO_SYM(x) x
-	#elif defined(FERRO_MACHO)
-		#define FERRO_SYM(x) _ ## x
-	#else
-		#error Unknown object format!
-	#endif
-#else
-	#if ANILLO_HOST_TESTING
-		#define FERRO_SYM(x) x
-	#else
-		#define FERRO_SYM(x) _ ## x
-	#endif
-#endif
+#include <stdlib.h>
 
-#endif // _FERRO_ASM_COMMON_HS_
+LIBSYS_NO_RETURN void sys_abort(void) {
+	abort();
+};

@@ -1,6 +1,7 @@
 function(add_to_ramdisk)
 	cmake_parse_arguments(ADD_TO_RAMDISK "" "TARGET;DESTINATION" "" ${ARGN})
 
+	if (NOT ANILLO_HOST_TESTING)
 	if (DEFINED ADD_TO_RAMDISK_TARGET)
 		get_filename_component(DEST_DIRNAME "${CMAKE_BINARY_DIR}/ramdisksrc/${ADD_TO_RAMDISK_DESTINATION}" DIRECTORY)
 
@@ -18,5 +19,6 @@ function(add_to_ramdisk)
 		add_dependencies(generate_ramdisk "copy_${ADD_TO_RAMDISK_TARGET}_to_ramdisksrc")
 	else()
 		message(FATAL_ERROR "Invalid use of add_to_ramdisk")
+		endif()
 	endif()
 endfunction()

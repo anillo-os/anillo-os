@@ -52,12 +52,14 @@ set(libsimple_includes
 	include
 )
 
-add_anillo_dylib(libsimple
-	RAMDISK
-	INSTALL_PATH /sys/lib/libsimple.dylib
-	SOURCES
-		${libsimple_sources}
-)
+if (NOT ANILLO_HOST_TESTING)
+	add_anillo_dylib(libsimple
+		RAMDISK
+		INSTALL_PATH /sys/lib/libsimple.dylib
+		SOURCES
+			${libsimple_sources}
+	)
+endif()
 
 add_library(libsimple_static STATIC ${libsimple_sources})
 add_library(libsimple_static_kernel STATIC ${libsimple_sources})
@@ -71,12 +73,21 @@ foreach(forced_opt IN LISTS libsimple_force_optimization_sources)
 	)
 endforeach()
 
-target_link_options(libsimple_static_compat INTERFACE
-	-Wl,-alias,_simple_memset,_memset
-	-Wl,-alias,_simple_memcpy,_memcpy
-	-Wl,-alias,_simple_bzero,_bzero
-	-Wl,-alias,_simple_bzero,___bzero
-)
+if (ANILLO_HOST_TESTING)
+	target_link_options(libsimple_static_compat INTERFACE
+		-Wl,--defsym,memset=simple_memset
+		-Wl,--defsym,memcpy=simple_memcpy
+		-Wl,--defsym,bzero=simple_bzero
+		-Wl,--defsym,__bzero=simple_bzero
+	)
+else()
+	target_link_options(libsimple_static_compat INTERFACE
+		-Wl,-alias,_simple_memset,_memset
+		-Wl,-alias,_simple_memcpy,_memcpy
+		-Wl,-alias,_simple_bzero,_bzero
+		-Wl,-alias,_simple_bzero,___bzero
+	)
+endif()
 
 target_link_options(libsimple_static_kernel_compat INTERFACE
 	-Wl,--defsym,memset=simple_memset
@@ -85,10 +96,12 @@ target_link_options(libsimple_static_kernel_compat INTERFACE
 	-Wl,--defsym,__bzero=simple_bzero
 )
 
-target_link_libraries(libsimple PRIVATE
-	libsimple_static_compat
-	libdymple
-)
+if (NOT ANILLO_HOST_TESTING)
+	target_link_libraries(libsimple PRIVATE
+		libsimple_static_compat
+		libdymple
+	)
+endif()
 
 set(libsimple_kernel_compile_options
 	-fno-plt
@@ -149,11 +162,15 @@ set_target_properties(libsimple_static_kernel PROPERTIES
 	OUTPUT_NAME simple_kernel
 )
 
-target_include_directories(libsimple PUBLIC ${libsimple_includes})
+if (NOT ANILLO_HOST_TESTING)
+	target_include_directories(libsimple PUBLIC ${libsimple_includes})
+endif()
 target_include_directories(libsimple_static PUBLIC ${libsimple_includes})
 target_include_directories(libsimple_static_kernel PUBLIC ${libsimple_includes})
 
-target_link_libraries(libsimple PUBLIC ferro_headers_base)
+if (NOT ANILLO_HOST_TESTING)
+	target_link_libraries(libsimple PUBLIC ferro_headers_base)
+endif()
 target_link_libraries(libsimple_static PUBLIC ferro_headers_base)
 target_link_libraries(libsimple_static_kernel PUBLIC ferro_headers_base)
 

@@ -129,8 +129,17 @@ target_link_libraries(libsys_support_dymple PUBLIC
 	libmacho
 )
 
+if (ANILLO_HOST_TESTING)
+	target_link_libraries(libsys_core PUBLIC
+		libdymple
+	)
+else()
+	target_link_libraries(libsys_core PRIVATE
+		libdymple
+	)
+endif()
+
 target_link_libraries(libsys_core PRIVATE
-	libdymple
 	libsimple
 )
 target_link_libraries(libsys_support PRIVATE
@@ -143,21 +152,39 @@ target_link_libraries(libsys_support PRIVATE
 	libconman_static
 )
 
-target_link_options(libsys_core PRIVATE
-	"-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/resources/core-exported-symbols.txt"
-)
-target_link_options(libsys_support PRIVATE
-	"-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/resources/support-exported-symbols.txt"
-)
+if (NOT ANILLO_HOST_TESTING)
+	target_link_options(libsys_core PRIVATE
+		"-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/resources/core-exported-symbols.txt"
+	)
+	target_link_options(libsys_support PRIVATE
+		"-Wl,-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/resources/support-exported-symbols.txt"
+	)
+endif()
 
-target_link_libraries(libsys PRIVATE
-	libsys_core
-	libsys_support
-)
-target_link_options(libsys PRIVATE
-	"-Wl,-reexport_library,$<TARGET_FILE:libsys_core>"
-	"-Wl,-reexport_library,$<TARGET_FILE:libsys_support>"
-)
+set(CMAKE_C_LINK_LIBRARY_USING_reexport_link_SUPPORTED TRUE)
+if (ANILLO_HOST_TESTING)
+	set(CMAKE_C_LINK_LIBRARY_USING_reexport_link
+		"LINKER:--no-as-needed"
+		"<LINK_ITEM>"
+		"LINKER:--as-needed"
+	)
+else()
+	set(CMAKE_C_LINK_LIBRARY_USING_reexport_link "PATH{LINKER:-reexport_library,<LIBRARY>}NAME{LINKER:-reexport-l<LIB_ITEM>}")
+endif()
+
+if (ANILLO_HOST_TESTING)
+	target_link_libraries(libsys PUBLIC
+		libsys_core
+		libsys_support
+	)
+else()
+	# NOTE: we use `$<TARGET_FILE:>` for libsys_support since that library publicly links to libsys_core,
+	#       which we're reexporting here (and CMake doesn't allow use to link to libsys_core normally AND with `$<LINK_LIBRARY:reexport_link>`)
+	target_link_libraries(libsys PRIVATE
+		"$<LINK_LIBRARY:reexport_link,libsys_core,$<TARGET_FILE:libsys_support>>"
+	)
+	add_dependencies(libsys libsys_support)
+endif()
 
 target_compile_options(libsys PRIVATE
 	-fno-omit-frame-pointer
@@ -217,7 +244,24 @@ add_dependencies(libsys_support_static libsys_offsets)
 add_dependencies(libsys_core_dymple libsys_offsets)
 add_dependencies(libsys_support_dymple libsys_offsets)
 
-target_link_options(libsys INTERFACE
-	"-Wl,-dylib_file,/sys/lib/libsys/libsys_core.dylib:$<TARGET_FILE:libsys_core>"
-	"-Wl,-dylib_file,/sys/lib/libsys/libsys_support.dylib:$<TARGET_FILE:libsys_support>"
-)
+if (NOT ANILLO_HOST_TESTING)
+	target_link_options(libsys INTERFACE
+		"-Wl,-dylib_file,/sys/lib/libsys/libsys_core.dylib:$<TARGET_FILE:libsys_core>"
+		"-Wl,-dylib_file,/sys/lib/libsys/libsys_support.dylib:$<TARGET_FILE:libsys_support>"
+	)
+endif()
+
+if (ANILLO_HOST_TESTING)
+	add_library(libsys_host STATIC
+		src/core/objects.c
+		src/core/ghmap.c
+		src/core/data.c
+		src/host/mempool.c
+		src/host/console.c
+		src/host/abort.c
+		src/host/pages.c
+	)
+
+	target_link_libraries(libsys_host PUBLIC libsys_headers)
+endif()
+

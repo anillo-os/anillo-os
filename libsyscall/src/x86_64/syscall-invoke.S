@@ -16,9 +16,11 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <ferro/asm/common.hS>
+
 .text
-.global _libsyscall_invoke
-_libsyscall_invoke:
+.global FERRO_SYM(libsyscall_invoke)
+FERRO_SYM(libsyscall_invoke):
 	pushq %rbp
 	mov %rsp, %rbp
 

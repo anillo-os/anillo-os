@@ -22,7 +22,9 @@ target_include_directories(libc PUBLIC
 	include
 )
 
-target_link_options(libc PRIVATE
-	"-Wl,-reexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/reexported-symbols.txt"
-	"-Wl,-alias_list,${CMAKE_CURRENT_SOURCE_DIR}/aliased-symbols.txt"
-)
+if (NOT ANILLO_HOST_TESTING)
+	target_link_options(libc PRIVATE
+		"-Wl,-reexported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/reexported-symbols.txt"
+		"-Wl,-alias_list,${CMAKE_CURRENT_SOURCE_DIR}/aliased-symbols.txt"
+	)
+endif()

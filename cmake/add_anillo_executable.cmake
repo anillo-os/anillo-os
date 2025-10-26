@@ -21,10 +21,19 @@ function(add_anillo_executable target_name)
 		-fPIC
 	)
 
-	target_link_options(${target_name} PRIVATE
-		-Wl,-pie
-		-Wl,-execute
-	)
+	if (ANILLO_HOST_TESTING)
+		target_compile_options(${target_name} PRIVATE
+			-nostdlib
+		)
+		target_link_options(${target_name} PRIVATE
+			-nostdlib
+		)
+	else()
+		target_link_options(${target_name} PRIVATE
+			-Wl,-pie
+			-Wl,-execute
+		)
+	endif()
 
 	if (ANILLO_EXEC_RAMDISK)
 		if (NOT DEFINED ANILLO_EXEC_INSTALL_PATH)
