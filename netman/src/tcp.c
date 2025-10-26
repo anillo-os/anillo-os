@@ -21,6 +21,7 @@
 #include <ferro/byteswap.h>
 #include <netman/ip.h>
 #include <netman/device.h>
+#include <libeve/libeve.h>
 
 // for checksumming
 #include <netman/ip.private.h>
@@ -54,7 +55,7 @@ void netman_tcp_init(void) {
 static void netman_tcp_connection_destroy_internal(netman_tcp_connection_object_t* connection) {
 	netman_tcp_debug("Releasing and cleaning up connection");
 
-	sys_mutex_lock(&connection->rx_mutex);
+	eve_mutex_lock(&connection->rx_mutex);
 
 	connection->rx_head = 0;
 	connection->rx_tail = 0;
@@ -66,7 +67,7 @@ static void netman_tcp_connection_destroy_internal(netman_tcp_connection_object_
 	NETMAN_WUR_IGNORE(sys_mempool_free(connection->rx_ring));
 	connection->rx_ring = NULL;
 
-	sys_mutex_lock(&connection->tx_mutex);
+	eve_mutex_lock(&connection->tx_mutex);
 
 	connection->tx_head = 0;
 	connection->tx_tail = 0;
@@ -78,7 +79,7 @@ static void netman_tcp_connection_destroy_internal(netman_tcp_connection_object_
 	NETMAN_WUR_IGNORE(sys_mempool_free(connection->tx_ring));
 	connection->tx_ring = NULL;
 
-	sys_mutex_lock(&connection->retransmit_mutex);
+	eve_mutex_lock(&connection->retransmit_mutex);
 	if (connection->retransmit_work_id != eve_loop_work_id_invalid) {
 		NETMAN_WUR_IGNORE(eve_loop_cancel(eve_loop_get_main(), connection->retransmit_work_id));
 	}
@@ -89,7 +90,7 @@ static void netman_tcp_connection_destroy_internal(netman_tcp_connection_object_
 		connection->pending_packet = NULL;
 	}
 
-	sys_mutex_lock(&connection_table_mutex);
+	eve_mutex_lock(&connection_table_mutex);
 	NETMAN_WUR_IGNORE(simple_ghmap_clear(&connection_table, connection->key, sizeof(*connection->key)));
 	sys_mutex_unlock(&connection_table_mutex);
 };
@@ -133,7 +134,7 @@ static void netman_tcp_connection_destroy(netman_tcp_connection_t* obj) {
 static void netman_tcp_listener_destroy(netman_tcp_listener_t* obj) {
 	netman_tcp_listener_object_t* listener = (void*)obj;
 
-	sys_mutex_lock(&listener->pending_mutex);
+	eve_mutex_lock(&listener->pending_mutex);
 
 	if (listener->pending_ring_full) {
 		for (size_t i = 0; i < listener->pending_ring_size; ++i) {
@@ -155,7 +156,7 @@ static void netman_tcp_listener_destroy(netman_tcp_listener_t* obj) {
 	NETMAN_WUR_IGNORE(sys_mempool_free(listener->pending_ring));
 	listener->pending_ring = NULL;
 
-	sys_mutex_lock(&port_table_mutex);
+	eve_mutex_lock(&port_table_mutex);
 	NETMAN_WUR_IGNORE(simple_ghmap_clear_h(&port_table, listener->port_number));
 	sys_mutex_unlock(&port_table_mutex);
 };
@@ -173,7 +174,7 @@ static const netman_object_class_t tcp_listener_object_class = {
 static void netman_tcp_connection_try_send(netman_tcp_connection_object_t* connection);
 
 static void netman_tcp_connection_schedule_retransmit(netman_tcp_connection_object_t* connection) {
-	sys_mutex_lock(&connection->retransmit_mutex);
+	eve_mutex_lock(&connection->retransmit_mutex);
 	netman_tcp_debugf("scheduling retransmission...");
 	if (connection->retransmit_work_id == eve_loop_work_id_invalid) {
 		NETMAN_WUR_IGNORE(eve_loop_schedule(eve_loop_get_main(), (void*)netman_tcp_connection_try_send, connection, NETMAN_TCP_DEFAULT_RTO_MS * 1000000, sys_timeout_type_relative_ns_monotonic, &connection->retransmit_work_id));
@@ -194,7 +195,7 @@ static void netman_tcp_connection_try_send(netman_tcp_connection_object_t* conne
 	uint8_t checksum_buffer[4];
 	bool needs_retransmit = false;
 
-	sys_mutex_lock(&connection->retransmit_mutex);
+	eve_mutex_lock(&connection->retransmit_mutex);
 	netman_tcp_debugf("trying to send");
 	if (connection->retransmit_work_id != eve_loop_work_id_invalid) {
 		NETMAN_WUR_IGNORE(eve_loop_cancel(eve_loop_get_main(), connection->retransmit_work_id));
@@ -224,7 +225,7 @@ static void netman_tcp_connection_try_send(netman_tcp_connection_object_t* conne
 
 	// check how big our receive window is right now.
 	// it's okay if this info becomes outdated by the time we send the message.
-	sys_mutex_lock(&connection->rx_mutex);
+	eve_mutex_lock(&connection->rx_mutex);
 	rx_space = (connection->rx_tail >= connection->rx_head) ? (connection->rx_ring_size - (connection->rx_tail - connection->rx_head)) : (connection->rx_head - connection->rx_tail);
 	sys_mutex_unlock(&connection->rx_mutex);
 
@@ -234,7 +235,7 @@ static void netman_tcp_connection_try_send(netman_tcp_connection_object_t* conne
 	//        setting a flag like "doing transmit" is appealing, but it complicates
 	//        the situation in netman_tcp_connection_handle_packet() for acknowledgements.
 
-	sys_mutex_lock(&connection->tx_mutex);
+	eve_mutex_lock(&connection->tx_mutex);
 
 	if (connection->tx_ring_full) {
 		tx_avail_data_length = connection->tx_ring_size;
@@ -755,7 +756,7 @@ static void netman_tcp_connection_handle_packet(netman_tcp_connection_object_t* 
 
 			events |= netman_tcp_connection_event_close_send;
 		} else if (ack > connection->tx_sequence_number) {
-			sys_mutex_lock(&connection->tx_mutex);
+			eve_mutex_lock(&connection->tx_mutex);
 
 			connection->tx_head = (connection->tx_head + (ack - connection->tx_sequence_number)) % connection->tx_ring_size;
 			connection->tx_sequence_number = ack;
@@ -770,7 +771,7 @@ static void netman_tcp_connection_handle_packet(netman_tcp_connection_object_t* 
 			data_offset += connection->rx_sequence_number - seq;
 			data_length -= connection->rx_sequence_number - seq;
 
-			sys_mutex_lock(&connection->rx_mutex);
+			eve_mutex_lock(&connection->rx_mutex);
 
 			if (!connection->rx_ring_full) {
 				size_t space = (connection->rx_tail >= connection->rx_head) ? (connection->rx_ring_size - (connection->rx_tail - connection->rx_head)) : (connection->rx_head - connection->rx_tail);
@@ -922,7 +923,7 @@ static void netman_tcp_listener_handle_packet(netman_tcp_listener_object_t* list
 		return;
 	}
 
-	sys_mutex_lock(&listener->pending_mutex);
+	eve_mutex_lock(&listener->pending_mutex);
 
 	if (listener->pending_ring_full) {
 		// send back a reset packet
@@ -987,7 +988,7 @@ ferr_t netman_tcp_handle_packet(netman_ipv4_packet_t* ip_packet) {
 		lookup_key.peer_port
 	);
 
-	sys_mutex_lock(&connection_table_mutex);
+	eve_mutex_lock(&connection_table_mutex);
 
 	status = simple_ghmap_lookup(&connection_table, &lookup_key, sizeof(lookup_key), false, 0, NULL, (void*)&connection, NULL);
 	if (status == ferr_ok) {
@@ -1014,7 +1015,7 @@ ferr_t netman_tcp_handle_packet(netman_ipv4_packet_t* ip_packet) {
 			goto out;
 		}
 
-		sys_mutex_lock(&port_table_mutex);
+		eve_mutex_lock(&port_table_mutex);
 
 		status = simple_ghmap_lookup_h(&port_table, lookup_key.local_port, false, 0, NULL, (void*)&listener, NULL);
 		if (status == ferr_ok) {
@@ -1082,7 +1083,7 @@ static ferr_t netman_tcp_connection_allocate(uint32_t peer_address, uint16_t pee
 	}
 
 	if (!lock_held) {
-		sys_mutex_lock(&connection_table_mutex);
+		eve_mutex_lock(&connection_table_mutex);
 	}
 
 	status = simple_ghmap_lookup(&connection_table, &lookup_key, sizeof(lookup_key), true, sizeof(*connection), &created, (void*)&connection, NULL);
@@ -1178,7 +1179,7 @@ ferr_t netman_tcp_listen(netman_tcp_port_number_t port_number, netman_tcp_listen
 		goto out;
 	}
 
-	sys_mutex_lock(&port_table_mutex);
+	eve_mutex_lock(&port_table_mutex);
 
 	status = simple_ghmap_lookup_h(&port_table, port_number, true, sizeof(*listener), &created, (void*)&listener, NULL);
 	if (status != ferr_ok) {
@@ -1233,7 +1234,7 @@ size_t netman_tcp_listener_accept(netman_tcp_listener_t* obj, netman_tcp_connect
 		goto out;
 	}
 
-	sys_mutex_lock(&listener->pending_mutex);
+	eve_mutex_lock(&listener->pending_mutex);
 
 	if ((!listener->pending_ring_full && listener->pending_head == listener->pending_tail) || listener->pending_ring_size == 0) {
 		// empty ring
@@ -1291,7 +1292,7 @@ ferr_t netman_tcp_connect(uint32_t address, const uint8_t* mac, netman_tcp_port_
 
 	status = ferr_resource_unavailable;
 
-	sys_mutex_lock(&connection_table_mutex);
+	eve_mutex_lock(&connection_table_mutex);
 
 	bool is_first = true;
 	for (uint16_t i = next_dynamic_port; is_first || i != next_dynamic_port; (i = (i + 1) % NETMAN_TCP_DYNAMIC_PORT_COUNT)) {
@@ -1351,7 +1352,7 @@ ferr_t netman_tcp_connection_receive(netman_tcp_connection_t* obj, void* buffer,
 		goto out;
 	}
 
-	sys_mutex_lock(&connection->rx_mutex);
+	eve_mutex_lock(&connection->rx_mutex);
 
 	if ((!connection->rx_ring_full && connection->rx_head == connection->rx_tail) || connection->rx_ring_size == 0) {
 		// empty ring
@@ -1400,7 +1401,7 @@ ferr_t netman_tcp_connection_send(netman_tcp_connection_t* obj, const void* buff
 		goto out;
 	}
 
-	sys_mutex_lock(&connection->tx_mutex);
+	eve_mutex_lock(&connection->tx_mutex);
 
 	if (connection->tx_ring_full) {
 		sys_mutex_unlock(&connection->tx_mutex);

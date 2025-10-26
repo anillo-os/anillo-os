@@ -19,6 +19,7 @@
 #include <netman/device.private.h>
 #include <netman/packet.private.h>
 #include <libsimple/libsimple.h>
+#include <libeve/libeve.h>
 
 // TODO: support more than one device
 
@@ -39,7 +40,7 @@ ferr_t netman_device_register(const uint8_t* mac_address, const netman_device_me
 		goto out_unlocked;
 	}
 
-	sys_mutex_lock(&global_device_lock);
+	eve_mutex_lock(&global_device_lock);
 
 	if (global_device) {
 		status = ferr_temporary_outage;
@@ -130,7 +131,7 @@ out:
 
 			bool handled = false;
 
-			sys_mutex_lock(&device->rx_hooks_lock);
+			eve_mutex_lock(&device->rx_hooks_lock);
 
 			for (size_t i = 0; i < sizeof(device->rx_hooks) / sizeof(*device->rx_hooks); ++i) {
 				if (!device->rx_hooks[i].hook) {
@@ -148,7 +149,7 @@ out:
 
 			// okay, now let's try global hooks
 
-			sys_mutex_lock(&global_rx_hooks_lock);
+			eve_mutex_lock(&global_rx_hooks_lock);
 
 			for (size_t i = 0; i < sizeof(global_rx_hooks) / sizeof(*global_rx_hooks); ++i) {
 				if (!global_rx_hooks[i].hook) {
@@ -201,7 +202,7 @@ static ferr_t netman_device_tx_try_queue(netman_device_t* device);
 void netman_device_tx_complete(netman_device_t* device, size_t queue_index) {
 	netman_packet_t* packet = NULL;
 
-	sys_mutex_lock(&device->tx_pending_lock);
+	eve_mutex_lock(&device->tx_pending_lock);
 
 	packet = device->tx_pending[queue_index];
 
@@ -236,7 +237,7 @@ static ferr_t netman_device_tx_try_queue(netman_device_t* device) {
 	bool end_of_packet = device->tx_packet_buffer_index + 1 == device->tx_packet->buffer_count;
 	size_t queue_index = 0;
 
-	sys_mutex_lock(&device->tx_pending_lock);
+	eve_mutex_lock(&device->tx_pending_lock);
 
 	status = device->methods->tx_queue(device, buffer->address, buffer->length, end_of_packet, &queue_index);
 	if (status != ferr_ok) {
@@ -266,7 +267,7 @@ static ferr_t netman_device_tx_try_queue(netman_device_t* device) {
 
 netman_device_t* netman_device_any(void) {
 	netman_device_t* dev = NULL;
-	sys_mutex_lock(&global_device_lock);
+	eve_mutex_lock(&global_device_lock);
 	dev = global_device;
 	sys_mutex_unlock(&global_device_lock);
 	return dev;
@@ -301,7 +302,7 @@ ferr_t netman_device_register_packet_receive_hook(netman_device_t* device, netma
 		goto out_unlocked;
 	}
 
-	sys_mutex_lock(&device->rx_hooks_lock);
+	eve_mutex_lock(&device->rx_hooks_lock);
 
 	status = ferr_temporary_outage;
 	for (size_t i = 0; i < sizeof(device->rx_hooks) / sizeof(*device->rx_hooks); ++i) {
@@ -329,7 +330,7 @@ ferr_t netman_device_register_global_packet_receive_hook(netman_device_packet_re
 		goto out_unlocked;
 	}
 
-	sys_mutex_lock(&global_rx_hooks_lock);
+	eve_mutex_lock(&global_rx_hooks_lock);
 
 	status = ferr_temporary_outage;
 	for (size_t i = 0; i < sizeof(global_rx_hooks) / sizeof(*global_rx_hooks); ++i) {

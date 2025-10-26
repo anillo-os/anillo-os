@@ -23,6 +23,7 @@
 #include <netman/device.h>
 #include <ferro/byteswap.h>
 #include <netman/ip.h>
+#include <libeve/libeve.h>
 
 #ifndef NETMAN_ARP_LOG
 	#define NETMAN_ARP_LOG 0
@@ -122,7 +123,7 @@ static ferr_t netman_arp_lookup_protocol_table(netman_ether_packet_type_t protoc
 	netman_arp_protocol_table_t* protocol_table = NULL;
 	bool created = false;
 
-	sys_mutex_lock(&arp_table_lock);
+	eve_mutex_lock(&arp_table_lock);
 
 	status = simple_ghmap_lookup_h(&arp_table, protocol_type, true, sizeof(netman_arp_protocol_table_t), &created, (void*)&protocol_table, NULL);
 	if (status != ferr_ok) {
@@ -188,7 +189,7 @@ ferr_t netman_arp_handle_packet(netman_packet_t* packet, size_t payload_offset) 
 
 	sender_ip = ferro_byteswap_big_to_native_u32(payload->sender_ip_address);
 
-	sys_mutex_lock(&protocol_table->lock);
+	eve_mutex_lock(&protocol_table->lock);
 
 	status = simple_ghmap_lookup(&protocol_table->table, &sender_ip, 4, true, 0, &created, (void*)&entry, NULL);
 	if (status != ferr_ok) {
@@ -307,7 +308,7 @@ ferr_t netman_arp_lookup(netman_ether_packet_type_t protocol_type, const uint8_t
 		goto out_unlocked;
 	}
 
-	sys_mutex_lock(&protocol_table->lock);
+	eve_mutex_lock(&protocol_table->lock);
 
 	status = simple_ghmap_lookup(&protocol_table->table, protocol_address, protocol_address_length, true, 0, &created, (void*)&entry, NULL);
 	if (status != ferr_ok) {
@@ -359,7 +360,7 @@ ferr_t netman_arp_register(netman_ether_packet_type_t protocol_type, const uint8
 		goto out_unlocked;
 	}
 
-	sys_mutex_lock(&protocol_table->lock);
+	eve_mutex_lock(&protocol_table->lock);
 
 	status = simple_ghmap_lookup(&protocol_table->table, protocol_address, protocol_address_length, true, 0, &created, (void*)&entry, NULL);
 	if (status != ferr_ok) {

@@ -42,6 +42,7 @@
 #include <libsys/libsys.h>
 #include <libsimple/libsimple.h>
 #include <netman/base.h>
+#include <libeve/libeve.h>
 
 #define e1000_osdep_delay(x, scale) ({ \
 		__typeof__(x) _x = (x); \
@@ -77,7 +78,7 @@
 #define E1000_MUTEX sys_mutex_t
 #define E1000_MUTEX_INIT(mutex) sys_mutex_init(mutex)
 #define E1000_MUTEX_DESTROY(mutex) /* no-op */
-#define E1000_MUTEX_LOCK(mutex) sys_mutex_lock(mutex)
+#define E1000_MUTEX_LOCK(mutex) eve_mutex_lock(mutex)
 #define E1000_MUTEX_TRYLOCK(mutex) sys_mutex_try_lock(mutex)
 #define E1000_MUTEX_UNLOCK(mutex) sys_mutex_unlock(mutex)
 

@@ -20,6 +20,7 @@
 #include <netman/ip.h>
 #include <libsimple/libsimple.h>
 #include <ferro/byteswap.h>
+#include <libeve/libeve.h>
 
 // only for checksum computation
 #include <netman/ip.private.h>
@@ -57,7 +58,7 @@ static void netman_udp_port_destroy(netman_udp_port_t* obj) {
 
 	// first, tear down the receive queue so that no new datagrams are received into it
 
-	sys_mutex_lock(&port->rx_mutex);
+	eve_mutex_lock(&port->rx_mutex);
 
 	if (port->rx_ring_full) {
 		for (size_t i = 0; i < port->rx_ring_size; ++i) {
@@ -110,7 +111,7 @@ ferr_t netman_udp_handle_packet(netman_ipv4_packet_t* ip_packet) {
 		goto out;
 	}
 
-	sys_mutex_lock(&ports_mutex);
+	eve_mutex_lock(&ports_mutex);
 
 	status = simple_ghmap_lookup_h(&ports, ferro_byteswap_big_to_native_u16(header->destination_port), false, 0, NULL, (void*)&port_ptr, NULL);
 	if (status != ferr_ok) {
@@ -142,7 +143,7 @@ ferr_t netman_udp_handle_packet(netman_ipv4_packet_t* ip_packet) {
 	packet->destination_port = ferro_byteswap_big_to_native_u16(header->destination_port);
 	packet->packet = ip_packet;
 
-	sys_mutex_lock(&port->rx_mutex);
+	eve_mutex_lock(&port->rx_mutex);
 
 	if (port->rx_ring_full) {
 		status = ferr_temporary_outage;
@@ -204,7 +205,7 @@ ferr_t netman_udp_register_port(uint16_t port_number, netman_udp_port_handler_f 
 		goto out;
 	}
 
-	sys_mutex_lock(&ports_mutex);
+	eve_mutex_lock(&ports_mutex);
 
 	if (port_number == NETMAN_UDP_PORT_NUMBER_DYNAMIC) {
 		bool is_first = true;
@@ -275,7 +276,7 @@ void netman_udp_unregister_port(netman_udp_port_t* obj) {
 
 	// let's clear it from the global port table (if it's the currently registered port)
 
-	sys_mutex_lock(&ports_mutex);
+	eve_mutex_lock(&ports_mutex);
 
 	if (simple_ghmap_lookup_h(&ports, port->port_number, false, 0, NULL, (void*)&port_ptr, NULL) == ferr_ok) {
 		if (*port_ptr == obj) {
@@ -299,7 +300,7 @@ size_t netman_udp_port_receive_packets(netman_udp_port_t* obj, netman_udp_packet
 		goto out_unlocked;
 	}
 
-	sys_mutex_lock(&port->rx_mutex);
+	eve_mutex_lock(&port->rx_mutex);
 
 	if (port->rx_head == port->rx_tail && !port->rx_ring_full) {
 		goto out;
