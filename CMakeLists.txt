@@ -158,16 +158,15 @@ add_custom_target(generate_offsets_header
 		"${CMAKE_CURRENT_BINARY_DIR}/include/gen/ferro/offsets.h"
 )
 
-add_custom_target(generate_ramdisk
-	ALL
-	COMMAND
-		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py" "${CMAKE_CURRENT_BINARY_DIR}/ramdisksrc" "${OFFSETS_JSON_PATH}" "${CMAKE_BINARY_DIR}/ramdisk"
-	BYPRODUCTS
-		"${CMAKE_BINARY_DIR}/ramdisk"
-	DEPENDS
-		"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py"
-		"${OFFSETS_JSON_PATH}"
-)
+	add_custom_target(generate_ramdisk
+		ALL
+		COMMAND
+			"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py" "${CMAKE_CURRENT_BINARY_DIR}/ramdisksrc" "${CMAKE_BINARY_DIR}/ramdisk"
+		BYPRODUCTS
+			"${CMAKE_BINARY_DIR}/ramdisk"
+		DEPENDS
+			"${CMAKE_CURRENT_SOURCE_DIR}/scripts/build-ramdisk.py"
+	)
 
 add_subdirectory(kernel)
 add_subdirectory(kernel/src/bootstrap/uefi)

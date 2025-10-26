@@ -3,7 +3,6 @@
 import os
 import json
 import struct
-import errno
 import sys
 import ctypes
 
@@ -13,14 +12,14 @@ SOURCE_ROOT = os.path.join(SCRIPT_DIR, '..')
 sys.path.append(os.path.join(SOURCE_ROOT, 'scripts'))
 import anillo_util
 
-if len(sys.argv) != 4:
-	print('Usage: ' + sys.argv[0] + ' <input-dir> <offsets-json> <output-file>')
+if len(sys.argv) != 3:
+	print('Usage: ' + sys.argv[0] + ' <input-dir> <output-file>')
 	sys.exit(1)
 
 INPUT_DIR_PATH = sys.argv[1]
-OFFSETS_JSON_PATH = sys.argv[2]
-OUTPUT_RAMDISK_PATH = sys.argv[3]
+OUTPUT_RAMDISK_PATH = sys.argv[2]
 
+RAMDISK_HEADER_STRUCT = struct.Struct('= Q')
 DIRECTORY_ENTRY_STRUCT = struct.Struct('= Q Q Q Q L 4x')
 SECTION_HEADER_STRUCT = struct.Struct('= H 6x Q Q')
 
@@ -33,20 +32,15 @@ def pack_directory_entry(parent_index, name_offset, contents_offset, size, flags
 def pack_section_header(type, offset, length):
 	return SECTION_HEADER_STRUCT.pack(type, offset, length)
 
-offsets = {}
-
 anillo_util.mkdir_p(os.path.dirname(OUTPUT_RAMDISK_PATH))
 anillo_util.mkdir_p(INPUT_DIR_PATH)
 
-with open(OFFSETS_JSON_PATH, 'r') as offsets_file:
-	offsets = json.load(offsets_file)
-
-RAMDISK_SIZE_OFFSET = int(offsets['ferro_ramdisk']['layout']['ramdisk_size'])
-SECTION_COUNT_OFFSET = int(offsets['ferro_ramdisk']['layout']['section_count'])
-SECTION_HEADERS_START = int(offsets['ferro_ramdisk']['layout']['section_headers'])
-SIZEOF_SECTION_HEADER = int(offsets['ferro_ramdisk_section_header']['size'])
-SIZEOF_DIRECTORY_ENTRY = int(offsets['ferro_ramdisk_directory_entry']['size'])
-SIZEOF_RAMDISK_HEADER = int(offsets['ferro_ramdisk_header']['size'])
+RAMDISK_SIZE_OFFSET = 0
+SECTION_COUNT_OFFSET = 8
+SECTION_HEADERS_START = 16
+SIZEOF_SECTION_HEADER = SECTION_HEADER_STRUCT.size
+SIZEOF_DIRECTORY_ENTRY = DIRECTORY_ENTRY_STRUCT.size
+SIZEOF_RAMDISK_HEADER = RAMDISK_HEADER_STRUCT.size
 SECTIONS_START = SECTION_HEADERS_START + 3 * SIZEOF_SECTION_HEADER
 
 SECTION_HEADER_TYPE_STRING_TABLE = 0
