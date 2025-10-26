@@ -6,6 +6,7 @@ set(libsimple_sources
 	src/ring.c
 	#src/vector.c
 	src/mempool.c
+	src/unicode.c
 )
 
 set(libsimple_implementations_generic
