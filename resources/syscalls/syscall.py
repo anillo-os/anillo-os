@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 
 static_syscall_type_to_c_type: Dict[str, str] = {
 	'u8': 'uint8_t',
@@ -148,7 +148,7 @@ class Enum:
 	An object that represents an enumeration.
 	"""
 
-	def __init__(self, name: str, type: str, values: List[Tuple[str, str]], prefix: str | None = None) -> None:
+	def __init__(self, name: str, type: str, values: List[Tuple[str, str]], prefix: Optional[str] = None) -> None:
 		self.name = name
 		self.type = type
 		self.prefix = self.name if prefix is None else prefix

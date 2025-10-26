@@ -91,6 +91,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_executable.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/dsym.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/spooky_gen.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/calculate_offsets.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/encode_file.cmake)
 
 find_dsymutil()
 

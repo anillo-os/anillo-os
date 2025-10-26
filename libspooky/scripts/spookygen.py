@@ -6,7 +6,7 @@ from lark.visitors import Transformer, v_args
 from lark.lexer import Token
 import sys
 from dataclasses import dataclass
-from typing import Dict, List, Set, Tuple, cast
+from typing import Dict, List, Set, Tuple, cast, Optional, Union
 from enum import IntEnum
 import argparse
 import os
@@ -33,12 +33,12 @@ interface_names: Set[str] = set()
 struct_types: Dict[str, Type] = dict()
 max_type_members: int = 0
 max_type_params: int = 0
-root_interface_name: str | None = None
-default_server_name: str | None = None
-default_realm: Realm | None = None
+root_interface_name: Optional[str] = None
+default_server_name: Optional[str] = None
+default_realm: Optional[Realm] = None
 
 def name_to_type(name: str) -> Type:
-	type: Type | None = None
+	type: Optional[Type] = None
 
 	if name in BasicTypeTag.__members__:
 		type = BasicType(BasicTypeTag[name])
@@ -307,8 +307,8 @@ class ToAST(Transformer):
 			raise ValueError
 
 	@v_args(inline=True)
-	def type(self, name_or_decorations: str | Decorations, *params: Parameter) -> Tuple[int, Type]:
-		type: Type | None = None
+	def type(self, name_or_decorations: Union[str, Decorations], *params: Parameter) -> Tuple[int, Type]:
+		type: Optional[Type] = None
 
 		if isinstance(name_or_decorations, str):
 			type = name_to_type(name_or_decorations)
@@ -361,7 +361,7 @@ input_file = open(args.input)
 parse_tree = lark_parser.parse(input_file.read())
 input_file.close()
 
-ast: List[Interface | Structure] = lark_trans.transform(parse_tree)
+ast: List[Union[Interface, Structure]] = lark_trans.transform(parse_tree)
 
 if default_realm == None:
 	default_realm = Realm.GLOBAL
@@ -577,7 +577,7 @@ written_names: Set[str] = set()
 
 # i.e. for interface implementations or input callback implementations
 # invoked remotely by libspooky
-def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: str | None, is_root_interface: bool, raw_name: str | None):
+def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: Optional[str], is_root_interface: bool, raw_name: Optional[str]):
 	if name in written_names:
 		return
 
@@ -607,7 +607,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 			'\t\treturn;\n',
 			'\t}\n',
 			'\n',
-			'\ttarget = ((struct _spookygen_callback_context*)context)->target;\n',
+			'\ttarget = (void*)((struct _spookygen_callback_context*)context)->target;\n',
 			'\ttarget_context = ((struct _spookygen_callback_context*)context)->target_context;\n',
 			'\tLIBSPOOKY_WUR_IGNORE(sys_mempool_free(context));\n\n',
 		])
@@ -617,7 +617,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 			'\t\treturn;\n',
 			'\t}\n',
 			'\n',
-			f'\ttarget = (({interface.name}_proxy_info_t*)context)->{raw_name};\n',
+			f'\ttarget = (void*)(({interface.name}_proxy_info_t*)context)->{raw_name};\n',
 			f'\ttarget_context = (({interface.name}_proxy_info_t*)context)->context;\n',
 		])
 	else:
@@ -761,7 +761,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 						'\t}\n',
 					])
 			elif isinstance(param.type, StructureType):
-				source_file.write(f'\tspooky_release_object_with_type(&arg{index}, _spookygen_types[{param.type_id}]);\n')
+				source_file.write(f'\tspooky_release_object_with_type(&arg{index}, _spookygen_types[{param.type_id}], false);\n')
 			elif isinstance(param.type, FunctionType):
 				source_file.writelines([
 					'\n',
@@ -778,7 +778,7 @@ def write_incoming_function_wrapper(name: str, type: FunctionType, target_name: 
 
 # i.e. for output callback implementations
 # invoked directly by users
-def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: str | None, is_root_interface: bool, raw_name: str | None):
+def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: Optional[str], is_root_interface: bool, raw_name: Optional[str]):
 	if name in written_names:
 		return
 
@@ -971,7 +971,7 @@ def write_outgoing_function_wrapper(name: str, type: FunctionType, target_name: 
 			elif isinstance(param.type, StructureType):
 				source_file.writelines([
 					f'\t\tif (arg{index} && arg{index}_should_cleanup_on_fail) {{\n',
-					f'\t\t\tspooky_release_object_with_type(arg{index}, _spookygen_types[{param.type_id}]);\n',
+					f'\t\t\tspooky_release_object_with_type(arg{index}, _spookygen_types[{param.type_id}], false);\n',
 					'\t\t}\n',
 				])
 			elif isinstance(param.type, FunctionType):

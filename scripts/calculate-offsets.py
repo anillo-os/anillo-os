@@ -3,8 +3,8 @@
 from dataclasses import dataclass
 import os
 import argparse
-from sys import stderr, stdout
-from typing import Dict, List
+from sys import stderr
+from typing import List, Optional
 import subprocess
 import re
 import io
@@ -26,10 +26,10 @@ args = argparser.parse_args()
 arch: str = args.arch
 source: str = os.path.abspath(args.source)
 header: str = os.path.abspath(args.header)
-jsonpath: str | None = args.json
+jsonpath: Optional[str] = args.json
 if jsonpath != None:
 	jsonpath = os.path.abspath(jsonpath)
-depfile: str | None = args.depfile
+depfile: Optional[str] = args.depfile
 if depfile != None:
 	depfile = os.path.abspath(depfile)
 compiler_args: List[str] = args.compiler_args
