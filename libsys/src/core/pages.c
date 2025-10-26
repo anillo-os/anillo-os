@@ -24,6 +24,7 @@ static void sys_shared_memory_destroy(sys_object_t* obj) {
 	if (shared_memory->did != UINT64_MAX) {
 		LIBSYS_WUR_IGNORE(libsyscall_wrapper_page_close_shared(shared_memory->did));
 	}
+	sys_object_destroy(obj);
 };
 
 static const sys_object_class_t shared_memory_class = {

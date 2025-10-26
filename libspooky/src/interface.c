@@ -31,6 +31,8 @@ static void spooky_interface_destroy(spooky_object_t* obj) {
 
 		LIBSPOOKY_WUR_IGNORE(sys_mempool_free(interface->entries));
 	}
+
+	sys_object_destroy(obj);
 };
 
 static const spooky_object_class_t interface_class = {

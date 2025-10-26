@@ -25,6 +25,8 @@ static void spooky_structure_destroy(spooky_object_t* obj) {
 	for (size_t i = 0; i < structure->member_count; ++i) {
 		spooky_release(structure->members[i].type);
 	}
+
+	sys_object_destroy(obj);
 };
 
 static const spooky_object_class_t structure_class = {
