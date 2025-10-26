@@ -32,6 +32,7 @@ EFI_CODE_PATHS_TO_TRY = {
 		os.path.join(os.path.dirname(os.path.realpath(which_or_die('qemu-system-x86_64'))), '..', 'share', 'qemu', 'edk2-x86_64-code.fd'),
 		'/usr/share/OVMF/OVMF_CODE.fd',
 		'/usr/share/OVMF/x64/OVMF_CODE.fd',
+		'/usr/share/OVMF/OVMF_CODE.secboot.fd',
 	],
 	'aarch64': [
 		os.path.join(os.path.dirname(os.path.realpath(which_or_die('qemu-system-aarch64'))), '..', 'share', 'qemu', 'edk2-aarch64-code.fd'),
@@ -85,7 +86,9 @@ if not (args.arch in VALID_ARCHES):
 if not args.build_dir:
 	args.build_dir = os.path.join(SOURCE_ROOT, 'build', args.arch)
 	if args.release:
-		args.build_dir += '-release'
+		args.build_dir += '/release'
+	else:
+		args.build_dir += '/debug'
 
 efi_code_path = os.path.join(args.build_dir, 'efi-code.fd')
 efi_vars_path = os.path.join(args.build_dir, 'efi-vars.fd')
@@ -371,4 +374,4 @@ if args.net_dump != None and args.wireshark:
 	proc1 = subprocess.Popen([which_or_die('tail'), '-f', '-c', '+0', cap_file], stdin=PIPE, stdout=PIPE, stderr=DEVNULL)
 	proc2 = subprocess.Popen([which_or_die('wireshark'), '-k', '-i', '-'], stdin=proc1.stdout, stdout=DEVNULL, stderr=DEVNULL)
 
-subprocess.run(prefix_args + [f'qemu-system-{args.arch}'] + qemu_args, cwd=args.build_dir, stdin=sys.stdin)
+subprocess.run(prefix_args + [f'qemu-system-{args.arch}'] + qemu_args, stdin=sys.stdin)
