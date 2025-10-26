@@ -8,7 +8,8 @@ Anillo OS is licensed under the LGPLv3. Refer to the`COPYING` and `COPYING.LESSE
 
 Building Anillo OS requires the following programs:
   * Clang - to compile the OS (Clang version >= 12).
-  * LLD - to link the OS.
+  * `x86_64-apple-darwin-ld`/`aarch64-apple-darwin-ld` - to link the OS.
+    * We'd love to use LLD instead, but unfortunately, it's missing support for certain required flags (namely: `-dylinker`, `-image_base`, and `-static`)
   * CMake - to compile the OS (CMake version >= 3.20).
   * Ninja (optional) - to compile the OS quickly.
   * Python 3 - for various scripts during the build process.
@@ -20,6 +21,7 @@ Creating a disk image for Anillo OS requires the following programs:
   * FUSE - to use partfs.
   * mtools - to operate on the EFI partition.
   * mkfs.fat - to format the disk image.
+  * qemu-img
 
 To build the OS, use CMake:
 
