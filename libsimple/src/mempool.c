@@ -153,16 +153,16 @@ static void simple_mempool_region_check_leaves(simple_mempool_region_header_t* r
 		size_t size = leaf_count_of_order(order) * region->instance->options.min_leaf_size;
 
 		if (region_buckets(region)[order] != NULL && !address_is_canonical(region_buckets(region)[order])) {
-			region->instance->allocator.panic("fmempool_region_check_leaves: Invalid leaf address (%p; source (bucket) = %p, order = %zu)", region_buckets(region)[order], &region_buckets(region)[order], order);
+			region->instance->allocator.panic("simple_mempool_region_check_leaves: Invalid leaf address (%p; source (bucket) = %p, order = %zu)", region_buckets(region)[order], &region_buckets(region)[order], order);
 		}
 
 		for (simple_mempool_free_leaf_t* leaf = region_buckets(region)[order]; leaf != NULL; leaf = leaf->next) {
 			if (!address_is_canonical(leaf)) {
-				region->instance->allocator.panic("fmempool_region_check_leaves: Invalid leaf address (%p)", leaf);
+				region->instance->allocator.panic("simple_mempool_region_check_leaves: Invalid leaf address (%p)", leaf);
 			}
 
 			if (leaf->next != NULL && !address_is_canonical(leaf->next)) {
-				region->instance->allocator.panic("fmempool_region_check_leaves: Invalid leaf address (%p; source (leaf) = %p)", leaf->next, &leaf->next);
+				region->instance->allocator.panic("simple_mempool_region_check_leaves: Invalid leaf address (%p; source (leaf) = %p)", leaf->next, &leaf->next);
 			}
 
 			if (!leaf->prev) {
@@ -177,16 +177,16 @@ static void simple_mempool_region_check_leaves(simple_mempool_region_header_t* r
 				size_t size2 = leaf_count_of_order(order2) * region->instance->options.min_leaf_size;
 
 				if (region_buckets(region)[order2] != NULL && !address_is_canonical(region_buckets(region)[order2])) {
-					region->instance->allocator.panic("fmempool_region_check_leaves: Invalid leaf address (%p; source (bucket) = %p, order = %zu)", region_buckets(region)[order2], &region_buckets(region)[order2], order);
+					region->instance->allocator.panic("simple_mempool_region_check_leaves: Invalid leaf address (%p; source (bucket) = %p, order = %zu)", region_buckets(region)[order2], &region_buckets(region)[order2], order);
 				}
 
 				for (simple_mempool_free_leaf_t* leaf2 = region_buckets(region)[order2]; leaf2 != NULL; leaf2 = leaf2->next) {
 					if (!address_is_canonical(leaf2)) {
-						region->instance->allocator.panic("fmempool_region_check_leaves: Invalid leaf address (%p)", leaf2);
+						region->instance->allocator.panic("simple_mempool_region_check_leaves: Invalid leaf address (%p)", leaf2);
 					}
 
 					if (leaf2->next != NULL && !address_is_canonical(leaf2->next)) {
-						region->instance->allocator.panic("fmempool_region_check_leaves: Invalid leaf address (%p; source (leaf) = %p)", leaf2->next, &leaf2->next);
+						region->instance->allocator.panic("simple_mempool_region_check_leaves: Invalid leaf address (%p; source (leaf) = %p)", leaf2->next, &leaf2->next);
 					}
 
 					if (leaf == leaf2) {
@@ -496,7 +496,7 @@ static void* allocate_existing(simple_mempool_instance_t* instance, size_t byte_
 	size_t aligned_candidate_order = instance->options.max_order;
 
 	// first, look for the smallest usable block from any region
-	// XXX: `flags` is fmempool_flags_t but acquire_first_region() expects fmempool_region_flags_t.
+	// XXX: `flags` is simple_mempool_flags_t but acquire_first_region() expects simple_mempool_region_flags_t.
 	//      they're currently identical, but this may change; be aware of this in the future.
 	for (simple_mempool_region_header_t* region = instance->regions_head; region != NULL; region = region->next) {
 		fassert(region->instance == instance);
