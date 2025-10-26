@@ -300,9 +300,11 @@ ferr_t spooky_serializer_encode_data_object(spooky_serializer_t* serializer, siz
 		goto out;
 	}
 
-	status = sys_channel_message_attach_data(serializer->message, data, false, &index);
-	if (status != ferr_ok) {
-		goto out;
+	if (data) {
+		status = sys_channel_message_attach_data(serializer->message, data, false, &index);
+		if (status != ferr_ok) {
+			goto out;
+		}
 	}
 
 	// can't use spooky_serializer_encode_integer() because we don't want to attach the channel until we know
@@ -332,9 +334,11 @@ ferr_t spooky_serializer_encode_channel(spooky_serializer_t* serializer, size_t 
 		goto out;
 	}
 
-	status = sys_channel_message_attach_channel(serializer->message, channel, &index);
-	if (status != ferr_ok) {
-		goto out;
+	if (channel) {
+		status = sys_channel_message_attach_channel(serializer->message, channel, &index);
+		if (status != ferr_ok) {
+			goto out;
+		}
 	}
 
 	// can't use spooky_serializer_encode_integer() because we don't want to attach the channel until we know
