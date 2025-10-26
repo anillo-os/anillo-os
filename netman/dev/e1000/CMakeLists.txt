@@ -11,3 +11,7 @@ target_link_libraries(netman_dev_e1000 PRIVATE
 	libsys
 	libpci
 )
+
+sanitize_targets(
+	netman_dev_e1000
+)

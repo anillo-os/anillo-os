@@ -26,3 +26,7 @@ target_link_libraries(libpci PRIVATE
 )
 
 target_include_directories(libpci PUBLIC ${libpci_includes})
+
+sanitize_targets(
+	libpci
+)

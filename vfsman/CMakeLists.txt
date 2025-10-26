@@ -68,3 +68,8 @@ target_link_libraries(libvfsman_static PRIVATE
 	libeve_static
 	libspooky_static
 )
+
+sanitize_targets(
+	libvfs_static
+	libvfsman_static
+)

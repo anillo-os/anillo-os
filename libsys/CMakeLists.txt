@@ -265,3 +265,10 @@ if (ANILLO_HOST_TESTING)
 	target_link_libraries(libsys_host PUBLIC libsys_headers)
 endif()
 
+sanitize_targets(
+	libsys
+	libsys_core_static
+	libsys_support_static
+	libsys_core
+	libsys_support
+)

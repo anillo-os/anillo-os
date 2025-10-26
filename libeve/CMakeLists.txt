@@ -82,3 +82,8 @@ target_include_directories(libeve_headers INTERFACE ${libeve_includes})
 target_link_libraries(libeve_headers INTERFACE
 	libsys_headers
 )
+
+sanitize_targets(
+	libeve
+	libeve_static
+)

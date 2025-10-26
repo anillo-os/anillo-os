@@ -71,3 +71,8 @@ target_include_directories(libspooky_headers INTERFACE ${libspooky_includes})
 target_link_libraries(libspooky_headers INTERFACE
 	libeve_headers
 )
+
+sanitize_targets(
+	libspooky
+	libspooky_static
+)

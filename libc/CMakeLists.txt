@@ -28,3 +28,7 @@ if (NOT ANILLO_HOST_TESTING)
 		"-Wl,-alias_list,${CMAKE_CURRENT_SOURCE_DIR}/aliased-symbols.txt"
 	)
 endif()
+
+sanitize_targets(
+	libc
+)

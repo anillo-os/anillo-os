@@ -84,6 +84,7 @@ set(ANILLO_TARGET_TRIPLE_KERNEL "${ANILLO_ARCH}-unknown-linux-elf")
 
 option(FERRO_UBSAN "Enable UBSan for Ferro" OFF)
 option(FERRO_KASAN "Enable KASan for Ferro" OFF)
+option(USERSPACE_ASAN "Enable ASan for all of userspace" OFF)
 
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_to_ramdisk.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/add_anillo_dylib.cmake)
@@ -92,6 +93,7 @@ include(${CMAKE_CURRENT_LIST_DIR}/cmake/dsym.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/spooky_gen.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/calculate_offsets.cmake)
 include(${CMAKE_CURRENT_LIST_DIR}/cmake/encode_file.cmake)
+include(${CMAKE_CURRENT_LIST_DIR}/cmake/sanitize.cmake)
 
 find_dsymutil()
 

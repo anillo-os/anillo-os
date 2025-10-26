@@ -177,3 +177,9 @@ target_link_libraries(libsimple_static_kernel PUBLIC ferro_headers_base)
 add_library(libsimple_headers INTERFACE)
 target_include_directories(libsimple_headers INTERFACE ${libsimple_includes})
 target_link_libraries(libsimple_headers INTERFACE ferro_headers_base)
+
+if (NOT ANILLO_HOST_TESTING)
+	sanitize_targets(libsimple)
+endif()
+
+sanitize_targets(libsimple_static)

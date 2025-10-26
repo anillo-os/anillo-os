@@ -44,3 +44,7 @@ target_link_libraries(netman PUBLIC
 target_link_libraries(netman PRIVATE
 	netman_dev
 )
+
+sanitize_targets(
+	netman
+)

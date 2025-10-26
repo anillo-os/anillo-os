@@ -36,3 +36,7 @@ target_link_libraries(usbman PUBLIC
 target_link_libraries(usbman PRIVATE
 	usbman_dev
 )
+
+sanitize_targets(
+	usbman
+)
