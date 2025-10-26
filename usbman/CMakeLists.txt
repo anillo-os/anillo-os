@@ -20,6 +20,11 @@ add_anillo_executable(usbman
 		src/objects.c
 )
 
+add_to_ramdisk(
+	SOURCE resources/org.anillo.usbman.json5
+	DESTINATION /sys/config/sysman/org.anillo.usbman.json5
+)
+
 target_include_directories(usbman PRIVATE
 	"${CMAKE_CURRENT_BINARY_DIR}"
 )

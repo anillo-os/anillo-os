@@ -28,6 +28,11 @@ add_anillo_executable(netman
 		src/test.c
 )
 
+add_to_ramdisk(
+	SOURCE resources/org.anillo.netman.json5
+	DESTINATION /sys/config/sysman/org.anillo.netman.json5
+)
+
 target_include_directories(netman PRIVATE
 	"${CMAKE_CURRENT_BINARY_DIR}"
 )

@@ -1,0 +1,9 @@
+{
+	manager: {
+		path: "/sys/usbman/usbman",
+		ipc_name: "org.anillo.usbman",
+		wanted_by: [
+			"org.anillo.system.boot",
+		],
+	},
+}
