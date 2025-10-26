@@ -352,7 +352,7 @@ static uint64_t determine_lapic_frequency(void) {
 	// so our final poll results might be much larger than what they should be.
 	// discard the results.
 	if (loop_count < TSC_LOOP_MIN_COUNT) {
-		fconsole_logf("LAPIC timer calibration failed; loop_count = %llu\n", loop_count);
+		fconsole_logf("LAPIC timer calibration failed; loop_count = " FERRO_U64_FORMAT "\n", loop_count);
 		return UINT64_MAX;
 	}
 
@@ -360,7 +360,7 @@ static uint64_t determine_lapic_frequency(void) {
 	// then someone interrupted us and our results may be way off (e.g. maybe we were interrupted on the very last iteration).
 	// discard the results.
 	if (delta_max > (TSC_MIN_DELTA_COEFFICIENT * delta_min)) {
-		fconsole_logf("LAPIC timer calibration failed; delta_max = %llu, delta_min = %llu\n", delta_max, delta_min);
+		fconsole_logf("LAPIC timer calibration failed; delta_max = " FERRO_U64_FORMAT ", delta_min = " FERRO_U64_FORMAT "\n", delta_max, delta_min);
 		return UINT64_MAX;
 	}
 
@@ -607,7 +607,7 @@ void farch_apic_init(void) {
 		fpanic("failed to allocate IOAPIC node descriptor array");
 	}
 
-	fconsole_logf("Found %llu CPU(s)\n", cpu_count);
+	fconsole_logf("Found " FERRO_U64_FORMAT " CPU(s)\n", cpu_count);
 
 	if (fmempool_allocate(sizeof(*cpu_structs) * cpu_count, NULL, (void*)&cpu_structs) != ferr_ok) {
 		fpanic("Failed to allocate CPU struct array");
@@ -666,7 +666,7 @@ void farch_apic_init(void) {
 					cpu_info->per_cpu_data = FARCH_PER_CPU(base);
 				}
 
-				fconsole_logf("CPU found: apic_id=%llu; usable=%s; online=%s\n", cpu_info->apic_id, (cpu_info->flags & farch_cpu_flag_usable) ? "yes" : "no", (cpu_info->flags & farch_cpu_flag_online) ? "yes" : "no");
+				fconsole_logf("CPU found: apic_id=" FERRO_U64_FORMAT "; usable=%s; online=%s\n", cpu_info->apic_id, (cpu_info->flags & farch_cpu_flag_usable) ? "yes" : "no", (cpu_info->flags & farch_cpu_flag_online) ? "yes" : "no");
 			} break;
 		}
 
@@ -705,7 +705,7 @@ void farch_apic_init(void) {
 		fconsole_logf("warning: couldn't determine LAPIC timer frequency; no LAPIC timer will be available\n");
 	} else {
 		FARCH_PER_CPU(lapic_frequency) = lapic_frequency;
-		fconsole_logf("info: LAPIC timer frequency is %lluHz\n", lapic_frequency);
+		fconsole_logf("info: LAPIC timer frequency is " FERRO_U64_FORMAT "Hz\n", lapic_frequency);
 
 		set_timer_mode(fapic_timer_mode_oneshot);
 
@@ -870,7 +870,7 @@ void farch_apic_init(void) {
 
 		if (__atomic_load_n(&smp_init_data->init_done, __ATOMIC_RELAXED) == 0) {
 			// we were unable to bring up this processor :(
-			fconsole_logf("Unable to spin up processor with APIC ID %llu\n", cpu->apic_id);
+			fconsole_logf("Unable to spin up processor with APIC ID " FERRO_U64_FORMAT "\n", cpu->apic_id);
 
 			// go ahead and free the stack we allocated for it
 			fpanic_status(fpage_space_free(fpage_space_kernel(), smp_init_data->stack, fpage_round_up_to_page_count(FARCH_SMP_INIT_STACK_SIZE)));
@@ -897,7 +897,7 @@ void farch_apic_init(void) {
 		// use `__ATOMIC_ACQUIRE` to ensure that all writes performed by the AP during initialization are visible to us now
 		__atomic_thread_fence(__ATOMIC_ACQUIRE);
 
-		fconsole_logf("Successfully spun up processor with APIC ID %llu\n", cpu->apic_id);
+		fconsole_logf("Successfully spun up processor with APIC ID " FERRO_U64_FORMAT "\n", cpu->apic_id);
 
 		cpu->flags |= farch_cpu_flag_online;
 	}

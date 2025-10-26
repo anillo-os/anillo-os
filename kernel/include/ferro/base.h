@@ -146,9 +146,14 @@ FERRO_ALWAYS_INLINE void fassert_helper(int result, const char* expr) {
 
 #if FERRO_ELF
 	#define FERRO_SIZE_FORMAT "%lu"
+	#define FERRO_SSIZE_FORMAT "%ld"
 #elif FERRO_MACHO
 	#define FERRO_SIZE_FORMAT "%llu"
+	#define FERRO_SSIZE_FORMAT "%lld"
 #endif
+
+#define FERRO_U64_FORMAT FERRO_SIZE_FORMAT
+#define FERRO_I64_FORMAT FERRO_SSIZE_FORMAT
 
 /**
  * @}

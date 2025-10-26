@@ -573,7 +573,7 @@ static void irq_handler(bool is_fiq, fint_frame_t* frame) {
 		flock_spin_intsafe_unlock(&entry->lock);
 
 		if (!handler) {
-			fpanic("No handler for interrupt %llu on group %s", interrupt_number, is_group_0 ? "0" : "1");
+			fpanic("No handler for interrupt " FERRO_U64_FORMAT " on group %s", interrupt_number, is_group_0 ? "0" : "1");
 		}
 
 		handler(context, frame);
@@ -893,5 +893,5 @@ uint64_t fcpu_online_count(void) {
 };
 
 ferr_t fcpu_arch_interrupt_all(bool include_current) {
-	farch_gic_trigger_sgi(FARCH_GIC_IPI_SGI_NUM, include_current, true);
+	return farch_gic_trigger_sgi(FARCH_GIC_IPI_SGI_NUM, include_current, true);
 };

@@ -31,6 +31,7 @@
 
 #include <ferro/base.h>
 #include <ferro/error.h>
+#include <ferro/core/paging.h>
 
 FERRO_DECLARATIONS_BEGIN;
 
@@ -42,8 +43,7 @@ FERRO_DECLARATIONS_BEGIN;
  * @{
  */
 
-typedef struct ferro_fb_info ferro_fb_info_t;
-struct ferro_fb_info {
+FERRO_STRUCT(ferro_fb_info) {
 	void* base;
 	size_t width;
 	size_t height;
@@ -57,15 +57,13 @@ struct ferro_fb_info {
 	uint8_t bytes_per_pixel;
 };
 
-typedef struct ferro_fb_pixel ferro_fb_pixel_t;
-struct ferro_fb_pixel {
+FERRO_STRUCT(ferro_fb_pixel) {
 	uint8_t red;
 	uint8_t green;
 	uint8_t blue;
 };
 
-typedef struct ferro_fb_coords ferro_fb_coords_t;
-struct ferro_fb_coords {
+FERRO_STRUCT(ferro_fb_coords) {
 	// X coordinate
 	size_t x;
 
@@ -73,8 +71,7 @@ struct ferro_fb_coords {
 	size_t y;
 };
 
-typedef struct ferro_fb_rect ferro_fb_rect_t;
-struct ferro_fb_rect {
+FERRO_STRUCT(ferro_fb_rect) {
 	// Coordinates of the top-leftmost pixel of the area, inclusive.
 	ferro_fb_coords_t top_left;
 

@@ -30,8 +30,6 @@
 #include <ferro/core/panic.h>
 #include <ferro/core/x86_64/xsave.h>
 
-#include <stdatomic.h>
-
 void farch_threads_runner(void);
 
 void farch_thread_init_info(fthread_t* thread, fthread_initializer_f initializer, void* data) {

@@ -31,7 +31,7 @@ void fmouse_update(fmouse_button_t buttons, int64_t delta_x, int64_t delta_y, in
 	mouse_state.delta_scroll = delta_scroll;
 
 	fconsole_logf(
-		"mouse: updated with: buttons=(left=%s, right=%s, middle=%s), delta_x=%lld, delta_y=%lld, delta_scroll=%lld\n",
+		"mouse: updated with: buttons=(left=%s, right=%s, middle=%s), delta_x=" FERRO_SSIZE_FORMAT ", delta_y=" FERRO_SSIZE_FORMAT ", delta_scroll=" FERRO_SSIZE_FORMAT "\n",
 		(mouse_state.buttons & fmouse_button_left) != 0 ? "1" : "0",
 		(mouse_state.buttons & fmouse_button_right) != 0 ? "1" : "0",
 		(mouse_state.buttons & fmouse_button_middle) != 0 ? "1" : "0",

@@ -58,18 +58,18 @@ void farch_uthread_syscall_handler_wrapper();
 
 static void log_context(fthread_saved_context_t* context) {
 	fconsole_logf(
-		"rax=%llu; rcx=%llu\n"
-		"rdx=%llu; rbx=%llu\n"
-		"rsi=%llu; rdi=%llu\n"
-		"rsp=%llu; rbp=%llu\n"
-		"r8=%llu; r9=%llu\n"
-		"r10=%llu; r11=%llu\n"
-		"r12=%llu; r13=%llu\n"
-		"r14=%llu; r15=%llu\n"
-		"rip=%llu; rflags=%llu\n"
-		"cs=%llu; ss=%llu\n"
-		"interrupt_disable=%llu\n"
-		"address_space=%llu\n",
+		"rax=" FERRO_U64_FORMAT "; rcx=" FERRO_U64_FORMAT "\n"
+		"rdx=" FERRO_U64_FORMAT "; rbx=" FERRO_U64_FORMAT "\n"
+		"rsi=" FERRO_U64_FORMAT "; rdi=" FERRO_U64_FORMAT "\n"
+		"rsp=" FERRO_U64_FORMAT "; rbp=" FERRO_U64_FORMAT "\n"
+		"r8=" FERRO_U64_FORMAT "; r9=" FERRO_U64_FORMAT "\n"
+		"r10=" FERRO_U64_FORMAT "; r11=" FERRO_U64_FORMAT "\n"
+		"r12=" FERRO_U64_FORMAT "; r13=" FERRO_U64_FORMAT "\n"
+		"r14=" FERRO_U64_FORMAT "; r15=" FERRO_U64_FORMAT "\n"
+		"rip=" FERRO_U64_FORMAT "; rflags=" FERRO_U64_FORMAT "\n"
+		"cs=" FERRO_U64_FORMAT "; ss=" FERRO_U64_FORMAT "\n"
+		"interrupt_disable=" FERRO_U64_FORMAT "\n"
+		"address_space=" FERRO_U64_FORMAT "\n",
 		context->rax, context->rcx,
 		context->rdx, context->rbx,
 		context->rsi, context->rdi,

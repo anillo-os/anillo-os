@@ -120,15 +120,15 @@ static void fint_handler_common_end(fint_handler_common_data_t* data, fint_frame
 static void print_frame(const fint_frame_t* frame) {
 	fconsole_logf(
 		"rip=%p; rsp=%p\n"
-		"rax=%llu; rcx=%llu\n"
-		"rdx=%llu; rbx=%llu\n"
-		"rsi=%llu; rdi=%llu\n"
-		"rbp=%llu; r8=%llu\n"
-		"r9=%llu; r10=%llu\n"
-		"r11=%llu; r12=%llu\n"
-		"r13=%llu; r14=%llu\n"
-		"r15=%llu; rflags=%llu\n"
-		"cs=%llu; ss=%llu\n"
+		"rax=" FERRO_U64_FORMAT "; rcx=" FERRO_U64_FORMAT "\n"
+		"rdx=" FERRO_U64_FORMAT "; rbx=" FERRO_U64_FORMAT "\n"
+		"rsi=" FERRO_U64_FORMAT "; rdi=" FERRO_U64_FORMAT "\n"
+		"rbp=" FERRO_U64_FORMAT "; r8=" FERRO_U64_FORMAT "\n"
+		"r9=" FERRO_U64_FORMAT "; r10=" FERRO_U64_FORMAT "\n"
+		"r11=" FERRO_U64_FORMAT "; r12=" FERRO_U64_FORMAT "\n"
+		"r13=" FERRO_U64_FORMAT "; r14=" FERRO_U64_FORMAT "\n"
+		"r15=" FERRO_U64_FORMAT "; rflags=" FERRO_U64_FORMAT "\n"
+		"cs=" FERRO_U64_FORMAT "; ss=" FERRO_U64_FORMAT "\n"
 		"ds=%u; es=%u\n"
 		"fs=%u; gs=%u\n"
 		,
@@ -165,9 +165,12 @@ static void trace_stack(const fint_stack_frame_t* frame) {
 			break;
 		}
 
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Waddress-of-packed-member"
 		fconsole_logf("%p\n", ferro_kasan_load_unchecked_auto(&frame->return_address));
 
-		frame = ferro_kasan_load_unchecked_auto(&frame->previous_frame);
+		frame = ferro_kasan_load_unchecked_auto(&frame->previous_frame); // NOLINT(bugprone-sizeof-expression)
+#pragma GCC diagnostic pop
 	}
 };
 
@@ -317,7 +320,7 @@ INTERRUPT_HANDLER_NORETURN(double_fault) {
 
 	fint_handler_common_begin(&data, frame, true);
 
-	fconsole_logf("double faulted; going down now; code=%llu; frame:\n", frame->code);
+	fconsole_logf("double faulted; going down now; code=" FERRO_U64_FORMAT "; frame:\n", frame->code);
 	print_frame(frame);
 	trace_stack((void*)frame->saved_registers.rbp);
 	fpanic("double fault");
@@ -363,7 +366,7 @@ INTERRUPT_HANDLER(general_protection) {
 	}
 
 	if (!handled) {
-		fconsole_logf("general protection fault; code=%llu; frame:\n", frame->code);
+		fconsole_logf("general protection fault; code=" FERRO_U64_FORMAT "; frame:\n", frame->code);
 		print_frame(frame);
 		trace_stack((void*)frame->saved_registers.rbp);
 		fpanic("general protection fault");
@@ -393,7 +396,7 @@ INTERRUPT_HANDLER(page_fault) {
 	if (handler) {
 		handler(handler_data);
 	} else {
-		fconsole_logf("page fault; code=%llu; faulting address=%p; frame:\n", frame->code, (void*)faulting_address);
+		fconsole_logf("page fault; code=" FERRO_U64_FORMAT "; faulting address=%p; frame:\n", frame->code, (void*)faulting_address);
 		fconsole_log("page fault code description: ");
 		print_page_fault_code(frame->code);
 		fconsole_log("\n");
@@ -471,7 +474,7 @@ INTERRUPT_HANDLER(simd_exception) {
 	}
 
 	if (!handled) {
-		fconsole_logf("simd exception with MXCSR=%llu, XSTATE_BV=%llu, XCOMP_BV=%llu; frame:\n", mxcsr, xsave_header->xstate_bv, xsave_header->xcomp_bv);
+		fconsole_logf("simd exception with MXCSR=" FERRO_U64_FORMAT ", XSTATE_BV=" FERRO_U64_FORMAT ", XCOMP_BV=" FERRO_U64_FORMAT "; frame:\n", mxcsr, xsave_header->xstate_bv, xsave_header->xcomp_bv);
 		fint_log_frame(frame);
 		fint_trace_interrupted_stack(frame);
 		fpanic("simd exception");

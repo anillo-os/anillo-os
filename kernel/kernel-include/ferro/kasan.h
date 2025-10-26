@@ -44,13 +44,13 @@ void ferro_kasan_load_unchecked(const void* pointer, size_t size, void* out_valu
 void ferro_kasan_store_unchecked(void* pointer, size_t size, const void* value);
 
 #define ferro_kasan_load_unchecked_auto(_ptr) ({ \
-		__typeof__(*(_ptr)) _result; \
+		__typeof__(*(_ptr) + 0) _result; \
 		ferro_kasan_load_unchecked((_ptr), sizeof(_result), &_result); \
 		_result; \
 	})
 
 #define ferro_kasan_store_unchecked_auto(_ptr, _val) do { \
-		__typeof__(*(_ptr)) _tmp = (_val); \
+		__typeof__(*(_ptr) + 0) _tmp = (_val); \
 		ferro_kasan_store_unchecked((_ptr), sizeof(_tmp), &_tmp); \
 	} while (0);
 

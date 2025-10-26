@@ -74,11 +74,11 @@ void farch_generic_timer_init(void) {
 		fpanic("No GTDT ACPI table found");
 	}
 
-	fconsole_logf("info: Generic timer frequency is %lluHz\n", farch_generic_timer_read_frequency());
+	fconsole_logf("info: Generic timer frequency is " FERRO_U64_FORMAT "Hz\n", farch_generic_timer_read_frequency());
 
 	generic_timer_interrupt_number = gtdt->non_secure_el1_gsiv;
 
-	fconsole_logf("info: Generic timer interrupt number is %llu\n", generic_timer_interrupt_number);
+	fconsole_logf("info: Generic timer interrupt number is " FERRO_U64_FORMAT "\n", generic_timer_interrupt_number);
 
 	generic_timer_backend.precision = farch_generic_timer_offset_to_ns(1);
 

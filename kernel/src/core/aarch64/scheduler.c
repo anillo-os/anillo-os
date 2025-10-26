@@ -44,25 +44,25 @@ FERRO_NO_RETURN void farch_sched_bootstrap_switch(fthread_saved_context_t* new_c
 
 void farch_sched_dump_context(fthread_saved_context_t* saved_context) {
 	fconsole_logf(
-		"x0=%llu,x1=%llu\n"
-		"x2=%llu,x3=%llu\n"
-		"x4=%llu,x5=%llu\n"
-		"x6=%llu,x7=%llu\n"
-		"x8=%llu,x9=%llu\n"
-		"x10=%llu,x11=%llu\n"
-		"x12=%llu,x13=%llu\n"
-		"x14=%llu,x15=%llu\n"
-		"x16=%llu,x17=%llu\n"
-		"x18=%llu,x19=%llu\n"
-		"x20=%llu,x21=%llu\n"
-		"x22=%llu,x23=%llu\n"
-		"x24=%llu,x25=%llu\n"
-		"x26=%llu,x27=%llu\n"
-		"x28=%llu,x29=%llu\n"
-		"x30=%llu,pc=%llu\n"
-		"sp=%llu,pstate=%llu\n"
-		"interrupt_disable=%llu\n"
-		"address_space=%llu\n",
+		"x0=" FERRO_U64_FORMAT ",x1=" FERRO_U64_FORMAT "\n"
+		"x2=" FERRO_U64_FORMAT ",x3=" FERRO_U64_FORMAT "\n"
+		"x4=" FERRO_U64_FORMAT ",x5=" FERRO_U64_FORMAT "\n"
+		"x6=" FERRO_U64_FORMAT ",x7=" FERRO_U64_FORMAT "\n"
+		"x8=" FERRO_U64_FORMAT ",x9=" FERRO_U64_FORMAT "\n"
+		"x10=" FERRO_U64_FORMAT ",x11=" FERRO_U64_FORMAT "\n"
+		"x12=" FERRO_U64_FORMAT ",x13=" FERRO_U64_FORMAT "\n"
+		"x14=" FERRO_U64_FORMAT ",x15=" FERRO_U64_FORMAT "\n"
+		"x16=" FERRO_U64_FORMAT ",x17=" FERRO_U64_FORMAT "\n"
+		"x18=" FERRO_U64_FORMAT ",x19=" FERRO_U64_FORMAT "\n"
+		"x20=" FERRO_U64_FORMAT ",x21=" FERRO_U64_FORMAT "\n"
+		"x22=" FERRO_U64_FORMAT ",x23=" FERRO_U64_FORMAT "\n"
+		"x24=" FERRO_U64_FORMAT ",x25=" FERRO_U64_FORMAT "\n"
+		"x26=" FERRO_U64_FORMAT ",x27=" FERRO_U64_FORMAT "\n"
+		"x28=" FERRO_U64_FORMAT ",x29=" FERRO_U64_FORMAT "\n"
+		"x30=" FERRO_U64_FORMAT ",pc=" FERRO_U64_FORMAT "\n"
+		"sp=" FERRO_U64_FORMAT ",pstate=" FERRO_U64_FORMAT "\n"
+		"interrupt_disable=" FERRO_U64_FORMAT "\n"
+		"address_space=" FERRO_U64_FORMAT "\n",
 		saved_context->x0,  saved_context->x1,
 		saved_context->x2,  saved_context->x3,
 		saved_context->x4,  saved_context->x5,
@@ -99,7 +99,7 @@ void fsched_switch(fthread_t* current_thread, fthread_t* new_thread) {
 		// has already been set up as the switching frame. if the frame has already been set up
 		// as the switching frame. that means that the data in the current thread's saved context
 		// is already up-to-date (it's either been freshly switched from or we we're going to switch to it)
-		if (current_thread && frame->elr != farch_sched_delayed_switch) {
+		if (current_thread && frame->elr != (uintptr_t)farch_sched_delayed_switch) {
 			current_thread->saved_context->x0                = frame->x0;
 			current_thread->saved_context->x1                = frame->x1;
 			current_thread->saved_context->x2                = frame->x2;

@@ -2,6 +2,14 @@ project(ferro C ASM)
 
 find_program(LD_LLD_PATH ld.lld REQUIRED)
 
+if (ANILLO_ARCH STREQUAL "x86_64")
+	set(CMAKE_C_FLAGS "-ffreestanding -nostdlib -target ${ANILLO_TARGET_TRIPLE} -U__APPLE__ -D__ANILLO__=1")
+	set(CMAKE_ASM_FLAGS "-nostdlib -target ${ANILLO_TARGET_TRIPLE}")
+elseif(ANILLO_ARCH STREQUAL "aarch64")
+	set(CMAKE_C_FLAGS "-ffreestanding -mno-implicit-float -nostdlib -target ${ANILLO_TARGET_TRIPLE} -U__APPLE__ -D__ANILLO__=1")
+	set(CMAKE_ASM_FLAGS "-nostdlib -target ${ANILLO_TARGET_TRIPLE}")
+endif()
+
 add_link_options(
 	-static
 	-pie
@@ -10,6 +18,8 @@ add_link_options(
 
 	-fuse-ld=lld
 	"--ld-path=${LD_LLD_PATH}"
+
+	-nostdlib
 )
 
 add_compile_options(
@@ -22,6 +32,12 @@ add_compile_options(
 	-mno-red-zone
 
 	-target "${ANILLO_TARGET_TRIPLE_KERNEL}"
+
+	-ffreestanding
+	-mno-implicit-float
+	-nostdlib
+	-U__APPLE__
+	-D__ANILLO__=1
 )
 
 add_compile_definitions(

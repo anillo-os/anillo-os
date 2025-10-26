@@ -26,7 +26,7 @@ void fsyscall_init(void) {
 };
 
 ferr_t fsyscall_handler_lookup_error(uint64_t syscall_number) {
-	fconsole_logf("unknown syscall number: %llu\n", syscall_number);
+	fconsole_logf("unknown syscall number: " FERRO_U64_FORMAT "\n", syscall_number);
 	fpanic("bad syscall");
 	return ferr_unknown;
 };

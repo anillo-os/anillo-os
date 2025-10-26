@@ -394,7 +394,7 @@ ferr_t fpci_function_scan(fpci_function_info_t* function) {
 			bar->physical_base = physical_base;
 			bar->size = size;
 
-			fconsole_logf("PCI: %02x:%02x.%x: found memory BAR%u (real index = %u) at %p (" FERRO_SIZE_FORMAT " bytes)\n", function->device->bus->location, function->device->location, function->location, valid_bar_index, bar_index, (void*)physical_base, size);
+			fconsole_logf("PCI: %02x:%02x.%x: found memory BAR%u (real index = %u) at %p (" FERRO_U64_FORMAT " bytes)\n", function->device->bus->location, function->device->location, function->location, valid_bar_index, bar_index, (void*)physical_base, size);
 
 			if (is_64_bit) {
 				// we used another BAR, so skip it
