@@ -1,0 +1,82 @@
+{
+	"abi-return-struct-as-int": true,
+	"arch": "aarch64",
+	"archive-format": "darwin",
+	"binary-format": "mach-o",
+	"cpu": "apple-m1",
+	"crt-objects-fallback": "false",
+	"data-layout": "e-m:o-p270:32:32-p271:32:32-p272:64:64-i64:64-i128:128-n32:64-S128-Fn32",
+	"debuginfo-kind": "dwarf-dsym",
+	"dll-suffix": ".dylib",
+	"dynamic-linking": true,
+	"eh-frame-header": false,
+	"emit-debug-gdb-scripts": false,
+	"frame-pointer": "non-leaf",
+	"function-sections": false,
+	"has-rpath": true,
+	"has-thread-local": true,
+	"is-like-darwin": true,
+	"link-env": [
+		"ZERO_AR_DATE=1",
+		"LD_DYLD_PATH=/sys/support/dymple"
+	],
+	"linker-flavor": "ld64.lld",
+	"linker": "linker-wrapper.py",
+	"linker-is-gnu": false,
+	"lld-flavor": "darwin",
+	"llvm-floatabi": "hard",
+	"llvm-target": "aarch64-apple-darwin-macho",
+	"max-atomic-width": 128,
+	"os": "none",
+	"split-debuginfo": "packed",
+	"stack-probes": {
+		"kind": "inline"
+	},
+	"supported-sanitizers": [
+		"address",
+		"thread",
+		"cfi"
+	],
+	"supported-split-debuginfo": [
+		"packed",
+		"unpacked",
+		"off"
+	],
+	"supports-xray": true,
+	"target-family": [
+		"unix"
+	],
+	"target-mcount": "\u0001mcount",
+	"target-pointer-width": 64,
+	"vendor": "apple",
+	"features": "",
+	"panic-strategy": "abort",
+	"target-endian": "little",
+	"target-c-int-width": "32",
+	"disable-redzone": true,
+	"pre-link-args": {
+		"ld64.lld": [
+			"-platform_version",
+			"macos",
+			"10.15",
+			"10.15",
+			"-static",
+			"-pie",
+			"-dead_strip",
+			"-e",
+			"_ferro_entry",
+			"-pagezero_size",
+			"0",
+			"-image_base",
+			"0xffff800000000000",
+			"-execute",
+			"-arch",
+			"arm64",
+			"-Z",
+			"-segalign",
+			"0x4000",
+			"-read_only_relocs",
+			"suppress"
+		]
+	}
+}

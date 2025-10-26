@@ -1,0 +1,7 @@
+hard_tabs = true
+match_block_trailing_comma = true
+#normalize_doc_attributes = true
+reorder_impl_items = true
+group_imports = "StdExternalCrate"
+use_field_init_shorthand = true
+use_try_shorthand = true

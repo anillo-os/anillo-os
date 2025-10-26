@@ -15,3 +15,5 @@ build.release
 tmp/
 .cache
 .ccache
+.venv
+target/

@@ -1,0 +1,115 @@
+#[config]
+#default_to_workspace = false
+
+env_scripts = [
+	'''
+	#!@duckscript
+	set_env PATH ${PATH}:${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}/scripts
+
+	if is_empty ${ANILLO_ARCH}
+		anillo_arch_raw = exec --fail-on-error uname -m
+
+		if eq ${anillo_arch_raw.stdout} "x86_64"
+			set_env ANILLO_ARCH x86_64
+		elseif eq ${anillo_arch_raw.stdout} "aarch64"
+			set_env ANILLO_ARCH aarch64
+		elseif eq ${anillo_arch_raw.stdout} "arm64"
+			set_env ANILLO_ARCH aarch64
+		else
+			set_env ANILLO_ARCH unknown
+		end
+	end
+
+	ANILLO_ARCH = get_env ANILLO_ARCH
+	BUILD_DIR = set "${ROOT_DIR}/build/${ANILLO_ARCH}"
+	set_env BUILD_DIR ${BUILD_DIR}
+	set_env RAMDISKSRC_DIR "${BUILD_DIR}/ramdisksrc"
+	set_env RAMDISK_OUTPUT "${BUILD_DIR}/ramdisk"
+	set_env IMAGE_OUTPUT "${BUILD_DIR}/disk.img"
+	set_env UEFI_BOOTSTRAP_OUTPUT "${BUILD_DIR}/cmake/bootstrap/uefi/ferro-bootstrap.efi"
+	set_env FERRO_OUTPUT "${BUILD_DIR}/cmake/kernel/ferro"
+	'''
+]
+
+[env]
+CARGO_MAKE_EXTEND_WORKSPACE_MAKEFILE = true
+ROOT_DIR = "${CARGO_MAKE_WORKSPACE_WORKING_DIRECTORY}"
+
+[env.development]
+CMAKE_BUILD_TYPE = "Debug"
+RUST_TARGET_PROFILE = "debug"
+
+[env.production]
+CMAKE_BUILD_TYPE = "Release"
+RUST_TARGET_PROFILE = "release"
+
+[tasks.configure-kernel]
+command = "cmake"
+args = ["-B", "${BUILD_DIR}/cmake", "-S", "${ROOT_DIR}", "-DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}", "-DANILLO_ARCH=${ANILLO_ARCH}", "-DCMAKE_EXPORT_COMPILE_COMMANDS=1"]
+workspace = false
+
+[tasks.build-kernel]
+command = "cmake"
+args = ["--build", "${BUILD_DIR}/cmake"]
+dependencies = ["configure-kernel"]
+workspace = false
+
+[tasks.clean-other]
+script = '''
+#!@duckscript
+rm -r ${BUILD_DIR}/cmake
+'''
+
+[tasks.build-std]
+command = "cargo"
+toolchain = "nightly"
+args = ["build", "-Zbuild-std", "--target", "./rust-targets/${ANILLO_ARCH}-anillo-anillo-macho.json"]
+
+[tasks.build-members]
+dependencies = ["build-std"]
+run_task = { name = "build-one", fork = true }
+
+[tasks.generate-syscall-bindings]
+dependencies = ["build-kernel"]
+command = "bindgen"
+args = ["${BUILD_DIR}/cmake/include/gen/libsyscall/syscall-wrappers.h"]
+workspace = false
+
+[tasks.ramdisk-members]
+dependencies = ["generate-syscall-bindings"]
+run_task = { name = "ramdisk-one", fork = true }
+
+[tasks.build-ramdisk]
+workspace = false
+dependencies = ["build-kernel", "ramdisk-members"]
+script = '''
+#!@duckscript
+mkdir ${RAMDISKSRC_DIR}
+exec --fail-on-error build-ramdisk.py ${RAMDISKSRC_DIR} ${RAMDISK_OUTPUT}
+'''
+
+[tasks.build-image]
+workspace = false
+dependencies = ["build-kernel", "build-members", "build-ramdisk"]
+script = '''
+#!@duckscript
+mkdir ${BUILD_DIR}
+exec --fail-on-error build-image.py ${ANILLO_ARCH} ${UEFI_BOOTSTRAP_OUTPUT} ${FERRO_OUTPUT} ${ROOT_DIR}/imagesrc/startup.nsh ${ROOT_DIR}/imagesrc/config.txt ${RAMDISK_OUTPUT} ${IMAGE_OUTPUT}
+'''
+
+[tasks.build]
+clear = true
+workspace = false
+dependencies = ["build-image"]
+
+[tasks.test]
+clear = true
+run_task = { name = "test-one", fork = true }
+
+[tasks.clean]
+dependencies = ["clean-other"]
+
+[tasks.default]
+clear = true
+dependencies = ["build"]
+workspace = false
