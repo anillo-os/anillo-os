@@ -16,6 +16,14 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#ifndef LIBSYS_MEMCHECK
+	#define LIBSYS_MEMCHECK 0
+#endif
+
+#if LIBSYS_MEMCHECK
+	#include "./memcheck.c"
+#else
+
 #include <gen/libsyscall/syscall-wrappers.h>
 #include <libsys/mempool.h>
 #include <libsys/general.h>
@@ -316,3 +324,5 @@ out:
 out_unlocked:
 	return status;
 };
+
+#endif // !LIBSYS_MEMCHECK

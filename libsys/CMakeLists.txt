@@ -1,5 +1,7 @@
 project(libsys C ASM)
 
+option(LIBSYS_MEMCHECK "Replace libsys's mempool allocator with a memory access checking variant" OFF)
+
 set(libsys_core_sources
 	src/core/abort.c
 	src/core/console.c
@@ -65,6 +67,15 @@ add_library(libsys_core_static STATIC ${libsys_core_sources})
 add_library(libsys_support_static STATIC ${libsys_support_sources})
 add_library(libsys_core_dymple STATIC ${libsys_core_sources})
 add_library(libsys_support_dymple STATIC ${libsys_support_sources})
+
+if (LIBSYS_MEMCHECK)
+	target_compile_definitions(libsys_core PRIVATE
+		LIBSYS_MEMCHECK=1
+	)
+	target_compile_definitions(libsys_core_static PRIVATE
+		LIBSYS_MEMCHECK=1
+	)
+endif()
 
 target_compile_definitions(libsys_core_dymple PRIVATE
 	BUILDING_DYMPLE=1
