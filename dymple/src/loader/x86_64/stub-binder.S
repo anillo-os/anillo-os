@@ -16,6 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <ferro/asm/common.hS>
+
 // TODO: we also need to xsave here so dymple can use floating point registers.
 //       in the current state, if we try to call memset and friends (which are optimized with SSE),
 //       we may corrupt the function call.
@@ -27,9 +29,9 @@
 //   [16..24] = return address
 //
 .text
-.globl _dymple_bind_stub     // defined in C
-.globl _dymple_bind_stub_raw // defined here
-_dymple_bind_stub_raw:
+.globl FERRO_SYM(dymple_bind_stub)     // defined in C
+.globl FERRO_SYM(dymple_bind_stub_raw) // defined here
+FERRO_SYM(dymple_bind_stub_raw):
 	// save rbp (for debugging purposes)
 	// (this also aligns the stack back to 16 bytes)
 	pushq %rbp
@@ -154,11 +156,11 @@ _dymple_bind_stub_raw:
 	// which is for the function we're about to jump to
 	jmp *%r11
 
-.global ___stack_chk_fail
-___stack_chk_fail:
+.global FERRO_SYM(__stack_chk_fail)
+FERRO_SYM(__stack_chk_fail):
 	ud2
 
 .data
-.global ___stack_chk_guard
-___stack_chk_guard:
+.global FERRO_SYM(__stack_chk_guard)
+FERRO_SYM(__stack_chk_guard):
 	.long 0

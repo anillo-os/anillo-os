@@ -16,10 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <ferro/asm/common.hS>
+
 .text
 
-.global ___stack_chk_fail
-___stack_chk_fail:
+.global FERRO_SYM(__stack_chk_fail)
+FERRO_SYM(__stack_chk_fail):
 	ud2
 
 // none of these stubs should ever be executed; they should be replaced by dymple on load
@@ -32,17 +34,17 @@ ___stack_chk_fail:
 .endm
 
 stub dyld_stub_binder
-stub _dymple_load_image_by_name
-stub _dymple_load_image_by_name_n
-stub _dymple_load_image_from_file
-stub _dymple_find_loaded_image_by_name
-stub _dymple_find_loaded_image_by_name_n
-stub _dymple_resolve_symbol
-stub _dymple_resolve_symbol_n
-stub _dymple_open_process_binary_raw
+stub FERRO_SYM(dymple_load_image_by_name)
+stub FERRO_SYM(dymple_load_image_by_name_n)
+stub FERRO_SYM(dymple_load_image_from_file)
+stub FERRO_SYM(dymple_find_loaded_image_by_name)
+stub FERRO_SYM(dymple_find_loaded_image_by_name_n)
+stub FERRO_SYM(dymple_resolve_symbol)
+stub FERRO_SYM(dymple_resolve_symbol_n)
+stub FERRO_SYM(dymple_open_process_binary_raw)
 
 .data
 
-.global ___stack_chk_guard
-___stack_chk_guard:
+.global FERRO_SYM(__stack_chk_guard)
+FERRO_SYM(__stack_chk_guard):
 	.quad 0

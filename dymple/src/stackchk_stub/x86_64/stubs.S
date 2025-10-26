@@ -16,14 +16,16 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include <ferro/asm/common.hS>
+
 .text
 
-.global ___stack_chk_fail
-___stack_chk_fail:
+.global FERRO_SYM(__stack_chk_fail)
+FERRO_SYM(__stack_chk_fail):
 	ud2
 
 .data
 
-.global ___stack_chk_guard
-___stack_chk_guard:
+.global FERRO_SYM(__stack_chk_guard)
+FERRO_SYM(__stack_chk_guard):
 	.quad 0
