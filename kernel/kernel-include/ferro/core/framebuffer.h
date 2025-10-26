@@ -171,6 +171,8 @@ FERRO_WUR ferr_t ferro_fb_shift(bool up_if_true, size_t row_count, const ferro_f
 
 FERRO_WUR ferr_t ferro_fb_flush(void);
 
+FERRO_WUR ferr_t ferro_fb_handoff(fpage_mapping_t** out_mapping);
+
 /**
  * @}
  */

@@ -414,3 +414,47 @@ ferr_t ferro_fb_flush(void) {
 
 	return status;
 };
+
+ferr_t ferro_fb_handoff(fpage_mapping_t** out_mapping) {
+	size_t fb_page_count = 0;
+	void* fb_phys = NULL;
+	fpage_mapping_t* mapping = NULL;
+	ferr_t status = ferr_ok;
+
+	if (!ferro_fb_available()) {
+		status = ferr_permanent_outage;
+		goto out;
+	}
+
+	fb_page_count = fpage_round_up_to_page_count(fb_info->total_byte_size);
+	fb_phys = (void*)fpage_virtual_to_physical((uintptr_t)fb_info->base);
+
+	fassert((uintptr_t)fb_phys != UINTPTR_MAX);
+
+	status = fpage_mapping_new(fb_page_count, fpage_mapping_flag_zero, &mapping);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	status = fpage_mapping_bind(mapping, 0, fb_page_count, fb_phys, 0);
+	if (status != ferr_ok) {
+		goto out;
+	}
+
+	*out_mapping = mapping;
+	mapping = NULL;
+
+	// we can no longer use this framebuffer
+	flock_spin_intsafe_lock(&fb_lock);
+	fb_info = NULL;
+	flock_spin_intsafe_unlock(&fb_lock);
+
+	FERRO_WUR_IGNORE(fpage_space_free(fpage_space_kernel(), dirty_rows, dirty_rows_page_count));
+	FERRO_WUR_IGNORE(fpage_space_free(fpage_space_kernel(), back_buffer, fb_page_count));
+
+out:
+	if (mapping) {
+		fpage_mapping_release(mapping);
+	}
+	return status;
+};
