@@ -51,6 +51,12 @@ FERRO_ENUM(uint64_t, fchannel_message_id) {
 	fchannel_message_id_invalid = UINT64_MAX,
 };
 
+FERRO_ENUM(uint64_t, fchannel_peer_id) {
+	fchannel_peer_id_invalid = UINT64_MAX,
+	fchannel_peer_id_kernel = UINT64_MAX - 1,
+	fchannel_peer_id_unknown_userspace = UINT64_MAX - 2,
+};
+
 #if FERRO_ARCH == FERRO_ARCH_x86_64
 FERRO_STRUCT(ferro_thread_context) {
 	uint64_t rax;

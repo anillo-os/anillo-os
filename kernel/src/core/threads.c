@@ -22,6 +22,7 @@
  * Thread creation and management.
  */
 
+#include "ferro/api.h"
 #include <ferro/core/threads.private.h>
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>
@@ -762,6 +763,8 @@ ferr_t fthread_new(fthread_initializer_f initializer, void* data, void* stack_ba
 	new_thread->timer_id = FTIMERS_ID_INVALID;
 
 	new_thread->thread.id = FTHREAD_ID_INVALID;
+
+	new_thread->thread.channel_peer_id = fchannel_peer_id_kernel;
 
 	new_thread->thread.saved_context = saved_context;
 	simple_memset(new_thread->thread.saved_context, 0, sizeof(*new_thread->thread.saved_context) + FTHREAD_SAVED_CONTEXT_EXTRA_SIZE);

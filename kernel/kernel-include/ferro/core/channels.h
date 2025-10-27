@@ -70,6 +70,7 @@ FERRO_STRUCT(fchannel_message_attachment_data) {
 FERRO_STRUCT(fchannel_message) {
 	fchannel_conversation_id_t conversation_id;
 	fchannel_message_id_t message_id;
+	fchannel_peer_id_t peer_id;
 
 	void* body;
 	uint64_t body_length;

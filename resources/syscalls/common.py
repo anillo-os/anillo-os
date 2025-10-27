@@ -134,6 +134,7 @@ structures.extend([
 	Structure('channel_message', [
 		('conversation_id', '!fchannel_conversation_id_t'),
 		('message_id', '!fchannel_message_id_t'),
+		('peer_id', '!fchannel_peer_id_t'),
 		('body_address', 'u64'),
 		('body_length', 'u64'),
 		('attachments_address', 'u64'),

@@ -36,10 +36,6 @@ FERRO_ENUM(uint64_t, fchannel_flags) {
 	fchannel_flag_closed_receive = 1 << 0,
 };
 
-FERRO_ENUM(uint64_t, fchannel_server_flags) {
-	fchannel_server_flag_closed = 1 << 0,
-};
-
 FERRO_STRUCT_FWD(fchannel_conversation_private);
 
 FERRO_STRUCT(fchannel_private) {

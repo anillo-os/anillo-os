@@ -25,6 +25,7 @@
 #ifndef _FERRO_CORE_THREADS_H_
 #define _FERRO_CORE_THREADS_H_
 
+#include "ferro/api.h"
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -242,6 +243,13 @@ FERRO_STRUCT(fthread) {
 	fwaitq_t block_wait;
 
 	uint64_t block_count;
+
+	/**
+	 * The peer ID embeeded into channel messages sent by this thread.
+	 *
+	 * By default, this is just ::fchannel_peer_id_kernel, but this may change depending on the kind of thread it is (e.g. if it becomes a uthread).
+	 */
+	fchannel_peer_id_t channel_peer_id;
 };
 
 /**

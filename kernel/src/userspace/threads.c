@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "ferro/api.h"
 #include <ferro/userspace/threads.private.h>
 #include <ferro/core/threads.private.h>
 #include <ferro/core/panic.h>
@@ -480,6 +481,8 @@ retry_lookup:
 	private_data->signal_mask = 0;
 
 	futhread_arch_init_private_data(private_data);
+
+	thread->channel_peer_id = fchannel_peer_id_unknown_userspace;
 
 out_locked:
 	if (status != ferr_ok) {

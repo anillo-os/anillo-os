@@ -921,6 +921,9 @@ ferr_t fproc_attach_thread(fproc_t* proc, fthread_t* uthread) {
 	fwaitq_wait(&private_data->public.death_wait, &private_data->uthread_death_waiter);
 	fwaitq_wait(&private_data->public.destroy_wait, &private_data->uthread_destroy_waiter);
 
+	// update the channel peer ID to be the process ID
+	uthread->channel_peer_id = proc->id;
+
 	// null out the pointers so we don't release the references we acquired
 	proc = NULL;
 	uthread = NULL;

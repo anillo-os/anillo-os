@@ -44,6 +44,7 @@ LIBSYS_STRUCT(sys_channel_message_object) {
 	sys_object_t** attachments;
 	size_t attachment_count;
 	sys_channel_conversation_id_t conversation_id;
+	sys_channel_peer_id_t peer_id;
 	bool owns_body_buffer;
 };
 

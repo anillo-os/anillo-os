@@ -57,6 +57,15 @@ LIBSYS_ENUM(uint64_t, sys_channel_message_attachment_index) {
 	sys_channel_message_attachment_index_invalid = UINT64_MAX,
 };
 
+/**
+ * The peer ID for a channel will always be either a process ID or one of the special values in this enumeration.
+ */
+LIBSYS_ENUM(uint64_t, sys_channel_peer_id) {
+	sys_channel_peer_id_invalid = UINT64_MAX,
+	sys_channel_peer_id_kernel = UINT64_MAX - 1,
+	sys_channel_peer_id_unknown_process = UINT64_MAX - 2,
+};
+
 LIBSYS_TYPED_FUNC(void, sys_channel_connect_async_callback, void* context, sys_channel_t* channel);
 
 LIBSYS_WUR ferr_t sys_channel_create_pair(sys_channel_t** out_first, sys_channel_t** out_second);
@@ -149,6 +158,14 @@ LIBSYS_WUR ferr_t sys_channel_message_detach_data(sys_channel_message_t* message
 
 sys_channel_conversation_id_t sys_channel_message_get_conversation_id(sys_channel_message_t* message);
 void sys_channel_message_set_conversation_id(sys_channel_message_t* message, sys_channel_conversation_id_t conversation_id);
+
+/**
+ * Returns the peer ID associated with the given message.
+ *
+ * Note that this is only valid for messages received from a channel because the peer ID is set after a message is sent.
+ * New messages being created do not have peer IDs set.
+ */
+sys_channel_peer_id_t sys_channel_message_get_peer_id(sys_channel_message_t* message);
 
 LIBSYS_DECLARATIONS_END;
 

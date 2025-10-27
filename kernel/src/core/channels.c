@@ -16,6 +16,8 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "ferro/api.h"
+#include "ferro/core/threads.h"
 #include <ferro/core/channels.private.h>
 #include <ferro/core/mempool.h>
 #include <ferro/core/panic.h>
@@ -310,6 +312,13 @@ void fchannel_send_locked(fchannel_t* channel, fchannel_message_t* in_out_messag
 	// assign a message ID now
 	in_out_message->message_id = fchannel_next_message_id(channel);
 
+	// also assign the peer ID
+	if (fthread_current()) {
+		in_out_message->peer_id = fthread_current()->channel_peer_id;
+	} else {
+		in_out_message->peer_id = fchannel_peer_id_invalid;
+	}
+
 	if (simple_ring_enqueue(&private_channel->peer->messages, in_out_message, 1) != 1) {
 		// like connecting to a server channel, if we've successfully decremented the insertion
 		// semaphore, acquired the mutex, and seen that the channel is still open,
@@ -375,6 +384,13 @@ ferr_t fchannel_send(fchannel_t* channel, fchannel_send_flags_t flags, fchannel_
 
 	// assign a message ID now
 	in_out_message->message_id = fchannel_next_message_id(channel);
+
+	// also assign the peer ID
+	if (fthread_current()) {
+		in_out_message->peer_id = fthread_current()->channel_peer_id;
+	} else {
+		in_out_message->peer_id = fchannel_peer_id_invalid;
+	}
 
 	// now let's insert our message
 	if (simple_ring_enqueue(&private_channel->peer->messages, in_out_message, 1) != 1) {

@@ -16,6 +16,7 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "ferro/api.h"
 #include <libsys/channels.private.h>
 #include <libsimple/libsimple.h>
 #include <libsys/mempool.h>
@@ -279,6 +280,7 @@ ferr_t sys_channel_message_create(size_t initial_length, sys_channel_message_t**
 	message->attachment_count = 0;
 	message->attachments = NULL;
 	message->conversation_id = fchannel_conversation_id_none;
+	message->peer_id = fchannel_peer_id_invalid;
 
 	if (initial_length > 0) {
 		status = sys_channel_message_extend((void*)message, initial_length);
@@ -336,6 +338,7 @@ ferr_t sys_channel_message_create_nocopy(void* data, size_t length, sys_channel_
 	message->attachment_count = 0;
 	message->attachments = NULL;
 	message->conversation_id = fchannel_conversation_id_none;
+	message->peer_id = fchannel_peer_id_invalid;
 
 out:
 	if (status == ferr_ok) {
@@ -653,6 +656,11 @@ void sys_channel_message_set_conversation_id(sys_channel_message_t* object, sys_
 	message->conversation_id = conversation_id;
 };
 
+sys_channel_peer_id_t sys_channel_message_get_peer_id(sys_channel_message_t* object) {
+	sys_channel_message_object_t* message = (void*)object;
+	return message->peer_id;
+};
+
 ferr_t sys_channel_message_serialize(sys_channel_message_t* object, libsyscall_channel_message_t* out_syscall_message) {
 	sys_channel_message_object_t* message = (void*)object;
 	ferr_t status = ferr_ok;
@@ -663,6 +671,7 @@ ferr_t sys_channel_message_serialize(sys_channel_message_t* object, libsyscall_c
 	out_syscall_message->body_length = message->body_length;
 	out_syscall_message->attachments_length = 0;
 	out_syscall_message->message_id = fchannel_message_id_invalid;
+	out_syscall_message->peer_id = fchannel_peer_id_invalid;
 	out_syscall_message->attachments_address = (uintptr_t)NULL;
 
 	// we can re-use the same internal body buffer the message object uses
@@ -841,6 +850,7 @@ ferr_t sys_channel_message_deserialize_begin(sys_channel_message_deserialization
 
 	out_context->syscall_message.conversation_id = fchannel_conversation_id_none;
 	out_context->syscall_message.message_id = fchannel_message_id_invalid;
+	out_context->syscall_message.peer_id = fchannel_peer_id_invalid;
 	out_context->syscall_message.body_length = SYS_CHANNEL_DEFAULT_SYSCALL_BODY_BUFFER_SIZE;
 	out_context->syscall_message.attachments_length = SYS_CHANNEL_DEFAULT_SYSCALL_ATTACHMENT_BUFFER_SIZE;
 	out_context->syscall_message.body_address = (uintptr_t)NULL;
@@ -1058,6 +1068,9 @@ void sys_channel_message_deserialize_finalize(sys_channel_message_deserializatio
 
 	// assign the conversation ID
 	message->conversation_id = in_context->syscall_message.conversation_id;
+
+	// assign the peer ID
+	message->peer_id = in_context->syscall_message.peer_id;
 
 	for (libsyscall_channel_message_attachment_header_t* header = (void*)in_context->syscall_message.attachments_address; header != NULL && (uintptr_t)header - in_context->syscall_message.attachments_address < in_context->syscall_message.attachments_length; header = (header->next_offset == 0) ? NULL : (void*)((char*)header + header->next_offset)) {
 		switch (header->type) {
