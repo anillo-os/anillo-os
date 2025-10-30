@@ -554,19 +554,19 @@ ferr_t sys_path_file_name_s(const sys_path_t* path, bool skip_dot, const char** 
 	return ferr_no_such_resource;
 };
 
-ferr_t sys_path_extension_name(const char* path, bool skip_dot, const char** out_start, size_t* out_length) {
-	return sys_path_extension_name_n(path, simple_strlen(path), skip_dot, out_start, out_length);
+ferr_t sys_path_extension_name(const char* path, bool skip_dot, bool only_final, const char** out_start, size_t* out_length) {
+	return sys_path_extension_name_n(path, simple_strlen(path), skip_dot, only_final, out_start, out_length);
 };
 
-ferr_t sys_path_extension_name_n(const char* path, size_t path_length, bool skip_dot, const char** out_start, size_t* out_length) {
+ferr_t sys_path_extension_name_n(const char* path, size_t path_length, bool skip_dot, bool only_final, const char** out_start, size_t* out_length) {
 	sys_path_t path_struct = {
 		.contents = path,
 		.length = path_length,
 	};
-	return sys_path_extension_name_s(&path_struct, skip_dot, out_start, out_length);
+	return sys_path_extension_name_s(&path_struct, skip_dot, only_final, out_start, out_length);
 };
 
-ferr_t sys_path_extension_name_s(const sys_path_t* path, bool skip_dot, const char** out_start, size_t* out_length) {
+ferr_t sys_path_extension_name_s(const sys_path_t* path, bool skip_dot, bool only_final, const char** out_start, size_t* out_length) {
 	sys_path_t file_name = {0};
 	ferr_t status = sys_path_file_name_s(path, skip_dot, &file_name.contents, &file_name.length);
 	const char* start = NULL;
@@ -575,10 +575,14 @@ ferr_t sys_path_extension_name_s(const sys_path_t* path, bool skip_dot, const ch
 		goto out;
 	}
 
-	start = simple_strnchr(file_name.contents, '.', file_name.length);
+	start = (only_final ? simple_strrnchr : simple_strnchr)(file_name.contents, '.', file_name.length);
 	if (!start) {
 		status = ferr_no_such_resource;
 		goto out;
+	}
+
+	if (skip_dot) {
+		++start;
 	}
 
 	if (out_start) {
