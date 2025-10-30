@@ -23,16 +23,20 @@
 #include <vfsman/ramdisk.h>
 #include <vfs.server.h>
 #include <log.server.h>
+#include <libjson/libjson.h>
 
 #define SYNC_LOG 1
 
 #define VFSMAN_SERVER_NAME "org.anillo.vfsman"
 #define LOGMAN_SERVER_NAME "org.anillo.logman"
 
+#define SYSMAN_CONFIG_PATH "/sys/config/sysman"
+
 LIBSYS_STRUCT(sysman_server) {
 	const char* name;
 	size_t name_length;
 	eve_channel_t* channel;
+	sys_channel_t* their_reserved_side;
 };
 
 LIBSYS_STRUCT(sysman_client) {
@@ -76,7 +80,7 @@ static void sysman_server_close(void* context, eve_channel_t* channel) {
 	}
 };
 
-ferr_t sysman_register(const char* name, size_t name_length, sys_sysman_realm_t realm, sys_channel_t** out_channel) {
+ferr_t sysman_register(const char* name, size_t name_length, sys_sysman_realm_t realm, bool create_reservation, sys_channel_t** out_channel) {
 	ferr_t status = ferr_ok;
 	sys_channel_t* our_side = NULL;
 	sys_channel_t* their_side = NULL;
@@ -89,6 +93,23 @@ ferr_t sysman_register(const char* name, size_t name_length, sys_sysman_realm_t 
 		// TODO
 		status = ferr_unsupported;
 		goto out_unlocked;
+	}
+
+	if (!create_reservation) {
+		// check to see if we already have this server reserved
+		// NOTE: we'd prefer to just take the lock once below, but when we take the lock later,
+		//       we also have a new channel pair created. this isn't a prohibitively expensive operation,
+		//       but it's typically more costly than simply re-acquiring a lock later.
+		eve_mutex_lock(&server_table_mutex);
+
+		status = simple_ghmap_lookup(&server_table, name, name_length, false, SIZE_MAX, NULL, (void*)&server, NULL);
+		if (status == ferr_ok && server->their_reserved_side) {
+			*out_channel = server->their_reserved_side;
+			server->their_reserved_side = NULL;
+			goto out;
+		}
+
+		sys_mutex_unlock(&server_table_mutex);
 	}
 
 	status = sys_channel_create_pair(&our_side, &their_side);
@@ -129,7 +150,12 @@ ferr_t sysman_register(const char* name, size_t name_length, sys_sysman_realm_t 
 		goto out;
 	}
 
-	*out_channel = their_side;
+	if (create_reservation) {
+		server->their_reserved_side = their_side;
+	} else {
+		*out_channel = their_side;
+	}
+
 	their_side = NULL;
 
 	// the loop holds on to the eve channel, and the eve channel holds on to the sys channel, so we can release those 2 objects
@@ -282,7 +308,7 @@ static void client_channel_message_handler(void* context, eve_channel_t* channel
 			reply_data = sys_channel_message_data(reply);
 			reply_data->header.function = sys_sysman_rpc_function_register;
 
-			status = sysman_register(rpc_call->register_.name, name_length, rpc_call->register_.realm, &server_channel);
+			status = sysman_register(rpc_call->register_.name, name_length, rpc_call->register_.realm, false, &server_channel);
 			if (status == ferr_ok) {
 				status = sys_channel_message_attach_channel(reply, server_channel, NULL);
 			}
@@ -452,13 +478,112 @@ static void start_process(const char* filename, sys_object_t** attached_objects,
 	proc = NULL;
 };
 
+static char listing_buffer[4096];
+static char config_path[4096];
+
 static void start_managers(void* context) {
 	sys_channel_t* handoff_channel_ptr = (void*)&handoff_channel;
+	vfs_node_t* sysman_config_dir = NULL;
+	vfs_listing_t* listing = NULL;
+	ferr_t status = ferr_ok;
+
+	sys_abort_status_log(vfs_open(SYSMAN_CONFIG_PATH, &sysman_config_dir));
+
+	if (status != ferr_permanent_outage && status != ferr_ok) {
+		sys_abort_status_log(status);
+	}
+
+	status = vfs_node_list(sysman_config_dir, &listing);
+	if (status != ferr_ok) {
+		sys_abort_status_log(status);
+	}
+
+	while ((status = vfs_listing_next(listing, SIZE_MAX, listing_buffer, sizeof(listing_buffer), NULL, NULL)) == ferr_ok) {
+		for (vfs_directory_entry_t* entry = (void*)listing_buffer; entry != NULL; entry = vfs_directory_entry_get_next(entry)) {
+			const char* extname = NULL;
+			size_t extlen = 0;
+			bool json5 = false;
+			vfs_node_t* config_file = NULL;
+			size_t full_path_len = 0;
+			json_object_t* json = NULL;
+			ferr_t loop_status = ferr_ok;
+
+			if (entry->info.type != vfs_node_type_file) {
+				// we don't care about anything that's not a file
+				goto loop_continue;
+			}
+
+			// determine the file extension for this entry
+			if (sys_path_extension_name_n(entry->name, entry->name_length, true, true, &extname, &extlen) != ferr_ok) {
+				// we don't care about the file if it doesn't have an extension
+				goto loop_continue;
+			}
+
+			if (extlen == 5 && simple_strncmp(extname, "json5", 5) == 0) {
+				json5 = true;
+			} else if (extlen == 4 && simple_strncmp(extname, "json", 4) == 0) {
+				json5 = false;
+			} else {
+				// we don't care about this type of file
+				goto loop_continue;
+			}
+
+			sysman_log_f("found config file: %.*s\n", (int)entry->name_length, entry->name);
+
+			loop_status = sys_path_join_n(config_path, sizeof(config_path), &full_path_len, sizeof(SYSMAN_CONFIG_PATH) - 1, SYSMAN_CONFIG_PATH, entry->name_length, entry->name);
+			if (loop_status != ferr_ok) {
+				// assume the path is too long; we don't care
+				goto loop_continue;
+			}
+
+			sysman_log_f("full path to config file: %.*s\n", (int)full_path_len, config_path);
+
+			loop_status = vfs_open_n(config_path, full_path_len, &config_file);
+			if (loop_status != ferr_ok) {
+				// we don't care
+				goto loop_continue;
+			}
+
+			sysman_log_f("opened config file\n");
+
+			loop_status = json_parse_file(config_file, json5, &json);
+			if (loop_status != ferr_ok) {
+				// we don't care
+				goto loop_continue;
+			}
+
+			// TODO: access `json`
+			sysman_log_f("read config file %.*s\n", (int)entry->name_length, entry->name);
+
+loop_continue:
+			if (config_file) {
+				sys_release(config_file);
+			}
+			if (json) {
+				sys_release(json);
+			}
+			continue;
+		}
+	}
+
+	if (listing) {
+		sys_release(listing);
+		listing = NULL;
+	}
+
 	start_process("/sys/displayman/displayman", &handoff_channel_ptr, 1);
 	start_process("/sys/netman/netman", NULL, 0);
 	start_process("/sys/usbman/usbman", NULL, 0);
 	start_process("/sys/hidman/hidman", NULL, 0);
 	start_process("/sys/conman/conman", NULL, 0);
+
+out:
+	if (sysman_config_dir) {
+		sys_release(sysman_config_dir);
+	}
+	if (listing) {
+		sys_release(listing);
+	}
 };
 
 #if !ANILLO_HOST_TESTING
@@ -507,11 +632,11 @@ void start(void) {
 	vfsman_init();
 	vfsman_ramdisk_init((void*)&ramdisk_memory);
 
-	sys_abort_status_log(sysman_register(VFSMAN_SERVER_NAME, sizeof(VFSMAN_SERVER_NAME) - 1, sys_sysman_realm_global, &vfsman_channel));
+	sys_abort_status_log(sysman_register(VFSMAN_SERVER_NAME, sizeof(VFSMAN_SERVER_NAME) - 1, sys_sysman_realm_global, false, &vfsman_channel));
 	sys_abort_status_log(vfsman_serve_explicit(main_loop, vfsman_channel));
 	vfsman_channel = NULL;
 
-	sys_abort_status_log(sysman_register(LOGMAN_SERVER_NAME, sizeof(LOGMAN_SERVER_NAME) - 1, sys_sysman_realm_global, &logman_channel));
+	sys_abort_status_log(sysman_register(LOGMAN_SERVER_NAME, sizeof(LOGMAN_SERVER_NAME) - 1, sys_sysman_realm_global, false, &logman_channel));
 	sys_abort_status_log(logman_serve_explicit(main_loop, logman_channel));
 	logman_channel = NULL;
 

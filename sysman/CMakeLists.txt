@@ -56,6 +56,8 @@ target_link_libraries(sysman PRIVATE
 	libspooky_static
 	libstackchk_stub_static
 	libvfsman_static
+	libjson_static
+	libmath_static
 )
 
 target_link_options(sysman PRIVATE
