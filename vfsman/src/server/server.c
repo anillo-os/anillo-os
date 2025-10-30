@@ -100,7 +100,7 @@ retry_list:
 				status = tmp_status;
 			}
 			if (tmp_status == ferr_ok) {
-				tmp_status = descriptor->mount->backend->copy_info(descriptor->mount->context, (void*)descriptor, &node_info);
+				tmp_status = child_desc->mount->backend->copy_info(child_desc->mount->context, (void*)child_desc, &node_info);
 				vfsman_release((void*)child_desc);
 				if (is_first) {
 					status = tmp_status;
