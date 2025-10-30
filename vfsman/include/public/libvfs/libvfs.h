@@ -62,10 +62,7 @@ LIBVFS_STRUCT(vfs_directory_entry) {
 
 #define vfs_directory_entry_get_next(_entry) ({ \
 		__typeof__(entry) _tmp = (_entry); \
-		if (_tmp->offset_to_next == 0) { \
-			return NULL; \
-		} \
-		(__typeof__(entry))((uintptr_t)_tmp + _tmp->offset_to_next); \
+		(_tmp->offset_to_next == 0) ? NULL : (__typeof__(entry))((uintptr_t)_tmp + _tmp->offset_to_next); \
 	})
 
 LIBVFS_ALWAYS_INLINE const char* vfs_directory_entry_get_name(const vfs_directory_entry_t* entry) {
