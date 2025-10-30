@@ -286,11 +286,13 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 						//
 						// this character is consumed by the loop's increment
 						size_t utf16_length = 0;
-						status = simple_utf8_to_utf16(&buffer[offset], buffer_length - offset, 0, NULL, NULL, &utf16_length);
+						size_t utf8_length = 0;
+						status = simple_utf8_to_utf16(&buffer[offset], buffer_length - offset, 0, &utf8_length, NULL, &utf16_length);
 						if (status != ferr_ok) {
 							goto out;
 						}
 						parsed_length += utf16_length;
+						offset += utf8_length - 1;
 					}
 				} break;
 			}
@@ -300,11 +302,13 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 			goto out;
 		} else {
 			size_t utf16_length = 0;
-			status = simple_utf8_to_utf16(&buffer[offset], buffer_length - offset, 0, NULL, NULL, &utf16_length);
+			size_t utf8_length = 0;
+			status = simple_utf8_to_utf16(&buffer[offset], buffer_length - offset, 0, &utf8_length, NULL, &utf16_length);
 			if (status != ferr_ok) {
 				goto out;
 			}
 			parsed_length += utf16_length;
+			offset += utf8_length - 1;
 		}
 	}
 
@@ -434,16 +438,20 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 						//
 						// this character is consumed by the loop's increment
 						size_t utf16_length = 0;
-						fassert(simple_utf8_to_utf16(&buffer[i], buffer_length - i, parsed_length - parsed_index, NULL, &parsed[parsed_index], &utf16_length) == ferr_ok);
+						size_t utf8_length = 0;
+						fassert(simple_utf8_to_utf16(&buffer[i], buffer_length - i, parsed_length - parsed_index, &utf8_length, &parsed[parsed_index], &utf16_length) == ferr_ok);
 						parsed_index += utf16_length;
+						i += utf8_length - 1;
 					}
 				} break;
 			}
 		} else {
 			fassert(buffer[i] >= 0x20);
 			size_t utf16_length = 0;
-			fassert(simple_utf8_to_utf16(&buffer[i], buffer_length - i, parsed_length - parsed_index, NULL, &parsed[parsed_index], &utf16_length) == ferr_ok);
+			size_t utf8_length = 0;
+			fassert(simple_utf8_to_utf16(&buffer[i], buffer_length - i, parsed_length - parsed_index, &utf8_length, &parsed[parsed_index], &utf16_length) == ferr_ok);
 			parsed_index += utf16_length;
+			i += utf8_length - 1;
 		}
 	}
 
@@ -454,7 +462,7 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 	while (parsed_index < parsed_length) {
 		size_t utf16_length = 0;
 		size_t codepoint_utf8_length = 0;
-		fassert(simple_utf16_to_utf8(&parsed[parsed_index], parsed_length - parsed_index, 0, &utf16_length, NULL, &codepoint_utf8_length));
+		fassert(simple_utf16_to_utf8(&parsed[parsed_index], parsed_length - parsed_index, 0, &utf16_length, NULL, &codepoint_utf8_length) == ferr_ok);
 		parsed_index += utf16_length;
 		utf8_length += codepoint_utf8_length;
 	}
@@ -468,7 +476,7 @@ ferr_t json_parse_string_object(const char* buffer, size_t buffer_length, bool j
 	while (parsed_index < parsed_length && utf8_index < utf8_length) {
 		size_t utf16_length = 0;
 		size_t codepoint_utf8_length = 0;
-		fassert(simple_utf16_to_utf8(&parsed[parsed_index], parsed_length - parsed_index, utf8_length - utf8_index, &utf16_length, &result[utf8_index], &codepoint_utf8_length));
+		fassert(simple_utf16_to_utf8(&parsed[parsed_index], parsed_length - parsed_index, utf8_length - utf8_index, &utf16_length, &result[utf8_index], &codepoint_utf8_length) == ferr_ok);
 		parsed_index += utf16_length;
 		utf8_index += codepoint_utf8_length;
 	}
