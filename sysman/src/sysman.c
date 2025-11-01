@@ -507,6 +507,8 @@ static void start_managers(void* context) {
 			size_t full_path_len = 0;
 			json_object_t* json = NULL;
 			ferr_t loop_status = ferr_ok;
+			char* dump = NULL;
+			size_t dump_length = 0;
 
 			if (entry->info.type != vfs_node_type_file) {
 				// we don't care about anything that's not a file
@@ -555,12 +557,23 @@ static void start_managers(void* context) {
 			// TODO: access `json`
 			sysman_log_f("read config file %.*s\n", (int)entry->name_length, entry->name);
 
+			status = json_dump_allocate(json, NULL, &dump, &dump_length);
+			if (status != ferr_ok) {
+				sysman_log_f("failed to dump JSON to string\n");
+				goto loop_continue;
+			}
+
+			sysman_log_f("config file contents: %.*s\n", (int)dump_length, dump);
+
 loop_continue:
 			if (config_file) {
 				sys_release(config_file);
 			}
 			if (json) {
 				sys_release(json);
+			}
+			if (dump) {
+				LIBSYS_WUR_IGNORE(sys_mempool_free(dump));
 			}
 			continue;
 		}
