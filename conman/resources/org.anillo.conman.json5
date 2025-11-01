@@ -1,7 +1,6 @@
 {
-	manager: {
-		path: "/sys/conman/conman",
-		ipc_name: "org.anillo.conman",
+	common: {
+		name: "org.anillo.conman",
 		wanted_by: [
 			"org.anillo.system.boot",
 		],
@@ -9,5 +8,9 @@
 			"org.anillo.hidman",
 			"org.anillo.displayman",
 		],
+	},
+	manager: {
+		path: "/sys/conman/conman",
+		ipc_name: "org.anillo.conman",
 	},
 }

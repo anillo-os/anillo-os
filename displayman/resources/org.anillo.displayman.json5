@@ -1,12 +1,15 @@
 {
+	common: {
+		name: "org.anillo.displayman",
+		wanted_by: [
+			"org.anillo.system.boot",
+		],
+	},
 	manager: {
 		path: "/sys/displayman/displayman",
 		ipc_name: "org.anillo.displayman",
 		privileges: [
 			"org.anillo.system.display",
-		],
-		wanted_by: [
-			"org.anillo.system.boot",
 		],
 	},
 }

@@ -1,5 +1,9 @@
 project(sysman C)
 
+include_directories(
+	include
+)
+
 spooky_gen(logman_client src/log.spky
 	HEADER "${CMAKE_CURRENT_BINARY_DIR}/public/liblogman/liblogman.h"
 )
@@ -42,6 +46,8 @@ add_anillo_executable(sysman
 		src/sysman.c
 		src/logman.c
 		"${CMAKE_CURRENT_BINARY_DIR}/log.server.c"
+		src/objects.c
+		src/manager.c
 )
 
 target_include_directories(sysman PRIVATE
