@@ -21,6 +21,7 @@
 
 #include <libjson/libjson.h>
 
+#include <libjson/lex.private.h>
 #include <libjson/objects.private.h>
 
 #include <libjson/null.private.h>

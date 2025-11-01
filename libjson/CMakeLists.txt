@@ -1,7 +1,9 @@
 project(libjson C)
 
 set(libjson_sources
-	src/libjson.c
+	src/lex.c
+	src/parse.c
+	src/dump.c
 	src/objects.c
 
 	src/null.c

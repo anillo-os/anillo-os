@@ -38,6 +38,11 @@ LIBJSON_WUR ferr_t json_parse_string_n(const char* string, size_t string_length,
 
 LIBJSON_WUR ferr_t json_parse_file(vfs_node_t* file, bool json5, json_object_t** out_object);
 
+LIBJSON_WUR ferr_t json_dump(json_object_t* object, const char* indent, char* out_buffer, size_t buffer_size, size_t* out_length);
+LIBJSON_WUR ferr_t json_dump_n(json_object_t* object, const char* indent, size_t indent_length, char* out_buffer, size_t buffer_size, size_t* out_length);
+LIBJSON_WUR ferr_t json_dump_allocate(json_object_t* object, const char* indent, char** out_buffer, size_t* out_length);
+LIBJSON_WUR ferr_t json_dump_allocate_n(json_object_t* object, const char* indent, size_t indent_length, char** out_buffer, size_t* out_length);
+
 LIBJSON_DECLARATIONS_END;
 
 #endif // _LIBJSON_LIBJSON_H_
