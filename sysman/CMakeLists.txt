@@ -48,6 +48,7 @@ add_anillo_executable(sysman
 		"${CMAKE_CURRENT_BINARY_DIR}/log.server.c"
 		src/objects.c
 		src/manager.c
+		src/privileges.c
 )
 
 target_include_directories(sysman PRIVATE

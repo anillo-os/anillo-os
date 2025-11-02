@@ -16,26 +16,12 @@
  * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef _SYSMAN_MANAGER_H_
-#define _SYSMAN_MANAGER_H_
+#ifndef _SYSMAN_SYSMAN_PRIVATE_H_
+#define _SYSMAN_SYSMAN_PRIVATE_H_
 
-#include <sysman/objects.h>
-#include <libjson/libjson.h>
+#include <sysman/sysman.h>
 
-#include <sysman/privileges.h>
+#include <sysman/objects.private.h>
+#include <sysman/manager.private.h>
 
-SYSMAN_DECLARATIONS_BEGIN;
-
-SYSMAN_OBJECT_CLASS(manager);
-
-SYSMAN_WUR ferr_t sysman_manager_create_from_json(json_object_t* object, sysman_manager_t** out_manager);
-
-const char* sysman_manager_name(sysman_manager_t* manager);
-const char* sysman_manager_ipc_name(sysman_manager_t* manager);
-
-SYSMAN_WUR ferr_t sysman_manager_start(sysman_manager_t* manager, sysman_privilege_registry_t* privilege_registry);
-sys_proc_id_t sysman_manager_pid(sysman_manager_t* manager);
-
-SYSMAN_DECLARATIONS_END;
-
-#endif // _SYSMAN_MANAGER_H_
+#endif // _SYSMAN_SYSMAN_PRIVATE_H_

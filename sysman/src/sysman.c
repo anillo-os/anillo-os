@@ -24,6 +24,7 @@
 #include <vfs.server.h>
 #include <log.server.h>
 #include <libjson/libjson.h>
+#include <sysman/sysman.private.h>
 
 #define SYNC_LOG 1
 
@@ -47,6 +48,13 @@ static sys_mutex_t console_mutex = SYS_MUTEX_INIT;
 
 static sys_mutex_t server_table_mutex = SYS_MUTEX_INIT;
 static simple_ghmap_t server_table;
+
+static sys_mutex_t managers_mutex = SYS_MUTEX_INIT;
+static sysman_manager_t** managers = NULL;
+static size_t managers_count = 0;
+static simple_ghmap_t managers_by_name;
+static simple_ghmap_t managers_by_ipc_name;
+static sysman_privilege_registry_t privilege_registry;
 
 __attribute__((format(printf, 1, 2)))
 static void sysman_log_f(const char* format, ...) {
@@ -185,6 +193,7 @@ ferr_t sysman_connect(const char* name, size_t name_length, sys_channel_t** out_
 	sys_channel_t* their_side = NULL;
 	sysman_server_t* server = NULL;
 	sys_channel_message_t* message = NULL;
+	bool tried_again = false;
 
 	status = sys_channel_message_create(0, &message);
 	if (status != ferr_ok) {
@@ -204,11 +213,41 @@ ferr_t sysman_connect(const char* name, size_t name_length, sys_channel_t** out_
 	// attaching the channel consumes it
 	our_side = NULL;
 
+try_again:
 	eve_mutex_lock(&server_table_mutex);
 
 	status = simple_ghmap_lookup(&server_table, name, name_length, false, SIZE_MAX, NULL, (void*)&server, NULL);
 	if (status != ferr_ok) {
-		goto out;
+		if (tried_again) {
+			// if we've already tried this path (of looking for a manager that provides this server) then just give up
+			goto out;
+		}
+
+		// this server doesn't currently exist, but perhaps we have a registered manager that provides this server;
+		// let's check and create a reservation for it if so
+		sys_mutex_unlock(&server_table_mutex);
+		eve_mutex_lock(&managers_mutex);
+
+		status = simple_ghmap_lookup(&managers_by_ipc_name, name, name_length, false, SIZE_MAX, NULL, NULL, NULL);
+		sys_mutex_unlock(&managers_mutex);
+		if (status != ferr_ok) {
+			// ok so there's no manager that provides this server
+			status = ferr_no_such_resource;
+			goto out_unlocked;
+		}
+
+		// at this point, we know there's a manager that provides a server with this name; let's try to reserve this name for it
+
+		status = sysman_register(name, name_length, sys_sysman_realm_global, true, NULL);
+		if (status != ferr_ok) {
+			// so we failed to create the reservation
+			status = ferr_no_such_resource;
+			goto out_unlocked;
+		}
+
+		// now let's try again
+		tried_again = true;
+		goto try_again;
 	}
 
 	status = eve_channel_send(server->channel, message, false);
@@ -478,11 +517,30 @@ static void start_process(const char* filename, sys_object_t** attached_objects,
 	proc = NULL;
 };
 
+static void start_managers(void* context) {
+	// TODO: actually start managers according to the dependency graph
+	eve_mutex_lock(&managers_mutex);
+	for (size_t i = 0; i < managers_count; ++i) {
+		ferr_t status = ferr_ok;
+		sysman_manager_t* manager = managers[i];
+
+		sysman_log_f("starting %s...\n", sysman_manager_name(manager));
+
+		status = sysman_manager_start(manager, &privilege_registry);
+		if (status != ferr_ok) {
+			sysman_log_f("failed to start %s: %d\n", sysman_manager_name(manager), status);
+			continue;
+		}
+
+		sysman_log_f("%s started with PID = %llu\n", sysman_manager_name(manager), sysman_manager_pid(manager));
+	}
+	sys_mutex_unlock(&managers_mutex);
+};
+
 static char listing_buffer[4096];
 static char config_path[4096];
 
-static void start_managers(void* context) {
-	sys_channel_t* handoff_channel_ptr = (void*)&handoff_channel;
+static void read_configs(void* context) {
 	vfs_node_t* sysman_config_dir = NULL;
 	vfs_listing_t* listing = NULL;
 	ferr_t status = ferr_ok;
@@ -509,6 +567,11 @@ static void start_managers(void* context) {
 			ferr_t loop_status = ferr_ok;
 			char* dump = NULL;
 			size_t dump_length = 0;
+			sysman_manager_t* manager = NULL;
+			sysman_manager_object_t* private_manager = NULL;
+			bool created = false;
+			sysman_manager_t** manager_ptr = NULL;
+			bool remove_manager_from_array_on_fail = false;
 
 			if (entry->info.type != vfs_node_type_file) {
 				// we don't care about anything that's not a file
@@ -565,6 +628,53 @@ static void start_managers(void* context) {
 
 			sysman_log_f("config file contents: %.*s\n", (int)dump_length, dump);
 
+			status = sysman_manager_create_from_json(json, &manager);
+			if (status != ferr_ok) {
+				sysman_log_f("failed to create manager object from JSON config\n");
+				goto loop_continue;
+			}
+
+			eve_mutex_lock(&managers_mutex);
+
+			status = sys_mempool_reallocate(managers, sizeof(*managers) * (managers_count + 1), NULL, (void*)&managers);
+			if (status != ferr_ok) {
+				goto loop_continue_locked;
+			}
+
+			private_manager = (void*)manager;
+
+			managers[managers_count] = manager;
+			++managers_count;
+			remove_manager_from_array_on_fail = true;
+
+			status = simple_ghmap_lookup(&managers_by_name, private_manager->name, private_manager->name_length, true, SIZE_MAX, &created, (void*)&manager_ptr, NULL);
+			if (status != ferr_ok) {
+				goto loop_continue_locked;
+			}
+			if (!created) {
+				status = ferr_already_in_progress;
+				goto loop_continue_locked;
+			}
+			*manager_ptr = manager;
+
+			status = simple_ghmap_lookup(&managers_by_ipc_name, private_manager->ipc_name, private_manager->ipc_name_length, true, SIZE_MAX, &created, (void*)&manager_ptr, NULL);
+			if (status != ferr_ok) {
+				goto loop_continue_locked;
+			}
+			if (!created) {
+				status = ferr_already_in_progress;
+				goto loop_continue_locked;
+			}
+			*manager_ptr = manager;
+
+loop_continue_locked:
+			if (status != ferr_ok) {
+				if (remove_manager_from_array_on_fail) {
+					managers[managers_count - 1] = NULL;
+					--managers_count;
+				}
+			}
+			sys_mutex_unlock(&managers_mutex);
 loop_continue:
 			if (config_file) {
 				sys_release(config_file);
@@ -575,6 +685,11 @@ loop_continue:
 			if (dump) {
 				LIBSYS_WUR_IGNORE(sys_mempool_free(dump));
 			}
+			if (status != ferr_ok) {
+				if (manager) {
+					sysman_release(manager);
+				}
+			}
 			continue;
 		}
 	}
@@ -584,11 +699,7 @@ loop_continue:
 		listing = NULL;
 	}
 
-	start_process("/sys/displayman/displayman", &handoff_channel_ptr, 1);
-	start_process("/sys/netman/netman", NULL, 0);
-	start_process("/sys/usbman/usbman", NULL, 0);
-	start_process("/sys/hidman/hidman", NULL, 0);
-	start_process("/sys/conman/conman", NULL, 0);
+	sys_abort_status_log(eve_loop_enqueue(eve_loop_get_current(), start_managers, NULL));
 
 out:
 	if (sysman_config_dir) {
@@ -625,6 +736,11 @@ void start(void) {
 	sys_abort_status_log(eve_loop_add_item(eve_loop_get_main(), __sys_sysman_eve_channel));
 
 	sys_abort_status_log(simple_ghmap_init_string_to_generic(&server_table, 64, sizeof(sysman_server_t), simple_ghmap_allocate_sys_mempool, simple_ghmap_free_sys_mempool, NULL));
+	sys_abort_status_log(simple_ghmap_init_string_to_generic(&managers_by_name, 64, sizeof(sysman_manager_t*), simple_ghmap_allocate_sys_mempool, simple_ghmap_free_sys_mempool, NULL));
+	sys_abort_status_log(simple_ghmap_init_string_to_generic(&managers_by_ipc_name, 64, sizeof(sysman_manager_t*), simple_ghmap_allocate_sys_mempool, simple_ghmap_free_sys_mempool, NULL));
+	sys_abort_status_log(sysman_privilege_registry_init(&privilege_registry));
+
+	sys_abort_status_log(sysman_privilege_registry_set(&privilege_registry, "org.anillo.system.display", &handoff_channel.object));
 
 	// register the pciman server
 	sys_abort_status_log(simple_ghmap_lookup(&server_table, "org.anillo.pciman", SIZE_MAX, true, SIZE_MAX, &created, (void*)&pciman_server, NULL));
@@ -653,7 +769,7 @@ void start(void) {
 	sys_abort_status_log(logman_serve_explicit(main_loop, logman_channel));
 	logman_channel = NULL;
 
-	sys_abort_status_log(eve_loop_enqueue(main_loop, start_managers, NULL));
+	sys_abort_status_log(eve_loop_enqueue(main_loop, read_configs, NULL));
 
 	eve_loop_run(main_loop);
 
