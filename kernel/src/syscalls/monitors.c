@@ -27,6 +27,20 @@
 #include <ferro/userspace/uio.h>
 #include <ferro/core/mm.private.h>
 
+#include <ferro/core/console.h>
+
+#ifndef FSYSCALL_MONITOR_DEBUG
+	#define FSYSCALL_MONITOR_DEBUG 0
+#endif
+
+#if FSYSCALL_MONITOR_DEBUG
+	#define fsyscall_monitor_debug(x) fconsole_log(x)
+	#define fsyscall_monitor_debug_f(x, ...) fconsole_logf(x, ## __VA_ARGS__)
+#else
+	#define fsyscall_monitor_debug(x)
+	#define fsyscall_monitor_debug_f(x, ...)
+#endif
+
 // TODO: modularize this and allow monitor items to be managed in separate sources
 
 // TODO: optimize waiters so that we only wait for events the user is interested in
@@ -332,13 +346,17 @@ static void fsyscall_monitor_item_timeout_expire(void* context) {
 	fsyscall_monitor_item_timeout_t* timeout_item = context;
 	fsyscall_monitor_t* monitor;
 
+	fsyscall_monitor_debug_f("monitor: timeout item %p: timeout expired\n", timeout_item);
+
 	if (fsyscall_monitor_item_retain(&timeout_item->base) != ferr_ok) {
+		fsyscall_monitor_debug_f("monitor: timeout item %p: failed to retain item\n", timeout_item);
 		return;
 	}
 
 	monitor = timeout_item->base.monitor;
 
 	if (!monitor || fsyscall_monitor_retain(monitor) != ferr_ok) {
+		fsyscall_monitor_debug_f("monitor: timeout item %p: failed to retain monitor\n", timeout_item);
 		fsyscall_monitor_item_release(&timeout_item->base);
 		return;
 	}
@@ -352,6 +370,7 @@ static void fsyscall_monitor_item_timeout_expire(void* context) {
 			fwork_release(timeout_item->work);
 		}
 		timeout_item->work = NULL;
+		fsyscall_monitor_debug_f("monitor: timeout item %p: scheduling timeout again\n", timeout_item);
 		FERRO_WUR_IGNORE(fwork_schedule_new(fsyscall_monitor_item_timeout_expire, timeout_item, timeout_item->base.header.descriptor_id, &timeout_item->work));
 	}
 
@@ -455,6 +474,8 @@ static ferr_t fsyscall_monitor_item_enable(fsyscall_monitor_item_t* item) {
 
 		case fsyscall_monitor_item_type_timeout: {
 			fsyscall_monitor_item_timeout_t* timeout_item = (void*)item;
+
+			fsyscall_monitor_debug_f("monitor: timeout item %p: enabling timeout item\n", timeout_item);
 
 			if (timeout_item->work) {
 				// FIXME: handle the case where the work is already running.
