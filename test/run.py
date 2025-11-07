@@ -33,6 +33,7 @@ EFI_CODE_PATHS_TO_TRY = {
 		'/usr/share/OVMF/OVMF_CODE.fd',
 		'/usr/share/OVMF/x64/OVMF_CODE.fd',
 		'/usr/share/OVMF/OVMF_CODE.secboot.fd',
+		'/usr/share/ovmf/x64/OVMF_CODE.4m.fd',
 	],
 	'aarch64': [
 		os.path.join(os.path.dirname(os.path.realpath(which_or_die('qemu-system-aarch64'))), '..', 'share', 'qemu', 'edk2-aarch64-code.fd'),
