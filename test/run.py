@@ -46,6 +46,7 @@ EFI_VARS_PATHS_TO_TRY = {
 		os.path.join(os.path.dirname(os.path.realpath(which_or_die('qemu-system-x86_64'))), '..', 'share', 'qemu', 'edk2-i386-vars.fd'),
 		'/usr/share/OVMF/OVMF_VARS.fd',
 		'/usr/share/OVMF/x64/OVMF_VARS.fd',
+		'/usr/share/ovmf/x64/OVMF_VARS.4m.fd',
 	],
 	'aarch64': [
 		os.path.join(os.path.dirname(os.path.realpath(which_or_die('qemu-system-aarch64'))), '..', 'share', 'qemu', 'edk2-arm-vars.fd'),
